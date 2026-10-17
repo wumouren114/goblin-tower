@@ -1,0 +1,170 @@
+import raw from './balance.json'
+
+/** 难度标识（与 balance.json 的 difficulties 键一致） */
+export type DifficultyId = 'easy' | 'normal' | 'hard'
+
+export interface DifficultyDef {
+  name: string
+  stages: number[]
+  hpMul: number
+  damageMul: number
+  spawnMul: number
+  goldMul: number
+  xpMul: number
+  timerMul: number
+  note: string
+}
+
+interface LayerCurve {
+  mobHpBase: number
+  mobHpPerLayer: number
+  mobDamageBase: number
+  mobDamagePerLayer: number
+  quotaBase: number
+  quotaPerLayer: number
+  spawnIntervalBase: number
+  spawnIntervalDecay: number
+  spawnIntervalMin: number
+  spawnBatchBase: number
+  maxAliveBase: number
+  maxAlivePerLayer: number
+  maxAliveCap: number
+  clearGoldBase: number
+  clearGoldPerLayer: number
+  goldPerKillBase: number
+  goldPerKillEveryLayers: number
+  xpPerKillBase: number
+  xpPerKillPerLayer: number
+  bossHpBase: number
+  bossHpPerLayer: number
+  timeoutHpPenaltyRatio: number
+  timeoutSkipsReward: boolean
+}
+
+interface BalanceShape {
+  meta: { version: number; layerTimerSeconds: number; bossTimerSeconds: number }
+  difficulties: Record<DifficultyId, DifficultyDef>
+  layerCurve: LayerCurve
+  portals: Record<string, unknown>
+  shop: Record<string, unknown>
+}
+
+export const BALANCE = raw as unknown as BalanceShape
+export const LAYER_CURVE: LayerCurve = BALANCE.layerCurve
+export const DIFFICULTIES = BALANCE.difficulties
+
+export const DIFFICULTY_IDS: DifficultyId[] = ['easy', 'normal', 'hard']
+
+/** 一局总层数 */
+export function layerCount(id: DifficultyId): number {
+  return DIFFICULTIES[id].stages.reduce((a, b) => a + b, 0)
+}
+
+/** 第 layer 层（1 起）是否阶段 Boss 层 */
+export function isBossLayer(id: DifficultyId, layer: number): boolean {
+  let acc = 0
+  for (const size of DIFFICULTIES[id].stages) {
+    acc += size
+    if (layer === acc) return true
+  }
+  return false
+}
+
+/** 第 layer 层属于第几个阶段（1 起） */
+export function stageOfLayer(id: DifficultyId, layer: number): number {
+  let acc = 0
+  const stages = DIFFICULTIES[id].stages
+  for (let i = 0; i < stages.length; i += 1) {
+    acc += stages[i]
+    if (layer <= acc) return i + 1
+  }
+  return stages.length
+}
+
+/** Boss 层以外的阶段首层 = 小怪层入口（阶段第一层） */
+export function isStageFirstLayer(id: DifficultyId, layer: number): boolean {
+  let prev = 0
+  for (const size of DIFFICULTIES[id].stages) {
+    if (layer === prev + 1) return true
+    prev += size
+  }
+  return false
+}
+
+export function mobHpFor(id: DifficultyId, layer: number): number {
+  const c = LAYER_CURVE
+  return Math.round(c.mobHpBase * (1 + c.mobHpPerLayer * (layer - 1)) * DIFFICULTIES[id].hpMul)
+}
+
+export function mobDamageFor(id: DifficultyId, layer: number): number {
+  const c = LAYER_CURVE
+  return c.mobDamageBase * (1 + c.mobDamagePerLayer * (layer - 1)) * DIFFICULTIES[id].damageMul
+}
+
+export function quotaFor(layer: number): number {
+  return Math.round(LAYER_CURVE.quotaBase + LAYER_CURVE.quotaPerLayer * (layer - 1))
+}
+
+export function spawnIntervalFor(id: DifficultyId, layer: number): number {
+  const c = LAYER_CURVE
+  return Math.max(c.spawnIntervalMin, c.spawnIntervalBase - c.spawnIntervalDecay * (layer - 1)) / DIFFICULTIES[id].spawnMul
+}
+
+export function maxAliveFor(layer: number): number {
+  const c = LAYER_CURVE
+  return Math.min(c.maxAliveCap, Math.round(c.maxAliveBase + c.maxAlivePerLayer * (layer - 1)))
+}
+
+export function clearGoldFor(id: DifficultyId, layer: number): number {
+  const c = LAYER_CURVE
+  return Math.round((c.clearGoldBase + c.clearGoldPerLayer * (layer - 1)) * DIFFICULTIES[id].goldMul)
+}
+
+export function goldPerKillFor(layer: number): number {
+  return LAYER_CURVE.goldPerKillBase + Math.floor((layer - 1) / LAYER_CURVE.goldPerKillEveryLayers)
+}
+
+export function xpPerKillFor(id: DifficultyId, layer: number): number {
+  const c = LAYER_CURVE
+  return (c.xpPerKillBase + c.xpPerKillPerLayer * (layer - 1)) * DIFFICULTIES[id].xpMul
+}
+
+export function bossHpFor(id: DifficultyId, layer: number): number {
+  const c = LAYER_CURVE
+  return Math.round(c.bossHpBase * (1 + c.bossHpPerLayer * (layer - 1)) * DIFFICULTIES[id].hpMul)
+}
+
+export function layerTimerFor(id: DifficultyId, boss: boolean): number {
+  const base = boss ? BALANCE.meta.bossTimerSeconds : BALANCE.meta.layerTimerSeconds
+  return base * DIFFICULTIES[id].timerMul
+}
+
+/** 商店实际价格：基准价 × (1 + 每层涨幅 × (层 - 1)) × 品质倍率 */
+export function shopPriceFor(base: number, layer: number, qualityMul = 1): number {
+  const growth = (BALANCE.shop.priceGrowthPerLayer as number) * (layer - 1)
+  return Math.round(base * (1 + growth) * qualityMul)
+}
+
+export interface QualityRoll {
+  tier: 1 | 2 | 3
+  valueMul: number
+  priceMul: number
+}
+
+/** 按层数掷商店品质：层越深越容易出精制/臻品 */
+export function rollQuality(layer: number, random: () => number = Math.random): QualityRoll {
+  const q = BALANCE.shop.quality as
+    | {
+        tierUpStartLayer: number
+        tier2: { chancePerLayer: number; chanceCap: number; valueMul: number; priceMul: number }
+        tier3: { startLayer: number; chancePerLayer: number; chanceCap: number; valueMul: number; priceMul: number }
+      }
+    | undefined
+  if (!q) return { tier: 1, valueMul: 1, priceMul: 1 }
+  const t2 = Math.min(q.tier2.chanceCap, q.tier2.chancePerLayer * Math.max(0, layer - q.tierUpStartLayer + 1))
+  const t3 = Math.min(q.tier3.chanceCap, q.tier3.chancePerLayer * Math.max(0, layer - q.tier3.startLayer + 1))
+  const r = random()
+  if (r < t3) return { tier: 3, valueMul: q.tier3.valueMul, priceMul: q.tier3.priceMul }
+  if (r < t3 + t2) return { tier: 2, valueMul: q.tier2.valueMul, priceMul: q.tier2.priceMul }
+  return { tier: 1, valueMul: 1, priceMul: 1 }
+}

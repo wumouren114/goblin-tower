@@ -179,6 +179,22 @@ export class Game {
     for (let i = 1; i < targetFloor && i < 5; i += 1) this.advanceFloor()
   }
 
+  /**
+   * 调试用：以固定步长快进模拟若干秒，用于无头截图或控制台快速验收
+   * （无头浏览器里 requestAnimationFrame 的虚拟时间不推进，只能手动步进）
+   */
+  debugAdvance(seconds: number, dt = 1 / 30): void {
+    if (this.phase === 'title') this.startRun(this.difficulty)
+    const steps = Math.max(1, Math.round(seconds / dt))
+    for (let i = 0; i < steps; i += 1) {
+      this.elapsed += dt
+      this.update(dt)
+      this.input.endFrame()
+      if (this.phase === 'levelup') break
+    }
+    this.renderer.render(this.scene, this.camera)
+  }
+
   private advanceFloor(): void {
     if (this.floorIndex >= 5) return
     this.floorIndex += 1

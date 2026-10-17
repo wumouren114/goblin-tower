@@ -47,6 +47,9 @@ if (!canvas) {
       const floor = Math.min(5, Math.max(1, Number(params.get('floor') ?? '1') || 1))
       game.debugJump(floor, autostart)
     }
+    // 联调/截图入口：?warmup=20 会先以固定步长快进 20 秒模拟
+    const warmup = Number(params.get('warmup') ?? '0')
+    if (Number.isFinite(warmup) && warmup > 0) game.debugAdvance(Math.min(warmup, 600))
   } catch (err) {
     console.error('[GoblinTower] 启动失败', err)
     showFatal('游戏启动失败', String((err as Error)?.stack ?? err))

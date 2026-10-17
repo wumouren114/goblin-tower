@@ -1,0 +1,514 @@
+{
+  "_comment": "哥布林之塔 · 关卡与经济数值唯一数据源（docs/04 的实现口径）。修改后跑 node sim/simulate.mjs 复验困难模式通关率。",
+  "meta": {
+    "version": 2,
+    "layerTimerSeconds": 60,
+    "bossTimerSeconds": 90
+  },
+  "difficulties": {
+    "easy": {
+      "name": "简单",
+      "stages": [
+        7
+      ],
+      "hpMul": 0.85,
+      "damageMul": 0.7,
+      "spawnMul": 0.9,
+      "goldMul": 1.2,
+      "xpMul": 1.2,
+      "timerMul": 1.15,
+      "note": "一届 7 层，轻松娱乐"
+    },
+    "normal": {
+      "name": "普通",
+      "stages": [
+        5,
+        7
+      ],
+      "hpMul": 1.05,
+      "damageMul": 1,
+      "spawnMul": 1,
+      "goldMul": 1,
+      "xpMul": 1,
+      "timerMul": 1,
+      "note": "两阶段 5+7，难度阶梯上升"
+    },
+    "hard": {
+      "name": "困难",
+      "stages": [
+        5,
+        5,
+        5
+      ],
+      "hpMul": 1.5,
+      "damageMul": 1.5,
+      "spawnMul": 1.2,
+      "goldMul": 1.05,
+      "xpMul": 0.95,
+      "timerMul": 1,
+      "note": "三阶段 5+5+5，节奏更快"
+    }
+  },
+  "layerCurve": {
+    "mobHpBase": 30,
+    "mobHpPerLayer": 0.55,
+    "mobDamageBase": 6,
+    "mobDamagePerLayer": 0.2,
+    "quotaBase": 34,
+    "quotaPerLayer": 6.5,
+    "spawnIntervalBase": 0.9,
+    "spawnIntervalDecay": 0.032,
+    "spawnIntervalMin": 0.4,
+    "spawnBatchBase": 2,
+    "maxAliveBase": 18,
+    "maxAlivePerLayer": 2,
+    "maxAliveCap": 48,
+    "clearGoldBase": 30,
+    "clearGoldPerLayer": 8,
+    "goldPerKillBase": 1,
+    "goldPerKillEveryLayers": 5,
+    "xpPerKillBase": 3,
+    "xpPerKillPerLayer": 0.5,
+    "bossHpBase": 520,
+    "bossHpPerLayer": 0.55,
+    "timeoutHpPenaltyRatio": 0.25,
+    "timeoutSkipsReward": true
+  },
+  "portals": {
+    "count": 3,
+    "weights": {
+      "reward": 0.4,
+      "trade": 0.35,
+      "battle": 0.25
+    },
+    "reward": {
+      "chest": 0.8,
+      "skillCard": 0.2
+    },
+    "trade": {
+      "merchant": 0.7,
+      "altar": 0.3
+    },
+    "battle": {
+      "mobWave": 0.5,
+      "eliteFight": 0.5
+    },
+    "lastLayerOfStageBossChance": 1,
+    "otherBattleBossChance": 0,
+    "chestGoldBase": 40,
+    "chestGoldPerLayer": 6,
+    "chestCardChance": 0.5,
+    "mobWaveGoldMul": 1.5,
+    "eliteFightGoldMul": 2.2,
+    "altarBaseCost": 30,
+    "altarCostStep": 15
+  },
+  "shop": {
+    "slots": 4,
+    "priceGrowthPerLayer": 0.14,
+    "qualityStageStep": 1,
+    "rerollCost": 25,
+    "consumables": {
+      "heal": {
+        "name": "治疗药水",
+        "price": 20,
+        "healRatio": 0.35,
+        "desc": "回复 35% 最大生命"
+      },
+      "charge": {
+        "name": "充能电池",
+        "price": 15,
+        "desc": "立即充满技能充能"
+      }
+    },
+    "quality": {
+      "note": "层数越高，商店越可能刷出高品质货物（数值与价格同时提高）",
+      "tierUpStartLayer": 4,
+      "tier2": {
+        "chancePerLayer": 0.06,
+        "chanceCap": 0.55,
+        "valueMul": 1.9,
+        "priceMul": 2.4,
+        "name": "精制"
+      },
+      "tier3": {
+        "startLayer": 9,
+        "chancePerLayer": 0.05,
+        "chanceCap": 0.4,
+        "valueMul": 3.2,
+        "priceMul": 5.5,
+        "name": "臻品"
+      }
+    }
+  },
+  "weaponCoupons": {
+    "name": "武器强化券",
+    "prices": [
+      60,
+      120,
+      200,
+      320
+    ],
+    "mergePairsToNext": 2,
+    "desc": "同等级两张合成下一级；用于提升角色专武 1→5 级"
+  },
+  "buffCards": [
+    {
+      "id": "magic",
+      "name": "魔力药剂",
+      "stat": "magic",
+      "value": 18,
+      "basePrice": 55,
+      "maxStacks": 12,
+      "desc": "魔力 +18（伤害 +18% 基准）"
+    },
+    {
+      "id": "stamina",
+      "name": "耐力药剂",
+      "stat": "stamina",
+      "value": 16,
+      "basePrice": 50,
+      "maxStacks": 12,
+      "desc": "耐力 +16（攻速 +16%）"
+    },
+    {
+      "id": "intelligence",
+      "name": "智力药剂",
+      "stat": "intelligence",
+      "value": 12,
+      "basePrice": 40,
+      "maxStacks": 10,
+      "desc": "智力 +12（范围 +12%）"
+    },
+    {
+      "id": "hp",
+      "name": "生命结晶",
+      "stat": "hp",
+      "value": 25,
+      "basePrice": 45,
+      "maxStacks": 12,
+      "desc": "生命上限 +25 并立即回复"
+    },
+    {
+      "id": "moveSpeed",
+      "name": "疾风之靴",
+      "stat": "moveSpeed",
+      "value": 0.25,
+      "basePrice": 40,
+      "maxStacks": 10,
+      "desc": "移速 +0.25"
+    },
+    {
+      "id": "chargeMax",
+      "name": "充能核心",
+      "stat": "chargeMax",
+      "value": -8,
+      "basePrice": 50,
+      "maxStacks": 8,
+      "desc": "技能所需充能 -8"
+    }
+  ],
+  "skillCards": [
+    {
+      "id": "crit",
+      "name": "锐利之刃",
+      "desc": "暴击率 +8%，暴击伤害 +10%",
+      "weight": 25
+    },
+    {
+      "id": "lifesteal",
+      "name": "汲取",
+      "desc": "造成伤害的 3% 转为生命",
+      "weight": 20
+    },
+    {
+      "id": "chain",
+      "name": "连锁反应",
+      "desc": "普攻额外弹射 1 次（40% 伤害）",
+      "weight": 20
+    },
+    {
+      "id": "haste",
+      "name": "疾速装填",
+      "desc": "普攻间隔 -8%",
+      "weight": 20
+    },
+    {
+      "id": "regen",
+      "name": "再生",
+      "desc": "每秒回复 0.8 点生命",
+      "weight": 15
+    }
+  ],
+  "weapons": {
+    "mutsumi": {
+      "name": "黄瓜",
+      "tiers": [
+        {
+          "lv": 1,
+          "desc": "单发黄瓜：伤害 16、间隔 0.55s、射程 8m",
+          "projectiles": 1,
+          "damage": 16,
+          "spread": 0,
+          "bounce": 0,
+          "bounceMul": 0,
+          "mortisPulseMul": 1,
+          "mortisRadiusMul": 1,
+          "mortisLifesteal": 0,
+          "mortisWave": 0,
+          "sizeMul": 1
+        },
+        {
+          "lv": 2,
+          "desc": "双发黄瓜（±8°）：单发 16，Mortis 音波频率 ×1.3、半径 +15%",
+          "projectiles": 2,
+          "damage": 16,
+          "spread": 8,
+          "bounce": 0,
+          "bounceMul": 0,
+          "mortisPulseMul": 0.77,
+          "mortisRadiusMul": 1.15,
+          "mortisLifesteal": 0,
+          "mortisWave": 0,
+          "sizeMul": 1,
+          "price": 90
+        },
+        {
+          "lv": 3,
+          "desc": "三发黄瓜（±10°）：单发 16；Mortis 音波吸血 6%",
+          "projectiles": 3,
+          "damage": 16,
+          "spread": 10,
+          "bounce": 0,
+          "bounceMul": 0,
+          "mortisPulseMul": 0.77,
+          "mortisRadiusMul": 1.15,
+          "mortisLifesteal": 0.06,
+          "mortisWave": 0,
+          "sizeMul": 1,
+          "price": 180
+        },
+        {
+          "lv": 4,
+          "desc": "黄瓜命中弹射 1 次（60% 伤害）；Mortis 期间每秒向前释放音波剑气",
+          "projectiles": 3,
+          "damage": 16,
+          "spread": 10,
+          "bounce": 1,
+          "bounceMul": 0.6,
+          "mortisPulseMul": 0.77,
+          "mortisRadiusMul": 1.15,
+          "mortisLifesteal": 0.06,
+          "mortisWave": 1.2,
+          "sizeMul": 1,
+          "price": 320
+        },
+        {
+          "lv": 5,
+          "desc": "黄瓜体积 +40%、命中半径 +50%、伤害 +25%；音波剑气可弹射 1 次",
+          "projectiles": 3,
+          "damage": 20,
+          "spread": 10,
+          "bounce": 1,
+          "bounceMul": 0.6,
+          "mortisPulseMul": 0.77,
+          "mortisRadiusMul": 1.15,
+          "mortisLifesteal": 0.06,
+          "mortisWave": 1.2,
+          "waveBounce": 1,
+          "sizeMul": 1.4,
+          "hitRadiusMul": 1.5,
+          "price": 520
+        }
+      ]
+    },
+    "murasame": {
+      "name": "拔刀剑",
+      "tiers": [
+        {
+          "lv": 1,
+          "desc": "扇形拔刀：伤害 17、半径 2.1m、110°",
+          "damage": 17,
+          "radiusMul": 1,
+          "gatherOnHit": 0,
+          "dodgeChance": 0,
+          "skillHeal": 15,
+          "skillCharge": 90,
+          "stepOnAttack": 0,
+          "allStatMul": 1
+        },
+        {
+          "lv": 2,
+          "desc": "普攻命中将敌人拉近 1.2m；技能充能 90→80",
+          "damage": 17,
+          "radiusMul": 1,
+          "gatherOnHit": 1.2,
+          "dodgeChance": 0,
+          "skillHeal": 15,
+          "skillCharge": 80,
+          "stepOnAttack": 0,
+          "allStatMul": 1,
+          "price": 90
+        },
+        {
+          "lv": 3,
+          "desc": "15% 闪避；技能回血 15→24",
+          "damage": 17,
+          "radiusMul": 1,
+          "gatherOnHit": 1.2,
+          "dodgeChance": 0.15,
+          "skillHeal": 24,
+          "skillCharge": 80,
+          "stepOnAttack": 0,
+          "allStatMul": 1,
+          "price": 180
+        },
+        {
+          "lv": 4,
+          "desc": "普攻附带 0.8m 前冲（0.25s 冷却）；伤害 +15%；技能伤害 +25%；充能 80→70",
+          "damage": 19.55,
+          "radiusMul": 1,
+          "gatherOnHit": 1.2,
+          "dodgeChance": 0.15,
+          "skillHeal": 24,
+          "skillCharge": 70,
+          "stepOnAttack": 0.8,
+          "skillDamageMul": 1.25,
+          "allStatMul": 1,
+          "price": 320
+        },
+        {
+          "lv": 5,
+          "desc": "体型 +15%，全部数值 ×1.15",
+          "damage": 22.5,
+          "radiusMul": 1.15,
+          "gatherOnHit": 1.2,
+          "dodgeChance": 0.15,
+          "skillHeal": 27.6,
+          "skillCharge": 70,
+          "stepOnAttack": 0.8,
+          "skillDamageMul": 1.25,
+          "allStatMul": 1.15,
+          "price": 520
+        }
+      ]
+    },
+    "fish": {
+      "name": "泡泡水枪",
+      "tiers": [
+        {
+          "lv": 1,
+          "desc": "单发泡泡：伤害 10、间隔 0.39s、射程 9.9m",
+          "damage": 10,
+          "pierce": 0,
+          "minionCount": 3,
+          "minionTaunt": 0,
+          "minionSlow": 0,
+          "riceInterval": 0,
+          "price": 0
+        },
+        {
+          "lv": 2,
+          "desc": "小鲸子可抗伤：继承 35% 生命并吸引仇恨",
+          "damage": 10,
+          "pierce": 0,
+          "minionCount": 3,
+          "minionTaunt": 1,
+          "minionSlow": 0,
+          "riceInterval": 0,
+          "price": 90
+        },
+        {
+          "lv": 3,
+          "desc": "每 10 秒刷新白米饭：拾取全属性 +6%（上限 8 份）并 +30 充能",
+          "damage": 10,
+          "pierce": 0,
+          "minionCount": 3,
+          "minionTaunt": 1,
+          "minionSlow": 0,
+          "riceInterval": 10,
+          "riceBuff": 0.06,
+          "riceMax": 8,
+          "price": 180
+        },
+        {
+          "lv": 4,
+          "desc": "泡泡穿透 +1；小鲸子攻击附带 20% 减速",
+          "damage": 10,
+          "pierce": 1,
+          "minionCount": 3,
+          "minionTaunt": 1,
+          "minionSlow": 0.2,
+          "riceInterval": 10,
+          "riceBuff": 0.06,
+          "riceMax": 8,
+          "price": 320
+        },
+        {
+          "lv": 5,
+          "desc": "小鲸子数量 3→5",
+          "damage": 10,
+          "pierce": 1,
+          "minionCount": 5,
+          "minionTaunt": 1,
+          "minionSlow": 0.2,
+          "riceInterval": 10,
+          "riceBuff": 0.06,
+          "riceMax": 8,
+          "price": 520
+        }
+      ]
+    }
+  },
+  "backpack": {
+    "slots": 12,
+    "maxMergeTier": 3,
+    "note": "两张同等级同种物品合成下一级（数值 ×2）；装备与增益卡共用格子"
+  },
+  "levelCards": {
+    "xpPerLevelBase": 9,
+    "xpPerLevelGrowth": 1.27,
+    "cards": [
+      {
+        "stat": "magic",
+        "value": 14,
+        "weight": 22
+      },
+      {
+        "stat": "stamina",
+        "value": 12,
+        "weight": 20
+      },
+      {
+        "stat": "hp",
+        "value": 20,
+        "weight": 16
+      },
+      {
+        "stat": "intelligence",
+        "value": 9,
+        "weight": 14
+      },
+      {
+        "stat": "armor",
+        "value": 0.035,
+        "weight": 10
+      },
+      {
+        "stat": "chargeGain",
+        "value": 0.08,
+        "weight": 8
+      },
+      {
+        "stat": "moveSpeed",
+        "value": 0.2,
+        "weight": 6
+      },
+      {
+        "stat": "dashCooldown",
+        "value": -0.12,
+        "weight": 4
+      }
+    ]
+  }
+}
