@@ -1,0 +1,20 @@
+{
+  "name": "goblin-tower",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "像素二次元 3D 割草爬塔 Roguelike",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.4"
+  }
+}

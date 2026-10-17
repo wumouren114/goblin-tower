@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.npm-cache/
+shots/
+recovery/
+*.log
+.DS_Store
