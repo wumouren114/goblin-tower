@@ -143,6 +143,8 @@ export class Game {
   private deathTimer = 0
   private sceneName = ''
   private statDirty = false
+  /** 墙/塔柱隐藏状态：带迟滞，避免相机在阈值附近抖动导致画面闪 */
+  private wallHideState = { south: false, north: false, east: false, west: false, pillars: false }
   /** 命中顿帧（爽感）：击杀/暴击时短暂减速世界 */
   private hitStop = 0
   private mortisVisual = false
@@ -509,13 +511,20 @@ export class Game {
     if (!this.floor) return
     const half = this.floor.halfSize
     const cp = this.camera.position
-    this.floor.setWallHidden('south', cp.z > half - 1.5)
-    this.floor.setWallHidden('north', cp.z < -(half - 1.5))
-    this.floor.setWallHidden('east', cp.x > half - 1.5)
-    this.floor.setWallHidden('west', cp.x < -(half - 1.5))
-    // 角柱很高，贴边时最容易被它糊住，相机一贴边就把四角塔柱一起隐藏
-    const nearEdge = Math.abs(cp.x) > half - 4 || Math.abs(cp.z) > half - 4
-    this.floor.setPillarsHidden(nearEdge)
+    // 迟滞：越过 half-1.0 才隐藏，退回 half-2.6 才显示，避免临界点反复切换
+    const check = (cur: boolean, over: number): boolean => (cur ? over > half - 1.0 : over > half - 2.6)
+    const st = this.wallHideState
+    st.south = check(st.south, cp.z)
+    st.north = check(st.north, -cp.z)
+    st.east = check(st.east, cp.x)
+    st.west = check(st.west, -cp.x)
+    this.floor.setWallHidden('south', st.south)
+    this.floor.setWallHidden('north', st.north)
+    this.floor.setWallHidden('east', st.east)
+    this.floor.setWallHidden('west', st.west)
+    // 角柱同理
+    st.pillars = st.pillars ? Math.abs(cp.x) > half - 3.2 || Math.abs(cp.z) > half - 3.2 : Math.abs(cp.x) > half - 4.6 || Math.abs(cp.z) > half - 4.6
+    this.floor.setPillarsHidden(st.pillars)
   }
 
   private updateAim(): void {
@@ -981,7 +990,6 @@ export class Game {
     this.phase = 'dead'
     if (this.player) this.player.alive = false
     this.fx.hurt(1)
-    this.fx.flash(0.5, 160)
     audio.lose()
     this.hud.hideBoss()
     this.fx.setBossMode(false)
