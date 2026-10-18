@@ -143,6 +143,8 @@ export class Game {
   private deathTimer = 0
   private sceneName = ''
   private statDirty = false
+  /** 命中顿帧（爽感）：击杀/暴击时短暂减速世界 */
+  private hitStop = 0
   private mortisVisual = false
   private bonusOffers: TunnelOffer[] = []
   private bonusActive = false
@@ -171,6 +173,9 @@ export class Game {
 
     this.hud.setCamera(this.camera)
     window.addEventListener('resize', this.onResize)
+    const unlock = (): void => audio.resume()
+    window.addEventListener('pointerdown', unlock)
+    window.addEventListener('keydown', unlock)
     this.renderer.setAnimationLoop(() => this.frame())
   }
 
@@ -180,6 +185,8 @@ export class Game {
     this.cleanupFloor()
     this.riceStacks = 0
     this.run = makeRunState(character, difficulty)
+    audio.resume()
+    audio.bgmStart()
     this.run.seed = Math.floor(Math.random() * 1e9)
     this.rng = new Rng(this.run.seed)
     this.inventory = new Inventory(12)
@@ -240,6 +247,7 @@ export class Game {
   }
 
   quitToTitle(): void {
+    audio.bgmStop()
     this.cleanupFloor()
     this.player?.dispose()
     this.player = null
@@ -388,7 +396,12 @@ export class Game {
 
   private frame(): void {
     if (this.disposed) return
-    const dt = Math.min(this.clock.getDelta(), 1 / 30)
+    const rawDt = Math.min(this.clock.getDelta(), 1 / 30)
+    let dt = rawDt
+    if (this.hitStop > 0) {
+      this.hitStop = Math.max(0, this.hitStop - rawDt)
+      dt = rawDt * 0.22
+    }
     this.elapsed += dt
     this.update(dt)
     this.renderer.render(this.scene, this.camera)
@@ -868,6 +881,8 @@ export class Game {
     })
     if (crit) audio.crit()
     else audio.hit()
+    this.hitStop = Math.max(this.hitStop, killed ? 0.05 : crit ? 0.03 : 0.012)
+    if (killed) this.rig.shake(0.1)
     if (!killed) return
     if (t === this.boss) return
     const goblin = t as unknown as Goblin

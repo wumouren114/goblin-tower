@@ -14,7 +14,7 @@ export class AudioBus {
     if (!Ctor) return
     this.ctx = new Ctor()
     this.master = this.ctx.createGain()
-    this.master.gain.value = 0.35
+    this.master.gain.value = 0.5
     this.master.connect(this.ctx.destination)
     const len = Math.floor(this.ctx.sampleRate * 0.5)
     const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate)
@@ -31,9 +31,63 @@ export class AudioBus {
   toggleMute(): boolean {
     this.muted = !this.muted
     if (this.master && this.ctx) {
-      this.master.gain.setTargetAtTime(this.muted ? 0 : 0.35, this.ctx.currentTime, 0.02)
+      this.master.gain.setTargetAtTime(this.muted ? 0 : 0.5, this.ctx.currentTime, 0.02)
     }
     return this.muted
+  }
+
+  private bgmTimer: number | null = null
+  private bgmNodes: OscillatorNode[] = []
+  private bgmGain: GainNode | null = null
+
+  /** 极简程序化 BGM：两个低音铺底 + 五声音阶琶音 */
+  bgmStart(): void {
+    this.init()
+    if (!this.ctx || !this.master || this.bgmTimer !== null) return
+    const ctx = this.ctx
+    const pad = ctx.createGain()
+    pad.gain.value = 0.05
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.value = 520
+    pad.connect(filter).connect(this.master)
+    for (const f of [110, 164.8]) {
+      const osc = ctx.createOscillator()
+      osc.type = 'triangle'
+      osc.frequency.value = f
+      osc.connect(pad)
+      osc.start()
+      this.bgmNodes.push(osc)
+    }
+    this.bgmGain = pad
+    const scale = [220, 261.6, 293.7, 329.6, 392]
+    let step = 0
+    this.bgmTimer = window.setInterval(() => {
+      if (!this.ctx || this.muted) return
+      const note = scale[(step * 3 + (step >> 2)) % scale.length]
+      this.tone(note, 0.32, 'sine', 0.05, undefined, 0)
+      if (step % 4 === 0) this.tone(note / 2, 0.5, 'triangle', 0.04)
+      step += 1
+    }, 620)
+  }
+
+  bgmStop(): void {
+    if (this.bgmTimer !== null) {
+      window.clearInterval(this.bgmTimer)
+      this.bgmTimer = null
+    }
+    for (const osc of this.bgmNodes) {
+      try {
+        osc.stop()
+      } catch {
+        /* already stopped */
+      }
+    }
+    this.bgmNodes = []
+    if (this.bgmGain) {
+      this.bgmGain.disconnect()
+      this.bgmGain = null
+    }
   }
 
   private tone(
