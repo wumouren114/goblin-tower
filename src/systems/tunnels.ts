@@ -74,6 +74,7 @@ const CARD_LABEL: Record<CardStat, string> = {
   chargeGain: '充能获取',
   dodge: '闪避',
   armor: '减伤',
+  crit: '暴击率',
 }
 
 const ROOM_ICON: Record<TunnelRoom, string> = {

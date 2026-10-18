@@ -66,6 +66,7 @@ export type CardStat =
   | 'chargeGain'
   | 'dodge'
   | 'armor'
+  | 'crit'
 
 export type DefeatReason = 'hp' | 'timeout'
 

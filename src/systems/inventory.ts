@@ -64,6 +64,7 @@ export class Inventory {
       chargeGain: 0,
       dodge: 0,
       armor: 0,
+      crit: 0,
     }
     for (const item of this.items) {
       if (item.kind !== 'buff-card' || !item.stat) continue

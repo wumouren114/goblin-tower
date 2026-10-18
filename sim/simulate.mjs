@@ -26,11 +26,11 @@ const CHARS = {
     exposure: 1.0,
   },
   murasame: {
-    hp: 175, chargeMax: 80, stamina: 130, magic: 95, intelligence: 70, moveSpeed: 7.3,
-    attack: { damage: 17, intervalBase: 0.55, minInterval: 0.22, shape: 'cone', coneTargets: 2.05 },
+    hp: 205, chargeMax: 80, stamina: 145, magic: 95, intelligence: 70, moveSpeed: 7.5,
+    attack: { damage: 19, intervalBase: 0.55, minInterval: 0.22, shape: 'cone', coneTargets: 2.2 },
     chargeGainMul: 1,
-    skill: { cost: 80, kind: 'dash', heal: 22, aoe: 0.3 },
-    exposure: 1.7,
+    skill: { cost: 80, kind: 'dash', heal: 28, aoe: 0.3 },
+    exposure: 1.15,
   },
   fish: {
     hp: 110, chargeMax: 90, stamina: 180, magic: 80, intelligence: 110, moveSpeed: 6.6,

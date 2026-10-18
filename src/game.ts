@@ -1343,7 +1343,7 @@ export class Game {
       armor: 0,
       armorRate: Math.min(0.6, c.armor ?? 0),
       dodge: Math.min(0.24, (c.dodge ?? 0) + ((tier.dodgeChance as number) ?? 0)),
-      critChance: 0.08,
+      critChance: Math.min(0.6, 0.08 + (c.crit ?? 0)),
       critMultiplier: 1.8,
       pickupRadius: 2.0,
       goldGain: 1,

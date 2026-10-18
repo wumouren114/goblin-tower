@@ -138,6 +138,7 @@ const STAT_ORDER: CardStat[] = [
   'chargeGain',
   'dodge',
   'armor',
+  'crit',
 ]
 
 const STAT_LABEL: Record<CardStat, string> = {
@@ -150,10 +151,11 @@ const STAT_LABEL: Record<CardStat, string> = {
   chargeGain: '充能效率',
   dodge: '闪避',
   armor: '减伤',
+  crit: '暴击率',
 }
 
 /** 用百分比展示的维度 */
-const STAT_IS_PCT: Partial<Record<CardStat, boolean>> = { chargeGain: true, dodge: true, armor: true }
+const STAT_IS_PCT: Partial<Record<CardStat, boolean>> = { chargeGain: true, dodge: true, armor: true, crit: true }
 
 const SHOP_KIND_LABEL: Record<ShopOffer['kind'], string> = {
   weapon: '专武券',

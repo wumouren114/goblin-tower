@@ -40,7 +40,7 @@ export function tierNum(tier: WeaponTier, key: string, fallback = 0): number {
 /** 受击倍率：丛雨近战吃亏、肥鱼血薄，与模拟器口径一致（丛雨 1.45） */
 const TAKE_DAMAGE_MUL: Record<CharacterId, number> = {
   mutsumi: 1,
-  murasame: 1.45,
+  murasame: 1.05,
   fish: 0.85,
 }
 

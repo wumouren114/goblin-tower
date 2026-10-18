@@ -511,13 +511,13 @@ check('cards 汇总：只累计增益卡，消耗品/专武券不上面板', () 
   const bag = new Inventory()
   bag.add(economy.makeCardItem('magic', 1)) // 18
   bag.add(economy.makeCardItem('hp', 2)) // 25×1.9=47.5
-  bag.add(economy.makeCardItem('armor', 1)) // 0.03
+  bag.add(economy.makeCardItem('armor', 1)) // 0.05
   bag.add(economy.makeWeaponItem('fish', 2))
   bag.add({ uid: 'c1', kind: 'consumable', name: '充能电池', desc: '', icon: '🔋', tier: 1, value: 1 })
   const cards = bag.cards
   approx(cards.magic, 18, 1e-9)
   approx(cards.hp, 47.5, 1e-9)
-  approx(cards.armor, 0.03, 1e-9)
+  approx(cards.armor, 0.05, 1e-9)
   eq(cards.stamina, 0)
 })
 

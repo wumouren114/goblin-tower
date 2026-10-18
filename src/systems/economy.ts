@@ -57,6 +57,7 @@ const CARD_ICONS: Record<CardStat, string> = {
   chargeGain: '🎯',
   dodge: '💨',
   armor: '🛡️',
+  crit: '💥',
 }
 
 let uidSeq = 0
@@ -167,6 +168,7 @@ export function emptyCards(): Record<CardStat, number> {
     chargeGain: 0,
     dodge: 0,
     armor: 0,
+    crit: 0,
   }
 }
 

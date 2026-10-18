@@ -228,19 +228,19 @@
       "id": "armor",
       "name": "铁鳞甲片",
       "stat": "armor",
-      "value": 0.03,
+      "value": 0.05,
       "basePrice": 55,
-      "maxStacks": 10,
-      "desc": "受到的伤害 -3%"
+      "maxStacks": 7,
+      "desc": "受到的伤害 -5%（上限 35%）"
     },
     {
       "id": "dodge",
       "name": "疾影护符",
       "stat": "dodge",
-      "value": 0.03,
+      "value": 0.06,
       "basePrice": 60,
-      "maxStacks": 8,
-      "desc": "闪避率 +3%（上限 24%）"
+      "maxStacks": 4,
+      "desc": "闪避率 +6%（上限 24%）"
     },
     {
       "id": "chargeGain",
@@ -250,8 +250,18 @@
       "basePrice": 45,
       "maxStacks": 8,
       "desc": "击杀获得充能 +8%"
+    },
+    {
+      "id": "critRate",
+      "name": "锐利符石",
+      "stat": "crit",
+      "value": 0.04,
+      "basePrice": 60,
+      "maxStacks": 6,
+      "desc": "暴击率 +4%（上限 60%）"
     }
   ],
+  "buffCards_extra_note": "暴击率卡",
   "skillCards": [
     {
       "id": "crit",
@@ -371,8 +381,8 @@
       "tiers": [
         {
           "lv": 1,
-          "desc": "扇形拔刀：伤害 17、半径 2.1m、110°",
-          "damage": 17,
+          "desc": "扇形拔刀：伤害 19、半径 2.1m、130°",
+          "damage": 19,
           "radiusMul": 1,
           "gatherOnHit": 0,
           "dodgeChance": 0,
@@ -384,7 +394,7 @@
         {
           "lv": 2,
           "desc": "普攻命中将敌人拉近 1.2m；技能充能 80→76",
-          "damage": 17,
+          "damage": 19,
           "radiusMul": 1,
           "gatherOnHit": 1.2,
           "dodgeChance": 0,
@@ -396,8 +406,8 @@
         },
         {
           "lv": 3,
-          "desc": "15% 闪避；技能回血 15→24",
-          "damage": 17,
+          "desc": "15% 闪避；技能回血 22→28",
+          "damage": 19,
           "radiusMul": 1,
           "gatherOnHit": 1.2,
           "dodgeChance": 0.15,
@@ -410,7 +420,7 @@
         {
           "lv": 4,
           "desc": "普攻附带 0.8m 前冲（0.25s 冷却）；伤害 +15%；技能伤害 +25%；充能 76→68",
-          "damage": 19.55,
+          "damage": 21.9,
           "radiusMul": 1,
           "gatherOnHit": 1.2,
           "dodgeChance": 0.15,
@@ -424,7 +434,7 @@
         {
           "lv": 5,
           "desc": "体型 +15%，全部数值 ×1.15",
-          "damage": 22.5,
+          "damage": 25.2,
           "radiusMul": 1.15,
           "gatherOnHit": 1.2,
           "dodgeChance": 0.15,
