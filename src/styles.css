@@ -2360,15 +2360,25 @@ button:focus-visible {
     inset 0 0 24px rgba(70, 216, 194, 0.06);
 }
 
+.char-avatar-wrap {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+/* 暗色圆形底 + 青铜描边；原画 <img> 放在圆形容器里铺满，裁剪交给容器 */
 .char-avatar {
   position: relative;
   display: grid;
   place-items: center;
-  width: 100%;
-  aspect-ratio: 1 / 0.72;
+  width: clamp(76px, 8.2vw, 100px);
+  aspect-ratio: 1;
   overflow: hidden;
-  border: 2px solid rgba(120, 150, 135, 0.4);
-  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.55), 2px 2px 0 rgba(0, 0, 0, 0.45);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 38%, #221a26 0%, #1a1420 58%, #100c14 100%);
+  border: 2px solid #6b5836;
+  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.8), 2px 2px 0 rgba(0, 0, 0, 0.45);
 }
 
 .char-avatar::before {
@@ -2383,27 +2393,29 @@ button:focus-visible {
 .char-avatar::after {
   content: "";
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 26%;
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.5), transparent);
+  inset: 0;
+  background: radial-gradient(
+    circle at 50% 34%,
+    rgba(10, 8, 12, 0) 40%,
+    rgba(18, 13, 22, 0.42) 68%,
+    rgba(12, 9, 16, 0.86) 100%
+  );
   pointer-events: none;
 }
 
 .avatar-mutsumi {
-  background: radial-gradient(circle at 50% 36%, #2f6f62 0%, #143029 58%, #0a1512 100%);
-  border-color: rgba(70, 216, 194, 0.5);
+  background: radial-gradient(circle at 50% 38%, #241d28 0%, #1a1420 60%, #0f0b13 100%);
+  border-color: #6b5836;
 }
 
 .avatar-murasame {
-  background: radial-gradient(circle at 50% 36%, #7a2f3a 0%, #3a1620 58%, #150a0e 100%);
-  border-color: rgba(255, 120, 130, 0.45);
+  background: radial-gradient(circle at 50% 38%, #261a20 0%, #1a1420 60%, #0f0b13 100%);
+  border-color: #6b5836;
 }
 
 .avatar-fish {
-  background: radial-gradient(circle at 50% 36%, #2d4a7a 0%, #16263f 58%, #0a111c 100%);
-  border-color: rgba(120, 170, 255, 0.45);
+  background: radial-gradient(circle at 50% 38%, #1c1a28 0%, #171420 60%, #0d0b12 100%);
+  border-color: #6b5836;
 }
 
 .char-emoji {
@@ -2415,8 +2427,8 @@ button:focus-visible {
 }
 
 .char-card.is-active .char-avatar {
-  border-color: rgba(70, 216, 194, 0.85);
-  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.5), 0 0 18px rgba(70, 216, 194, 0.28);
+  border-color: #f0c268;
+  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.5), 0 0 20px rgba(240, 184, 73, 0.34);
 }
 
 .char-info {
@@ -3558,4 +3570,353 @@ button:focus-visible {
   font-size: 15px;
   letter-spacing: 0.1em;
   text-shadow: 0 0 10px rgba(120, 210, 255, 0.85), 2px 2px 0 rgba(0, 0, 0, 0.7);
+}
+
+/* ============================================================
+   外部原画接入（assets/art_raw/*.png → artUrl）
+   有图时切 <img>，artUrl() 返回 null 时保留 emoji / CSS 主视觉兜底
+   ============================================================ */
+
+/* ---------- 通用原画层 ---------- */
+
+.art-img {
+  display: none;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.art-emoji {
+  display: inline-block;
+  line-height: 1;
+}
+
+.has-art > .art-img {
+  display: block;
+}
+
+.has-art > .art-emoji {
+  display: none;
+}
+
+/* ---------- 标题主视觉 ---------- */
+
+.title-keyart {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 42%;
+  pointer-events: none;
+}
+
+.title-screen.has-keyart .title-keyart {
+  display: block;
+}
+
+/* 有原画后，CSS 月亮/山脊/高塔让位，避免和原画打架 */
+.title-screen.has-keyart .title-bg > .title-stars,
+.title-screen.has-keyart .title-bg > .moon,
+.title-screen.has-keyart .title-bg > .ridge-far,
+.title-screen.has-keyart .title-bg > .ridge-near,
+.title-screen.has-keyart .title-bg > .tower-left,
+.title-screen.has-keyart .title-bg > .tower-right,
+.title-screen.has-keyart .title-bg > .fog {
+  display: none;
+}
+
+/* 暗色渐变蒙层：压住原画高光，保证标题与面板文字可读 */
+.title-screen.has-keyart .title-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+      180deg,
+      rgba(3, 7, 6, 0.78) 0%,
+      rgba(3, 7, 6, 0.24) 30%,
+      rgba(3, 7, 6, 0.32) 56%,
+      rgba(3, 7, 6, 0.88) 100%
+    ),
+    radial-gradient(120% 80% at 50% 34%, rgba(0, 0, 0, 0) 34%, rgba(2, 5, 4, 0.6) 100%);
+}
+
+.title-screen.has-keyart .title-cn {
+  filter: drop-shadow(6px 6px 0 rgba(12, 7, 2, 0.92)) drop-shadow(0 0 34px rgba(255, 178, 64, 0.34));
+}
+
+.title-screen.has-keyart .title-kicker,
+.title-screen.has-keyart .title-tagline {
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9), 0 0 18px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- 角色卡 128 头像 ---------- */
+
+.char-avatar > .art-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 26%;
+  /* 软渐隐代替硬裁：原画自带的品红底在圆缘淡出、落进暗色圆盘，避免锯齿反光 */
+  -webkit-mask-image: radial-gradient(
+    circle at 50% 40%,
+    #000 56%,
+    rgba(0, 0, 0, 0.86) 72%,
+    rgba(0, 0, 0, 0.34) 87%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    circle at 50% 40%,
+    #000 56%,
+    rgba(0, 0, 0, 0.86) 72%,
+    rgba(0, 0, 0, 0.34) 87%,
+    transparent 100%
+  );
+}
+
+.char-avatar::before,
+.char-avatar::after {
+  z-index: 2;
+}
+
+.char-card.is-active .char-avatar.has-art {
+  box-shadow: inset 0 0 26px rgba(0, 0, 0, 0.35), 0 0 22px rgba(240, 184, 73, 0.36);
+}
+
+.char-avatar .art-emoji {
+  position: relative;
+  z-index: 1;
+  font-size: clamp(28px, 3vw, 40px);
+  filter: drop-shadow(3px 3px 0 rgba(0, 0, 0, 0.55));
+}
+
+/* 睦的双形态：头像右下角挂 Mortis 小像 */
+.char-form-badge {
+  position: absolute;
+  right: -3px;
+  bottom: 1px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 5px 2px 3px;
+  background: rgba(5, 10, 9, 0.84);
+  border: 1px solid rgba(232, 178, 90, 0.55);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.char-form-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.char-form-icon.has-art {
+  width: 18px;
+  height: 18px;
+}
+
+.char-form-text {
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #ffe6ad;
+  white-space: nowrap;
+}
+
+/* ---------- Boss 头像框 ---------- */
+
+.boss-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  width: min(48vw, 640px);
+}
+
+.boss-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.boss-portrait {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  overflow: hidden;
+  font-size: 24px;
+  line-height: 1;
+  background: radial-gradient(circle at 50% 38%, #2a1418 0%, #0b0607 78%);
+  border: 2px solid rgba(232, 178, 90, 0.55);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.5), inset 0 0 16px rgba(0, 0, 0, 0.7);
+}
+
+.boss-bar.is-phase2 .boss-portrait {
+  border-color: rgba(255, 95, 86, 0.8);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.5), 0 0 18px rgba(255, 60, 50, 0.4),
+    inset 0 0 16px rgba(60, 6, 6, 0.8);
+}
+
+/* ---------- 隧道卡图标 / 预览行 ---------- */
+
+.tc-icon.has-art {
+  width: 46px;
+  height: 46px;
+}
+
+.tc-icon.has-art > .art-img {
+  width: 32px;
+  height: 32px;
+}
+
+.tc-row.has-icon {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 0;
+}
+
+.tc-row.has-icon::before {
+  content: none;
+}
+
+.tc-row-icon {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--tunnel-ink, var(--amber));
+}
+
+.tc-row-icon.has-art {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---------- 商店 / 背包卡图标 ---------- */
+
+.sc-icon.has-art,
+.ic-icon.has-art {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+}
+
+.inv-cell.is-empty .ic-icon.has-art {
+  width: 32px;
+  height: 32px;
+}
+
+/* ---------- 背包汇总行图标 ---------- */
+
+.inv-stat-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.inv-stat-icon {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-faint);
+}
+
+.inv-stat-icon.has-art {
+  width: 16px;
+  height: 16px;
+}
+
+/* 图标（32~46px）比行内文字高，撑开行高，避免压住下面的标题/正文 */
+.sc-head {
+  min-height: 32px;
+  align-items: center;
+}
+
+.sc-icon.has-art {
+  align-self: center;
+}
+
+.sc-name {
+  margin-top: 2px;
+}
+
+.tc-head {
+  min-height: 46px;
+  align-items: center;
+}
+
+/* ---------- 窄屏适配 ---------- */
+
+@media (max-width: 900px) {
+  .boss-bar {
+    width: 62vw;
+  }
+
+  .boss-portrait {
+    width: 52px;
+    height: 52px;
+  }
+}
+
+@media (max-width: 720px) {
+  .boss-bar {
+    top: 10px;
+    width: 88vw;
+    gap: 7px;
+  }
+
+  .boss-portrait {
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
+  }
+
+  .title-keyart {
+    object-position: center 36%;
+  }
+
+  .title-screen.has-keyart .title-bg::after {
+    background: linear-gradient(
+      180deg,
+      rgba(3, 7, 6, 0.82) 0%,
+      rgba(3, 7, 6, 0.4) 32%,
+      rgba(3, 7, 6, 0.62) 58%,
+      rgba(3, 7, 6, 0.94) 100%
+    );
+  }
+}
+
+/* 窄屏延续既有策略：隐藏角色头像，只留文字卡（旧规则只隐藏 .char-avatar，现头像外套一层裁切框） */
+@media (max-width: 960px) {
+  .char-avatar-wrap {
+    display: none;
+  }
 }

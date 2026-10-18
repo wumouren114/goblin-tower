@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { PickupKind } from '../types'
 import { PixelCanvas } from '../art/pixels'
 import { getBillboardYaw, particleTexture, textureFromPixels } from '../art/sprites'
+import { artReady, artTexture, type ArtKey } from '../art/atlasImport'
 
 /**
  * v3 拾取物种类：
@@ -25,6 +26,14 @@ const MAX_PICKUPS = 260
 const PICK_RADIUS = 0.5
 const ITEM_GEO = new THREE.PlaneGeometry(1, 1)
 const GLOW_GEO = new THREE.PlaneGeometry(1, 1)
+
+/** 原画纹理是 flipY=false（和角色图集同一约定），对应几何体要把 v 轴翻过来 */
+const ART_ITEM_GEO = (() => {
+  const geo = new THREE.PlaneGeometry(1, 1)
+  const uv = geo.getAttribute('uv') as THREE.BufferAttribute
+  for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i))
+  return geo
+})()
 
 /** 磁吸：先向外轻弹再加速（保留旧手感） */
 const MAGNET_BOUNCE = 3.4
@@ -95,6 +104,39 @@ function pickupTexture(kind: PickupKindV3): THREE.CanvasTexture {
   return tex
 }
 
+/** 拾取物对应的原画（assets/art_raw/*.png） */
+const ART_KEY: Record<PickupKindV3, ArtKey> = {
+  gold: 'pickup_coin',
+  heart: 'pickup_heart',
+  rice: 'pickup_rice',
+  card: 'pickup_card',
+}
+
+interface IconVisual {
+  /** 原画或程序化像素贴图（共享纹理，不能在拾取物销毁时释放） */
+  tex: THREE.CanvasTexture
+  /** 原画宽 / 高；程序化像素图恒为 1 */
+  aspect: number
+  art: boolean
+}
+
+/**
+ * 拾取物图标：原画可用就用原画（保留原始像素比例），否则回退程序化像素图。
+ * 每次取用都重新判断，保证 preloadArt() 晚于首帧完成时也能切到原画。
+ */
+function iconVisual(kind: PickupKindV3): IconVisual {
+  if (artReady()) {
+    const tex = artTexture(ART_KEY[kind])
+    if (tex) {
+      const img = tex.image as { width?: number; height?: number } | undefined
+      const w = img?.width ?? 0
+      const h = img?.height ?? 0
+      return { tex, aspect: w > 0 && h > 0 ? w / h : 1, art: true }
+    }
+  }
+  return { tex: pickupTexture(kind), aspect: 1, art: false }
+}
+
 interface PickupItem {
   kind: PickupKindV3
   value: number
@@ -109,6 +151,9 @@ interface PickupItem {
   group: THREE.Group
   mesh: THREE.Mesh
   mat: THREE.MeshBasicMaterial
+  /** 图标基准尺寸（保留原画宽高比，金币旋转等动画基于它缩放） */
+  baseW: number
+  baseH: number
   glow: THREE.Mesh
   glowMat: THREE.MeshBasicMaterial
   spark: THREE.Mesh | null
@@ -215,10 +260,11 @@ export class PickupManager {
       const gs = GLOW_SIZE[it.kind] * (0.9 + pulse * 0.12)
       it.glow.scale.set(gs, gs, 1)
       if (it.kind === 'gold') {
-        // 金币旋转：用横向缩放模拟
-        it.mesh.scale.x = SIZE.gold * (0.3 + Math.abs(Math.cos(it.age * 4 + it.phase)) * 0.7)
+        // 金币旋转：用横向缩放模拟（按原画宽度缩放，保持宽高比）
+        it.mesh.scale.x = it.baseW * (0.3 + Math.abs(Math.cos(it.age * 4 + it.phase)) * 0.7)
       } else if (it.kind === 'card' || it.kind === 'rice') {
-        it.mesh.scale.setScalar(SIZE[it.kind] * (0.96 + pulse * 0.06))
+        const s = 0.96 + pulse * 0.06
+        it.mesh.scale.set(it.baseW * s, it.baseH * s, 1)
       }
       // 卡片上浮的金色粒子
       if (it.spark && it.sparkMat) {
@@ -246,16 +292,19 @@ export class PickupManager {
     group.position.set(x, BASE_Y[kind], z)
     this.scene.add(group)
 
+    const icon = iconVisual(kind)
+    const baseW = SIZE[kind] * icon.aspect
+    const baseH = SIZE[kind]
     const mat = new THREE.MeshBasicMaterial({
-      map: pickupTexture(kind),
+      map: icon.tex,
       transparent: true,
       alphaTest: 0.02,
       depthWrite: false,
       side: THREE.DoubleSide,
       toneMapped: false,
     })
-    const mesh = new THREE.Mesh(ITEM_GEO, mat)
-    mesh.scale.setScalar(SIZE[kind])
+    const mesh = new THREE.Mesh(icon.art ? ART_ITEM_GEO : ITEM_GEO, mat)
+    mesh.scale.set(baseW, baseH, 1)
     mesh.renderOrder = 4
     group.add(mesh)
 
@@ -303,6 +352,8 @@ export class PickupManager {
       group,
       mesh,
       mat,
+      baseW,
+      baseH,
       glow,
       glowMat,
       spark,
@@ -322,9 +373,13 @@ export class PickupManager {
     it.magnetDelay = 0
     it.age = 0
     it.phase = Math.random() * Math.PI * 2
-    it.mat.map = pickupTexture(kind)
+    const icon = iconVisual(kind)
+    it.baseW = SIZE[kind] * icon.aspect
+    it.baseH = SIZE[kind]
+    it.mat.map = icon.tex
     it.mat.needsUpdate = true
-    it.mesh.scale.setScalar(SIZE[kind])
+    it.mesh.geometry = icon.art ? ART_ITEM_GEO : ITEM_GEO
+    it.mesh.scale.set(it.baseW, it.baseH, 1)
     it.glowMat.color.setHex(GLOW_COLOR[kind])
     it.glow.scale.setScalar(GLOW_SIZE[kind])
     if (kind === 'card' && !it.spark) {

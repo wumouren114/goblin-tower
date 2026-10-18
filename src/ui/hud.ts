@@ -25,6 +25,7 @@ import type {
   TunnelType,
 } from '../types'
 import { CHARACTERS } from '../data/characters'
+import { artReady, artUrl, type ArtKey } from '../art/atlasImport'
 import { BALANCE, DIFFICULTIES, DIFFICULTY_IDS } from '../data/balance'
 import {
   clamp01,
@@ -103,6 +104,34 @@ interface InvCellRef {
 
 const CHAR_ORDER: CharacterId[] = ['mutsumi', 'murasame', 'fish']
 const CHAR_EMOJI: Record<CharacterId, string> = { mutsumi: '🥒', murasame: '🗡️', fish: '🐟' }
+
+/** 卡牌维度 → 原画图标（充能上限 / 充能效率共用一张充能图标） */
+const CARD_ART: Record<CardStat, ArtKey> = {
+  magic: 'icon_card_magic',
+  stamina: 'icon_card_stamina',
+  intelligence: 'icon_card_intelligence',
+  hp: 'icon_card_hp',
+  moveSpeed: 'icon_card_moveSpeed',
+  chargeMax: 'icon_card_charge',
+  chargeGain: 'icon_card_charge',
+  dodge: 'icon_card_dodge',
+  armor: 'icon_card_armor',
+  crit: 'icon_card_crit',
+}
+
+/** 角色 → 专武图标 */
+const WEAPON_ART: Record<CharacterId, ArtKey> = {
+  mutsumi: 'icon_weapon_mutsumi',
+  murasame: 'icon_weapon_murasame',
+  fish: 'icon_weapon_fish',
+}
+
+/** 角色 → 立绘头像（睦为常服像，Mortis 另有 portrait_mortis） */
+const PORTRAIT_ART: Record<CharacterId, ArtKey> = {
+  mutsumi: 'portrait_mutsumi',
+  murasame: 'portrait_murasame',
+  fish: 'portrait_fish',
+}
 
 const DIFF_META: Record<DifficultyId, { icon: string; tag: string }> = {
   easy: { icon: '🌿', tag: '轻松' },
@@ -202,6 +231,92 @@ function digitFromEvent(event: KeyboardEvent): number {
 }
 
 /* ------------------------------------------------------------------ */
+/* 原画图标：有图用图，没有则保留 emoji / CSS 兜底                      */
+/* ------------------------------------------------------------------ */
+
+/** preload 完成前 artUrl() 恒为 null：轮询间隔与最长等待次数 */
+const ART_POLL_MS = 300
+const ART_POLL_TRIES = 44
+
+interface ArtIconParts {
+  img: HTMLImageElement
+  emoji: HTMLSpanElement
+}
+
+const artIconCache = new WeakMap<HTMLElement, ArtIconParts>()
+
+/** 图标容器里的两层：原画 <img>（默认隐藏）+ emoji 兜底 */
+function artIconParts(host: HTMLElement): ArtIconParts {
+  const cached = artIconCache.get(host)
+  if (cached) return cached
+  // 建图标时往往先塞了 emoji 文本（span('sc-icon','✦')），留着会和原画叠成两行
+  for (const node of [...host.childNodes]) {
+    if (node.nodeType === Node.TEXT_NODE) node.remove()
+  }
+  const img = document.createElement('img')
+  img.className = 'art-img'
+  img.alt = ''
+  img.decoding = 'async'
+  img.draggable = false
+  const emoji = span('art-emoji')
+  host.append(img, emoji)
+  const parts: ArtIconParts = { img, emoji }
+  artIconCache.set(host, parts)
+  return parts
+}
+
+/**
+ * 写入图标：登记 data-art-key 并立刻尝试取图；
+ * 原画未就绪时先显示兜底 emoji，由 HUD 的轮询稍后补上。
+ * @returns 仍在等待原画时为 true
+ */
+function setArtIcon(host: HTMLElement, key: ArtKey | null, fallback: string): boolean {
+  const parts = artIconParts(host)
+  setText(parts.emoji, fallback)
+  if (!key) {
+    delete host.dataset.artKey
+    host.classList.remove('has-art')
+    parts.img.removeAttribute('src')
+    return false
+  }
+  host.dataset.artKey = key
+  return syncArtIcon(host)
+}
+
+/** 若 data-art-key 对应的原画可用则切换成 <img>；返回是否仍在等待 */
+function syncArtIcon(host: HTMLElement): boolean {
+  const key = host.dataset.artKey as ArtKey | undefined
+  if (!key) return false
+  const url = artUrl(key)
+  if (!url) return true
+  const parts = artIconParts(host)
+  if (parts.img.getAttribute('src') !== url) parts.img.src = url
+  host.classList.add('has-art')
+  return false
+}
+
+function weaponArtKey(character: CharacterId): ArtKey {
+  return WEAPON_ART[character] ?? 'icon_weapon_mutsumi'
+}
+
+function cardArtKey(stat: CardStat | undefined): ArtKey | null {
+  return stat ? CARD_ART[stat] ?? null : null
+}
+
+/** 背包 / 商店条目 → 原画 key（消耗品没有专属原画，保留 emoji） */
+function itemArtKey(item: InventoryItem, character: CharacterId): ArtKey | null {
+  if (item.kind === 'weapon') return weaponArtKey(character)
+  if (item.kind === 'buff-card') return cardArtKey(item.stat)
+  return null
+}
+
+/** 隧道预览行：有原画的行会额外渲染 16px 图标 */
+interface TunnelPreviewLine {
+  text: string
+  art: ArtKey | null
+}
+
+/* ------------------------------------------------------------------ */
 /* 模板                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -265,11 +380,14 @@ const UI_TEMPLATE = /* html */ `
   </div>
 
   <div class="boss-bar js-boss" hidden>
-    <div class="boss-head">
-      <span class="boss-name js-boss-name">首领</span>
-      <span class="boss-tag">首领</span>
+    <div class="boss-portrait js-boss-portrait" aria-hidden="true"></div>
+    <div class="boss-main">
+      <div class="boss-head">
+        <span class="boss-name js-boss-name">首领</span>
+        <span class="boss-tag">首领</span>
+      </div>
+      <div class="boss-track"><i class="boss-fill js-boss-fill"></i><span class="boss-ticks"></span></div>
     </div>
-    <div class="boss-track"><i class="boss-fill js-boss-fill"></i><span class="boss-ticks"></span></div>
   </div>
 
   <div class="dmg-layer js-dmg-layer"></div>
@@ -283,6 +401,7 @@ const UI_TEMPLATE = /* html */ `
 
   <section class="screen title-screen js-title" aria-label="标题页">
     <div class="title-bg" aria-hidden="true">
+      <img class="title-keyart js-title-keyart" alt="" decoding="async" />
       <span class="title-stars"></span>
       <span class="moon"></span>
       <span class="ridge-far"></span>
@@ -302,7 +421,7 @@ const UI_TEMPLATE = /* html */ `
 
       <div class="title-lower">
         <div class="title-row">
-          <section class="title-panel panel-char js-char-panel">
+          <section class="title-panel panel-char">
             <h2 class="panel-label">选择角色</h2>
             <div class="char-cards js-char-cards"></div>
           </section>
@@ -472,6 +591,7 @@ class HudImpl implements HudV3 {
   private bossEl!: HTMLElement
   private bossNameEl!: HTMLElement
   private bossFillEl!: HTMLElement
+  private bossPortraitEl!: HTMLElement
   private dmgLayerEl!: HTMLElement
   private bannerEl!: HTMLElement
   private bannerFloorEl!: HTMLElement
@@ -482,6 +602,7 @@ class HudImpl implements HudV3 {
   /* ---------- 标题 ---------- */
   private titleEl!: HTMLElement
   private titleInnerEl!: HTMLElement
+  private titleKeyartEl!: HTMLImageElement
   private charCardsEl!: HTMLElement
   private readonly charCardEls: HTMLButtonElement[] = []
   private diffCardsEl!: HTMLElement
@@ -494,6 +615,8 @@ class HudImpl implements HudV3 {
   private selectedDifficulty: DifficultyId = 'normal'
   private startLocked = false
   private lastSlots: SaveSlotMeta[] = []
+  /** 当前这局使用的角色：决定专武图标，随 snapshot.character 同步 */
+  private runCharacter: CharacterId = 'mutsumi'
 
   /* ---------- 隧道 ---------- */
   private tunnelEl!: HTMLElement
@@ -560,6 +683,8 @@ class HudImpl implements HudV3 {
   private bossPinned = false
   private bossRatio = -1
   private bannerTimer: number | null = null
+  private artPollTimer: number | null = null
+  private artPollTries = 0
   private muted = false
   private readonly scratchWorld = new THREE.Vector3()
   private readonly scratchProject = new THREE.Vector3()
@@ -583,6 +708,7 @@ class HudImpl implements HudV3 {
 
     this.selectCharacter('mutsumi')
     this.selectDifficulty('normal')
+    this.syncArt()
 
     window.addEventListener('keydown', this.onKeyDown)
     this.refreshHud()
@@ -598,6 +724,7 @@ class HudImpl implements HudV3 {
 
   update(snapshot: HudSnapshot): void {
     if (this.destroyed) return
+    if (snapshot.character) this.runCharacter = snapshot.character
     const now = performance.now()
     const dt = this.lastFrame > 0 ? Math.min(0.1, (now - this.lastFrame) / 1000) : 0
     this.lastFrame = now
@@ -678,6 +805,7 @@ class HudImpl implements HudV3 {
     this.selectCharacter(this.selectedCharacter, true)
     this.selectDifficulty(this.selectedDifficulty, true)
     this.titleEl.classList.add('is-open')
+    this.syncArt()
     this.refreshHud()
   }
 
@@ -718,17 +846,18 @@ class HudImpl implements HudV3 {
       ref.card.dataset.offerId = offer.id
       ref.card.className = `tunnel-card kind-${offer.kind}`
       setText(ref.band, TUNNEL_META[offer.kind]?.label ?? '未知')
-      setText(ref.icon, offer.icon || '✦')
+      setArtIcon(ref.icon, this.tunnelIconArt(offer), offer.icon || '✦')
       setText(ref.room, ROOM_LABEL[offer.room] ?? '未知房间')
       setText(ref.title, offer.title)
       setText(ref.desc, offer.desc)
       const lines = this.tunnelPreviewLines(offer)
-      ref.preview.replaceChildren(...lines.map((line) => span('tc-row', line)))
+      ref.preview.replaceChildren(...lines.map((line) => this.makePreviewRow(line)))
       setText(ref.key, String(i + 1))
     }
     this.tunnelSelected = -1
     this.applyTunnelSelection()
     this.tunnelEl.classList.add('is-open')
+    this.syncArt()
     this.refreshHud()
   }
 
@@ -917,6 +1046,8 @@ class HudImpl implements HudV3 {
     window.removeEventListener('keydown', this.onKeyDown)
     if (this.bannerTimer !== null) window.clearTimeout(this.bannerTimer)
     this.bannerTimer = null
+    if (this.artPollTimer !== null) window.clearTimeout(this.artPollTimer)
+    this.artPollTimer = null
     this.floaters.length = 0
     this.shell.remove()
   }
@@ -971,6 +1102,8 @@ class HudImpl implements HudV3 {
     this.bossEl = this.q('.js-boss')
     this.bossNameEl = this.q('.js-boss-name')
     this.bossFillEl = this.q('.js-boss-fill')
+    this.bossPortraitEl = this.q('.js-boss-portrait')
+    setArtIcon(this.bossPortraitEl, 'portrait_boss', '👑')
     this.dmgLayerEl = this.q('.js-dmg-layer')
     this.bannerEl = this.q('.js-banner')
     this.bannerFloorEl = this.q('.js-banner-floor')
@@ -982,6 +1115,7 @@ class HudImpl implements HudV3 {
   private wireTitle(): void {
     this.titleEl = this.q('.js-title')
     this.titleInnerEl = this.q('.js-title-inner')
+    this.titleKeyartEl = this.q<HTMLImageElement>('.js-title-keyart')
     this.charCardsEl = this.q('.js-char-cards')
     this.diffCardsEl = this.q('.js-diff-cards')
     this.diffTipEl = this.q('.js-diff-tip')
@@ -995,13 +1129,23 @@ class HudImpl implements HudV3 {
       const card = el('button', 'char-card')
       card.type = 'button'
       card.dataset.char = id
+      const avatarWrap = div('char-avatar-wrap')
       const avatar = div(`char-avatar avatar-${id}`)
-      avatar.appendChild(span('char-emoji', CHAR_EMOJI[id] ?? '✦'))
+      setArtIcon(avatar, PORTRAIT_ART[id], CHAR_EMOJI[id] ?? '✦')
+      avatarWrap.appendChild(avatar)
+      if (id === 'mutsumi') {
+        // 睦 = 双形态：右下角挂 Mortis 小像说明「可切换」（挂在圆形裁切框外，避免被裁）
+        const form = div('char-form-badge')
+        const formIcon = span('char-form-icon')
+        setArtIcon(formIcon, 'portrait_mortis', '🌑')
+        form.append(formIcon, span('char-form-text', '双形态'))
+        avatarWrap.appendChild(form)
+      }
       const info = div('char-info')
       info.appendChild(span('char-name', def.name))
       info.appendChild(span('char-title', def.title))
       info.appendChild(span('char-role', def.role))
-      card.append(avatar, info)
+      card.append(avatarWrap, info)
       card.addEventListener('click', () => this.selectCharacter(id))
       this.charCardsEl.appendChild(card)
       this.charCardEls.push(card)
@@ -1119,7 +1263,11 @@ class HudImpl implements HudV3 {
 
     for (const stat of STAT_ORDER) {
       const row = div('inv-stat')
-      row.appendChild(span('inv-stat-label', STAT_LABEL[stat]))
+      const label = div('inv-stat-name')
+      const icon = span('inv-stat-icon')
+      setArtIcon(icon, CARD_ART[stat], '·')
+      label.append(icon, span('inv-stat-label', STAT_LABEL[stat]))
+      row.appendChild(label)
       const value = span('inv-stat-value', '0')
       row.appendChild(value)
       this.invStatsEl.appendChild(row)
@@ -1247,27 +1395,59 @@ class HudImpl implements HudV3 {
   /* 时空隧道                                                          */
   /* ================================================================ */
 
-  private tunnelPreviewLines(offer: TunnelOffer): string[] {
+  /** 隧道卡大图标：优先首领像 / 卡牌 / 专武，商人等保留 emoji */
+  private tunnelIconArt(offer: TunnelOffer): ArtKey | null {
     const payload = offer.payload ?? {}
-    const lines: string[] = []
-    if (typeof payload.gold === 'number' && payload.gold > 0) lines.push(`金币 +${fmtInt(payload.gold)}`)
-    if (payload.card) lines.push(`卡牌 · ${payload.card.name}`)
-    if (payload.skillCard) lines.push(`技能卡 · ${payload.skillCard.name}`)
+    if (payload.bossLayer) return 'portrait_boss'
+    if (payload.card) return itemArtKey(payload.card, this.runCharacter)
+    if (payload.skillCard) return cardArtKey(payload.skillCard.stat)
+    if (payload.altarReward) return cardArtKey(payload.altarReward.stat)
+    return null
+  }
+
+  /** 一条预览行：有原画的条目额外渲染 16px 图标 */
+  private makePreviewRow(line: TunnelPreviewLine): HTMLSpanElement {
+    if (!line.art) return span('tc-row', line.text)
+    const row = span('tc-row has-icon')
+    const icon = span('tc-row-icon')
+    setArtIcon(icon, line.art, '▸')
+    row.append(icon, document.createTextNode(line.text))
+    return row
+  }
+
+  private tunnelPreviewLines(offer: TunnelOffer): TunnelPreviewLine[] {
+    const payload = offer.payload ?? {}
+    const lines: TunnelPreviewLine[] = []
+    if (typeof payload.gold === 'number' && payload.gold > 0) {
+      lines.push({ text: `金币 +${fmtInt(payload.gold)}`, art: null })
+    }
+    if (payload.card) {
+      lines.push({ text: `卡牌 · ${payload.card.name}`, art: itemArtKey(payload.card, this.runCharacter) })
+    }
+    if (payload.skillCard) {
+      lines.push({ text: `技能卡 · ${payload.skillCard.name}`, art: cardArtKey(payload.skillCard.stat) })
+    }
     if (payload.shopOffers && payload.shopOffers.length > 0) {
-      lines.push(`商会 · ${payload.shopOffers.length} 件商品`)
+      lines.push({ text: `商会 · ${payload.shopOffers.length} 件商品`, art: null })
     }
     if (typeof payload.altarCost === 'number') {
       const reward = payload.altarReward
         ? ` → ${STAT_LABEL[payload.altarReward.stat]} ${formatStatValue(payload.altarReward.stat, payload.altarReward.value)}`
         : ''
-      lines.push(`献祭 ${fmtInt(payload.altarCost)} 金币${reward}`)
+      lines.push({
+        text: `献祭 ${fmtInt(payload.altarCost)} 金币${reward}`,
+        art: cardArtKey(payload.altarReward?.stat),
+      })
     }
     if (typeof payload.enemyCount === 'number') {
-      lines.push(`${payload.bossLayer ? '首领' : '敌人'} ${payload.enemyCount} 只`)
+      lines.push({
+        text: `${payload.bossLayer ? '首领' : '敌人'} ${payload.enemyCount} 只`,
+        art: payload.bossLayer ? 'portrait_boss' : null,
+      })
     } else if (payload.bossLayer) {
-      lines.push('首领战')
+      lines.push({ text: '首领战', art: 'portrait_boss' })
     }
-    if (lines.length === 0) lines.push(TUNNEL_META[offer.kind]?.hint ?? '未知的际遇')
+    if (lines.length === 0) lines.push({ text: TUNNEL_META[offer.kind]?.hint ?? '未知的际遇', art: null })
     return lines
   }
 
@@ -1316,6 +1496,13 @@ class HudImpl implements HudV3 {
     }
   }
 
+  /** 商店条目 → 原画 key：专武按当前角色，增益卡按维度 */
+  private shopOfferArt(offer: ShopOffer): ArtKey | null {
+    if (offer.kind === 'weapon') return weaponArtKey(this.runCharacter)
+    if (offer.kind === 'buff-card') return cardArtKey(offer.stat)
+    return null
+  }
+
   private renderShop(gold: number): void {
     this.shopGold = Math.max(0, gold)
     setText(this.shopGoldEl, fmtInt(this.shopGold))
@@ -1337,7 +1524,7 @@ class HudImpl implements HudV3 {
       const poor = this.shopGold < offer.price
       ref.card.classList.toggle('is-poor', poor)
       ref.card.dataset.offerId = offer.id
-      setText(ref.icon, offer.icon || '✦')
+      setArtIcon(ref.icon, this.shopOfferArt(offer), offer.icon || '✦')
       setText(ref.kind, SHOP_KIND_LABEL[offer.kind] ?? '商品')
       setText(ref.tier, tierLabel(offer.tier))
       setText(ref.name, offer.name)
@@ -1345,6 +1532,7 @@ class HudImpl implements HudV3 {
       setText(ref.price, fmtInt(offer.price))
       setText(ref.buy, poor ? '金币不足' : '购买')
     }
+    this.syncArt()
   }
 
   /* ================================================================ */
@@ -1420,7 +1608,7 @@ class HudImpl implements HudV3 {
       if (!item) {
         ref.cell.className = 'inv-cell is-empty'
         setText(ref.tier, '')
-        setText(ref.icon, '＋')
+        setArtIcon(ref.icon, null, '＋')
         setText(ref.name, '空')
         setText(ref.meta, '')
         continue
@@ -1430,7 +1618,7 @@ class HudImpl implements HudV3 {
       if (selectedItem && this.canMerge(selectedItem, item)) ref.cell.classList.add('is-mergeable')
       if (item.kind === 'consumable') ref.cell.classList.add('is-consumable')
       setText(ref.tier, tierLabel(item.tier))
-      setText(ref.icon, item.icon || '✦')
+      setArtIcon(ref.icon, itemArtKey(item, this.runCharacter), item.icon || '✦')
       setText(ref.name, item.name)
       const bits: string[] = [SHOP_KIND_LABEL[item.kind] ?? '物品']
       if (item.stat && typeof item.value === 'number') {
@@ -1462,6 +1650,7 @@ class HudImpl implements HudV3 {
       setText(valueEl, total === 0 ? '0' : formatStatValue(stat, total))
       valueEl.classList.toggle('is-zero', total === 0)
     }
+    this.syncArt()
   }
 
   /* ================================================================ */
@@ -1577,6 +1766,35 @@ class HudImpl implements HudV3 {
   /* ================================================================ */
   /* Boss / 飘字 / 状态                                                */
   /* ================================================================ */
+
+  /**
+   * 把已登记的原画挂到界面上：标题主视觉 + 所有 data-art-key 图标。
+   * 图片未就绪时保留 emoji / CSS 兜底，并按 ART_POLL_MS 轮询补齐。
+   */
+  private syncArt(): void {
+    if (this.destroyed) return
+    const keyart = artUrl('keyart_title')
+    if (keyart) {
+      if (this.titleKeyartEl.getAttribute('src') !== keyart) this.titleKeyartEl.src = keyart
+      this.titleEl.classList.add('has-keyart')
+    }
+
+    let pending = false
+    for (const node of this.shell.querySelectorAll<HTMLElement>('[data-art-key]')) {
+      if (syncArtIcon(node)) pending = true
+    }
+    if (pending && !artReady()) this.scheduleArtPoll()
+  }
+
+  private scheduleArtPoll(): void {
+    if (this.artPollTimer !== null || this.destroyed) return
+    if (this.artPollTries >= ART_POLL_TRIES) return
+    this.artPollTries += 1
+    this.artPollTimer = window.setTimeout(() => {
+      this.artPollTimer = null
+      this.syncArt()
+    }, ART_POLL_MS)
+  }
 
   private updateBossFromSnapshot(snapshot: HudSnapshot): void {
     if (this.bossPinned) return

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { ThemeLike } from './themes'
 import { familyOf } from './themes'
+import { artReady, artTexture, type ArtKey } from '../art/atlasImport'
 
 /**
  * ============================================================
@@ -63,6 +64,13 @@ function mixHex(a: number, b: number, t: number): number {
 
 function toneHex(hex: number, f: number): number {
   return f >= 0 ? mixHex(hex, 0xffffff, f) : mixHex(hex, 0x000000, -f)
+}
+
+/** 原画纹理是 flipY=false（和角色图集一致），平面片要把 v 轴翻过来才正立 */
+function flipUvVertical(geo: THREE.BufferGeometry): void {
+  const uv = geo.getAttribute('uv') as THREE.BufferAttribute
+  for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i))
+  uv.needsUpdate = true
 }
 
 /**
@@ -148,6 +156,60 @@ export class PropSet {
     return m
   }
 
+  /**
+   * 用 AI 原画替换程序化建模（原画是 40×40~48×48 的 3/4 视角立绘，带 alpha）。
+   *
+   * 摆放层（floor.ts）把同种道具合并进 InstancedMesh，实例自带随机 Y 轴旋转，
+   * 无法逐帧朝向相机做真 billboard，所以这里用「两片垂直交叉的竖直面片」：
+   * 任意机位至少有一片能看到完整原画，柱/桶这类轴旋转对称的道具几乎看不出重复，
+   * 箱体也只是略宽一点。面片底边落在 y=0（脚底锚点），宽度按原画像素比例换算，
+   * 不会被拉伸；alphaTest 裁掉透明区，不会出现黑边。
+   *
+   * @param kindKey  道具原型 key（碰撞/权重沿用调用方给的数值）
+   * @param artKey   assets/art_raw 下的原画 key
+   * @param worldH   世界高度（米），宽度由原画宽高比推出
+   * @param tint     贴图乘色（例如冰柱压一点冷色）
+   * @returns 原画不可用时返回 null，调用方回退到程序化零件
+   */
+  artProp(
+    kindKey: string,
+    artKey: ArtKey,
+    worldH: number,
+    colliderR: number,
+    weight: number,
+    tint = 0xffffff,
+  ): PropKind | null {
+    if (!artReady()) return null
+    const tex = artTexture(artKey)
+    if (!tex) return null
+    const img = tex.image as { width?: number; height?: number } | undefined
+    const iw = img?.width ?? 0
+    const ih = img?.height ?? 0
+    if (iw <= 0 || ih <= 0) return null
+    const worldW = (worldH * iw) / ih
+
+    // 受光材质（和老道具同一套光照语义），alphaTest 让半透边缘成为实心像素边界
+    const mat = this.trackMat(
+      new THREE.MeshStandardMaterial({
+        map: tex,
+        color: tint,
+        roughness: 0.95,
+        metalness: 0.0,
+        alphaTest: 0.5,
+        side: THREE.DoubleSide,
+      }),
+    )
+
+    const parts: PropPart[] = []
+    for (let i = 0; i < 2; i++) {
+      const geo = this.trackGeo(new THREE.PlaneGeometry(worldW, worldH))
+      geo.translate(0, worldH / 2, 0)
+      if (tex.flipY === false) flipUvVertical(geo)
+      parts.push(P(geo, mat, [0, 0, 0], [1, 1, 1], [0, (i * Math.PI) / 2, 0]))
+    }
+    return { key: kindKey, parts, colliderR, weight }
+  }
+
   dispose(): void {
     for (const g of this.geos) g.dispose()
     for (const m of this.ownedMats) m.dispose()
@@ -188,47 +250,50 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
     ],
   }
 
-  // ---- 通用：木箱 ----
-  const crate: PropKind = {
-    key: 'crate',
-    weight: 3,
-    colliderR: 0.72,
-    parts: [
-      P(box, m.wood, [0, 0.5, 0], [1.08, 1, 1.08]),
-      P(box, m.woodDark, [0, 1.04, 0], [1.16, 0.13, 1.16]),
-      P(box, m.woodDark, [0, 0.5, 0.555], [0.16, 1, 0.04]),
-      P(box, m.woodDark, [0, 0.5, -0.555], [0.16, 1, 0.04]),
-      P(box, m.woodDark, [0.555, 0.5, 0], [0.04, 1, 0.16]),
-    ],
-  }
+  // ---- 通用：木箱（优先用原画 prop_crate） ----
+  const crate: PropKind =
+    lib.artProp('crate', 'prop_crate', 1.06, 0.72, 3) ?? {
+      key: 'crate',
+      weight: 3,
+      colliderR: 0.72,
+      parts: [
+        P(box, m.wood, [0, 0.5, 0], [1.08, 1, 1.08]),
+        P(box, m.woodDark, [0, 1.04, 0], [1.16, 0.13, 1.16]),
+        P(box, m.woodDark, [0, 0.5, 0.555], [0.16, 1, 0.04]),
+        P(box, m.woodDark, [0, 0.5, -0.555], [0.16, 1, 0.04]),
+        P(box, m.woodDark, [0.555, 0.5, 0], [0.04, 1, 0.16]),
+      ],
+    }
 
-  // ---- 通用：木桶 ----
-  const barrel: PropKind = {
-    key: 'barrel',
-    weight: 2,
-    colliderR: 0.58,
-    parts: [
-      P(cyl, m.wood, [0, 0.56, 0], [0.55, 1.12, 0.55]),
-      P(cyl, m.metal, [0, 0.28, 0], [0.585, 0.1, 0.585]),
-      P(cyl, m.metal, [0, 0.85, 0], [0.585, 0.1, 0.585]),
-      P(cyl, m.woodDark, [0, 1.14, 0], [0.43, 0.08, 0.43]),
-    ],
-  }
+  // ---- 通用：木桶（优先用原画 prop_barrel） ----
+  const barrel: PropKind =
+    lib.artProp('barrel', 'prop_barrel', 1.18, 0.58, 2) ?? {
+      key: 'barrel',
+      weight: 2,
+      colliderR: 0.58,
+      parts: [
+        P(cyl, m.wood, [0, 0.56, 0], [0.55, 1.12, 0.55]),
+        P(cyl, m.metal, [0, 0.28, 0], [0.585, 0.1, 0.585]),
+        P(cyl, m.metal, [0, 0.85, 0], [0.585, 0.1, 0.585]),
+        P(cyl, m.woodDark, [0, 1.14, 0], [0.43, 0.08, 0.43]),
+      ],
+    }
 
   switch (familyOf(theme)) {
     case 'moss': {
-      // 断柱（苔石柱）
-      const pillar: PropKind = {
-        key: 'moss-pillar',
-        weight: 2,
-        colliderR: 0.62,
-        parts: [
-          P(box, m.stoneDark, [0, 0.18, 0], [1.35, 0.36, 1.35]),
-          P(cyl, m.stone, [0, 1.26, 0], [0.5, 2.1, 0.5]),
-          P(cyl, m.moss, [0, 1.9, 0], [0.53, 0.34, 0.53]),
-          P(box, m.stoneDark, [0.08, 2.5, 0], [0.74, 0.3, 0.74], [0, 0.55, 0.06]),
-        ],
-      }
+      // 断柱（苔石柱）：优先用原画 prop_pillar
+      const pillar: PropKind =
+        lib.artProp('moss-pillar', 'prop_pillar', 2.5, 0.62, 2) ?? {
+          key: 'moss-pillar',
+          weight: 2,
+          colliderR: 0.62,
+          parts: [
+            P(box, m.stoneDark, [0, 0.18, 0], [1.35, 0.36, 1.35]),
+            P(cyl, m.stone, [0, 1.26, 0], [0.5, 2.1, 0.5]),
+            P(cyl, m.moss, [0, 1.9, 0], [0.53, 0.34, 0.53]),
+            P(box, m.stoneDark, [0.08, 2.5, 0], [0.74, 0.3, 0.74], [0, 0.55, 0.06]),
+          ],
+        }
       return [pillar, crate, rubble, barrel]
     }
 
@@ -317,30 +382,32 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
     }
 
     case 'frost': {
-      // 冰晶簇
-      const crystal: PropKind = {
-        key: 'ice-crystal',
-        weight: 3,
-        colliderR: 0.58,
-        parts: [
-          P(oct, m.ice, [0, 1.05, 0], [0.42, 1.25, 0.42]),
-          P(oct, m.ice, [0.42, 0.55, 0.14], [0.24, 0.7, 0.24], [0.1, 0.3, 0.18]),
-          P(oct, m.ice, [-0.34, 0.42, -0.2], [0.2, 0.55, 0.2], [-0.12, 0.1, -0.2]),
-          P(box, m.stoneDark, [0, 0.08, 0], [0.9, 0.16, 0.9]),
-        ],
-      }
-      // 冻结的石柱
-      const frozenPillar: PropKind = {
-        key: 'frozen-pillar',
-        weight: 2,
-        colliderR: 0.62,
-        parts: [
-          P(box, m.stoneDark, [0, 0.2, 0], [1.3, 0.4, 1.3]),
-          P(cyl, m.stone, [0, 1.3, 0], [0.48, 2.2, 0.48]),
-          P(cyl, m.ice, [0, 2.1, 0], [0.56, 0.5, 0.56]),
-          P(oct, m.ice, [0, 2.55, 0], [0.3, 0.42, 0.3]),
-        ],
-      }
+      // 冰晶簇：优先用原画 prop_crystal
+      const crystal: PropKind =
+        lib.artProp('ice-crystal', 'prop_crystal', 1.55, 0.58, 3) ?? {
+          key: 'ice-crystal',
+          weight: 3,
+          colliderR: 0.58,
+          parts: [
+            P(oct, m.ice, [0, 1.05, 0], [0.42, 1.25, 0.42]),
+            P(oct, m.ice, [0.42, 0.55, 0.14], [0.24, 0.7, 0.24], [0.1, 0.3, 0.18]),
+            P(oct, m.ice, [-0.34, 0.42, -0.2], [0.2, 0.55, 0.2], [-0.12, 0.1, -0.2]),
+            P(box, m.stoneDark, [0, 0.08, 0], [0.9, 0.16, 0.9]),
+          ],
+        }
+      // 冻结的石柱：同样借用 prop_pillar（压一点冷色）
+      const frozenPillar: PropKind =
+        lib.artProp('frozen-pillar', 'prop_pillar', 2.5, 0.62, 2, 0xd8e8ff) ?? {
+          key: 'frozen-pillar',
+          weight: 2,
+          colliderR: 0.62,
+          parts: [
+            P(box, m.stoneDark, [0, 0.2, 0], [1.3, 0.4, 1.3]),
+            P(cyl, m.stone, [0, 1.3, 0], [0.48, 2.2, 0.48]),
+            P(cyl, m.ice, [0, 2.1, 0], [0.56, 0.5, 0.56]),
+            P(oct, m.ice, [0, 2.55, 0], [0.3, 0.42, 0.3]),
+          ],
+        }
       // 冰封的石块
       const iceBlock: PropKind = {
         key: 'ice-block',

@@ -1,0 +1,397 @@
+{
+  "generator": "scripts/make-audio.mjs",
+  "version": 1,
+  "sampleRate": 22050,
+  "channels": 1,
+  "bitsPerSample": 16,
+  "targetPeakDb": -1,
+  "totalBytes": 6839996,
+  "files": [
+    {
+      "file": "bgm_title.wav",
+      "kind": "bgm",
+      "bytes": 1512044,
+      "sha256": "6053aac315b40a38e58343b6b1c115ba431b24b54b504c7472f82347f4eddbe4",
+      "samples": 756000,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 34.2857,
+      "peakDb": -9.71,
+      "rmsDb": -21,
+      "bpm": 84,
+      "bars": 12,
+      "samplesPerBar": 63000
+    },
+    {
+      "file": "bgm_battle.wav",
+      "kind": "bgm",
+      "bytes": 1895708,
+      "sha256": "16c8f5f4d8eff9998ea0fabf3d1f22b6a391f0942a992b0067ea45d237f11514",
+      "samples": 947832,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 42.9856,
+      "peakDb": -1.96,
+      "rmsDb": -17.5,
+      "bpm": 134,
+      "bars": 24,
+      "samplesPerBar": 39493
+    },
+    {
+      "file": "bgm_boss.wav",
+      "kind": "bgm",
+      "bytes": 1430324,
+      "sha256": "63567a99d4828c452c5c2dd0ecde7e79287d6d97eaed423cf657f8b4a6a69211",
+      "samples": 715140,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 32.4327,
+      "peakDb": -2.44,
+      "rmsDb": -17,
+      "bpm": 148,
+      "bars": 20,
+      "samplesPerBar": 35757
+    },
+    {
+      "file": "bgm_shop.wav",
+      "kind": "bgm",
+      "bytes": 846764,
+      "sha256": "c6e5b02cfdd631f44f548e8c24d795b54f9d19d68b673330848892bc3e8336c2",
+      "samples": 423360,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 19.2,
+      "peakDb": -5.63,
+      "rmsDb": -21,
+      "bpm": 100,
+      "bars": 8,
+      "samplesPerBar": 52920
+    },
+    {
+      "file": "bgm_victory.wav",
+      "kind": "bgm",
+      "bytes": 705644,
+      "sha256": "3badcde02362e8fc20580044138bc826258df289ac295b9a5881ec4ad78bec1b",
+      "samples": 352800,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 16,
+      "peakDb": -1,
+      "rmsDb": -19.23,
+      "bpm": 120,
+      "bars": 8,
+      "samplesPerBar": 44100
+    },
+    {
+      "file": "sfx_hit.wav",
+      "kind": "sfx",
+      "bytes": 3352,
+      "sha256": "b7d797d997b9542ee1d9b097637b09e18f29707a74f94e7dc7992b713edfb1df",
+      "samples": 1654,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.075,
+      "peakDb": -6,
+      "rmsDb": -19.27,
+      "durationRangeS": [
+        0.06,
+        0.09
+      ]
+    },
+    {
+      "file": "sfx_crit.wav",
+      "kind": "sfx",
+      "bytes": 5116,
+      "sha256": "a50f66f7b4099772e07fa61d2044f4d9efa2f02126c3c2fde38cdbb48f5f96ce",
+      "samples": 2536,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.115,
+      "peakDb": -4,
+      "rmsDb": -18.38,
+      "durationRangeS": [
+        0.09,
+        0.14
+      ]
+    },
+    {
+      "file": "sfx_enemy_die.wav",
+      "kind": "sfx",
+      "bytes": 8202,
+      "sha256": "b4bf7b24aa88768f94adfc0caf4641e63fbf1220f49c40d6e06f45f31f9b588d",
+      "samples": 4079,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.185,
+      "peakDb": -7,
+      "rmsDb": -17.55,
+      "durationRangeS": [
+        0.15,
+        0.22
+      ]
+    },
+    {
+      "file": "sfx_coin.wav",
+      "kind": "sfx",
+      "bytes": 5778,
+      "sha256": "d6d329bbaaee96cb3a9a1708c8a8c7659a44a6010c4bad2500c5c53126bb2b6b",
+      "samples": 2867,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.13,
+      "peakDb": -6,
+      "rmsDb": -15.74,
+      "durationRangeS": [
+        0.1,
+        0.16
+      ]
+    },
+    {
+      "file": "sfx_pickup.wav",
+      "kind": "sfx",
+      "bytes": 4454,
+      "sha256": "926a4690405cc227e7ff2ddaa5031211e4be02b0ff41a7e4c5cf8d897bf46e92",
+      "samples": 2205,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.1,
+      "peakDb": -9,
+      "rmsDb": -19.23,
+      "durationRangeS": [
+        0.08,
+        0.12
+      ]
+    },
+    {
+      "file": "sfx_heal.wav",
+      "kind": "sfx",
+      "bytes": 12834,
+      "sha256": "8300cbcedf0ac7731f08cc1fab65372fe9941ebc646e8e629a3a7bcd765f3f54",
+      "samples": 6395,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.29,
+      "peakDb": -7,
+      "rmsDb": -15.84,
+      "durationRangeS": [
+        0.2,
+        0.3
+      ]
+    },
+    {
+      "file": "sfx_levelup.wav",
+      "kind": "sfx",
+      "bytes": 40616,
+      "sha256": "dcdb6ecee3e143a4b74dd1ac471011624a2b2cfe35ea6e39b260e9be4e1f715a",
+      "samples": 20286,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.92,
+      "peakDb": -4,
+      "rmsDb": -15.82,
+      "durationRangeS": [
+        0.7,
+        1
+      ]
+    },
+    {
+      "file": "sfx_dash.wav",
+      "kind": "sfx",
+      "bytes": 9746,
+      "sha256": "25e8acebead1321c2f945c75fa8a57e919ac8fb2b0dc5955758cad9978c242ab",
+      "samples": 4851,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.22,
+      "peakDb": -7,
+      "rmsDb": -22.4,
+      "durationRangeS": [
+        0.18,
+        0.26
+      ]
+    },
+    {
+      "file": "sfx_hurt.wav",
+      "kind": "sfx",
+      "bytes": 8202,
+      "sha256": "6550487f3dddcc9e9e16d1a9c9c2d93d66645abb088b1194228c525be3905fc1",
+      "samples": 4079,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.185,
+      "peakDb": -5,
+      "rmsDb": -16.84,
+      "durationRangeS": [
+        0.15,
+        0.22
+      ]
+    },
+    {
+      "file": "sfx_boss_roar.wav",
+      "kind": "sfx",
+      "bytes": 56492,
+      "sha256": "79f7ff29405953e0761e1bfd050ed0618c526821ef02e23a059bf33488328647",
+      "samples": 28224,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 1.28,
+      "peakDb": -3,
+      "rmsDb": -15.14,
+      "durationRangeS": [
+        1,
+        1.4
+      ]
+    },
+    {
+      "file": "sfx_boss_slam.wav",
+      "kind": "sfx",
+      "bytes": 30032,
+      "sha256": "2ddc40bb50247b14df7da60c7d1d4108d125160b8988d4fb62aff5388472ec0f",
+      "samples": 14994,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.68,
+      "peakDb": -3,
+      "rmsDb": -15.11,
+      "durationRangeS": [
+        0.5,
+        0.8
+      ]
+    },
+    {
+      "file": "sfx_stairs.wav",
+      "kind": "sfx",
+      "bytes": 25622,
+      "sha256": "e89a5b5972c37e9f90c177f06a8f00d57b221582590cafd47b74cd859ef9fd51",
+      "samples": 12789,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.58,
+      "peakDb": -6,
+      "rmsDb": -18.59,
+      "durationRangeS": [
+        0.4,
+        0.6
+      ]
+    },
+    {
+      "file": "sfx_win.wav",
+      "kind": "sfx",
+      "bytes": 114704,
+      "sha256": "2fd251dd4cb9455e31d49cb3aa2b8a7f871f1561e3b06c1a038dc0ea7d319e09",
+      "samples": 57330,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 2.6,
+      "peakDb": -5,
+      "rmsDb": -24,
+      "durationRangeS": [
+        2,
+        3
+      ]
+    },
+    {
+      "file": "sfx_lose.wav",
+      "kind": "sfx",
+      "bytes": 83834,
+      "sha256": "8b88695c072ac894fb55dc555629e6ae4b75e1459c3d0358bb0bd3cada3ed17c",
+      "samples": 41895,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 1.9,
+      "peakDb": -4,
+      "rmsDb": -17.66,
+      "durationRangeS": [
+        1.5,
+        2
+      ]
+    },
+    {
+      "file": "sfx_click.wav",
+      "kind": "sfx",
+      "bytes": 1808,
+      "sha256": "fbc8d53e207db20f65b51dcf57c3bc5dc228fd9771df92f7c7ba2f14bdfecd38",
+      "samples": 882,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.04,
+      "peakDb": -16,
+      "rmsDb": -28.45,
+      "durationRangeS": [
+        0.03,
+        0.05
+      ]
+    },
+    {
+      "file": "sfx_buy.wav",
+      "kind": "sfx",
+      "bytes": 4454,
+      "sha256": "ce79924b9cad2b9e8342bd9a956af1bdfc43dc7ee7141cb6bac8e0be7c266414",
+      "samples": 2205,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.1,
+      "peakDb": -6,
+      "rmsDb": -16.03,
+      "durationRangeS": [
+        0.08,
+        0.12
+      ]
+    },
+    {
+      "file": "sfx_tunnel.wav",
+      "kind": "sfx",
+      "bytes": 28710,
+      "sha256": "e3abfe938d42a05e9c099ab2c0bf4b228e8f21fc9626da41ff4058ebc3fe78f6",
+      "samples": 14333,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.65,
+      "peakDb": -5,
+      "rmsDb": -17.45,
+      "durationRangeS": [
+        0.4,
+        0.7
+      ]
+    },
+    {
+      "file": "sfx_caster_shot.wav",
+      "kind": "sfx",
+      "bytes": 5556,
+      "sha256": "3473e07a591146a74ff493d0e7dac2bad903fcbe711bd59925cfdecd4925427f",
+      "samples": 2756,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.125,
+      "peakDb": -7,
+      "rmsDb": -20.24,
+      "durationRangeS": [
+        0.1,
+        0.15
+      ]
+    }
+  ]
+}

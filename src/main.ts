@@ -1,6 +1,8 @@
 import './styles.css'
 import { createHud, type HudV3 } from './ui/hud'
 import { Game } from './game'
+import { preloadArt } from './art/atlasImport'
+import { audio } from './core/audio'
 import type { CharacterId, DifficultyId } from './types'
 
 function fatal(message: string): void {
@@ -37,6 +39,17 @@ if (!canvas) {
   throw new Error('canvas missing')
 }
 
+/** 原画加载遮罩：只在等 PNG 解码时出现，避免标题页闪一下程序化占位图 */
+function showBootOverlay(): HTMLElement {
+  const el = document.createElement('div')
+  el.id = 'boot-overlay'
+  el.style.cssText =
+    'position:fixed;inset:0;z-index:99998;display:flex;align-items:center;justify-content:center;gap:10px;background:#0b0d0c;color:#f3d9a4;font:14px/1.6 system-ui,sans-serif;letter-spacing:.08em;transition:opacity .25s'
+  el.textContent = '载入原画…'
+  document.body.appendChild(el)
+  return el
+}
+
 let game: Game | null = null
 
 const hud: HudV3 = createHud({
@@ -58,10 +71,20 @@ const hud: HudV3 = createHud({
   onQuitToTitle: () => game?.quitToTitle(),
 })
 
-try {
-  game = new Game(canvas, hud)
-  game.quitToTitle()
-  ;(window as unknown as { __goblinTower: Game | null }).__goblinTower = game
+async function boot(): Promise<void> {
+  const overlay = showBootOverlay()
+  try {
+    // 原画是外置 PNG：必须先解码完，贴图 getter 才会同步返回，否则会闪一帧程序化图
+    await preloadArt()
+  } catch {
+    /* 缺图/解码失败都无妨，全部回退程序化像素图 */
+  }
+  overlay.remove()
+
+  try {
+    game = new Game(canvas!, hud)
+    game.quitToTitle()
+    ;(window as unknown as { __goblinTower: Game | null }).__goblinTower = game
 
   // 调试入口：?char=mutsumi|murasame|fish &autostart=easy|normal|hard &floor=N &warmup=秒
   const params = new URLSearchParams(location.search)
@@ -92,9 +115,11 @@ try {
     box.style.cssText = 'position:fixed;left:8px;bottom:60px;z-index:99999;color:#0f0;font:11px monospace;background:#000a;padding:6px;max-width:520px;white-space:pre-wrap'
     document.body.appendChild(box)
     const g = (window as any).__goblinTower as Record<string, any>
-    box.textContent = JSON.stringify(
+    const render = (): string =>
+      JSON.stringify(
       {
         phase: g.phase,
+        audio: audio.status(),
         layer: g.run?.layer,
         stage: g.run?.stage,
         boss: g.boss ? { hp: g.boss.hp, max: g.boss.maxHp, x: g.boss.x, z: g.boss.z, alive: g.boss.alive } : null,
@@ -132,11 +157,18 @@ try {
       null,
       1,
     )
+    box.textContent = render()
+    window.setInterval(() => {
+      box.textContent = render()
+    }, 500)
   }
 
-  const screen = params.get('screen')
-  if (screen) game.debugScreen(screen)
-} catch (err) {
-  fatal(err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err))
-  throw err
+    const screen = params.get('screen')
+    if (screen) game.debugScreen(screen)
+  } catch (err) {
+    fatal(err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err))
+  }
 }
+
+void boot()
+

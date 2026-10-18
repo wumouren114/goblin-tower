@@ -1,7 +1,14 @@
 import * as THREE from 'three'
 import type { CharacterId, Facing } from '../types'
 import { PixelCanvas, type AtlasData } from './pixels'
-import { buildCharacterAtlas, buildEnemyBulletAtlas, buildGoblinAtlas, buildKingAtlas, type GoblinKind } from './characters'
+import {
+  buildCharacterAtlas,
+  buildEnemyBulletAtlas,
+  buildGoblinAtlas,
+  buildKingAtlas,
+  type GoblinKind,
+} from './characters'
+import { sheetAnimFromArt, singleFrameAnimFromArt, type ArtKey } from './atlasImport'
 
 /**
  * 像素精灵的 three.js 包装层。
@@ -96,19 +103,32 @@ function atlasToAnim(atlas: AtlasData): SpriteAnim {
 
 /**
  * 主角图集（按角色 id 缓存）：mutsumi / murasame / fish / mortis。
- * 每个角色 5×10 帧，外观见 characters.ts。
+ * 优先用 assets/art_raw 的外部原画；缺图时回退 characters.ts 的程序化图集。
+ * 原画格子 64×80（宽高比 0.8），世界尺寸按同一比例给 1.4×1.75 避免横向拉宽。
  */
 export function playerSprite(id: CharacterId | 'mortis' = 'mutsumi'): SpriteAnim {
   const key = `player-${id}`
   let anim = spriteCache.get(key)
   if (!anim) {
-    anim = atlasToAnim(buildCharacterAtlas(id))
+    if (id === 'mortis') {
+      // 原画里 Mortis 只有 char_mutsumi 的第 5 行（格 10×1），四个朝向都指这一行
+      anim =
+        sheetAnimFromArt('char_mutsumi', 10, 5, 1.4, 1.75, {
+          down: 4,
+          up: 4,
+          left: 4,
+          right: 4,
+        }) ?? undefined
+    } else {
+      anim = sheetAnimFromArt(`char_${id}` as ArtKey, 10, 5, 1.4, 1.75) ?? undefined
+    }
+    if (!anim) anim = atlasToAnim(buildCharacterAtlas(id))
     spriteCache.set(key, anim)
   }
   return anim
 }
 
-/** 哥布林图集（small / brute / elite / caster 各缓存一张） */
+/** 哥布林图集（small / brute / elite / caster 各缓存一张）——原画包未提供，保持程序化 */
 export function goblinSprite(kind: GoblinKind): SpriteAnim {
   const key = `goblin-${kind}`
   let anim = spriteCache.get(key)
@@ -119,21 +139,21 @@ export function goblinSprite(kind: GoblinKind): SpriteAnim {
   return anim
 }
 
-/** 敌方弹幕紫球（4 帧脉冲，缓存） */
+/** 敌方弹幕紫球：原画是单张 proj_orbfire */
 export function enemyBulletSprite(): SpriteAnim {
   let anim = spriteCache.get('enemy-bullet')
   if (!anim) {
-    anim = atlasToAnim(buildEnemyBulletAtlas())
+    anim = singleFrameAnimFromArt('proj_orbfire', 0.55, 0.55) ?? atlasToAnim(buildEnemyBulletAtlas())
     spriteCache.set('enemy-bullet', anim)
   }
   return anim
 }
 
-/** 哥布林之王图集（缓存） */
+/** 哥布林之王图集：原画 boss_king 6 列 × 4 行（96×112 格） */
 export function kingSprite(): SpriteAnim {
   let anim = spriteCache.get('king')
   if (!anim) {
-    anim = atlasToAnim(buildKingAtlas())
+    anim = sheetAnimFromArt('boss_king', 6, 4, 1.9, 2.2) ?? atlasToAnim(buildKingAtlas())
     spriteCache.set('king', anim)
   }
   return anim

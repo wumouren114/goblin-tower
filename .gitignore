@@ -1,4 +1,4 @@
-node_modules/
+﻿node_modules/
 dist/
 .npm-cache/
 shots/
@@ -7,3 +7,7 @@ recovery/
 .DS_Store
 art-smoke.out
 art-smoke.err
+scripts/out/
+__pycache__/
+*.pyc
+*.zip

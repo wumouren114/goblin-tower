@@ -1,0 +1,39 @@
+# 原画归一化输出清单（scripts/art-normalize.py 生成，勿手改）
+
+sheet char_mutsumi.png 640x400 cols=10 rows=5 cell=64x80
+sheet char_murasame.png 640x400 cols=10 rows=5 cell=64x80
+sheet char_fish.png 640x400 cols=10 rows=5 cell=64x80
+sheet boss_king.png 576x448 cols=6 rows=4 cell=96x112
+image keyart_title.png 1920x1080
+image prop_crate.png 40x40
+image prop_barrel.png 40x48
+image prop_pillar.png 32x64
+image prop_crystal.png 40x56
+image pickup_coin.png 16x16
+image pickup_heart.png 16x16
+image pickup_rice.png 16x16
+image pickup_card.png 20x28
+image proj_cucumber.png 20x10
+image proj_bubble.png 24x24
+image proj_wave.png 32x32
+image proj_slash.png 48x48
+image proj_orbfire.png 24x24
+image fx_ring.png 64x64
+image fx_glow.png 32x32
+image portrait_mutsumi.png 128x128
+image portrait_mortis.png 128x128
+image portrait_murasame.png 128x128
+image portrait_fish.png 128x128
+image portrait_boss.png 192x192
+image icon_weapon_mutsumi.png 32x32
+image icon_weapon_murasame.png 32x32
+image icon_weapon_fish.png 32x32
+image icon_card_magic.png 32x32
+image icon_card_stamina.png 32x32
+image icon_card_intelligence.png 32x32
+image icon_card_hp.png 32x32
+image icon_card_moveSpeed.png 32x32
+image icon_card_charge.png 32x32
+image icon_card_armor.png 32x32
+image icon_card_dodge.png 32x32
+image icon_card_crit.png 32x32

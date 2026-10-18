@@ -1,13 +1,32 @@
 import * as THREE from 'three'
 import { PixelCanvas } from './pixels'
-import { createSpriteMesh, textureFromPixels, type SpriteAnim } from './sprites'
+import { createSpriteMesh, setSpriteFrame, textureFromPixels, type SpriteAnim } from './sprites'
+import { artReady, artTexture, singleFrameAnimFromArt, type ArtKey } from './atlasImport'
 import type { Facing } from '../types'
 
 /**
- * 战斗弹道的程序化像素贴图（无外部素材）。
- * 全部走 textureFromPixels 的最近邻采样，billboard 用 sprites.ts 的 createSpriteMesh 模式。
+ * 战斗弹道的贴图：优先用 AI 原画（assets/art_raw/proj_*.png），
+ * 原画缺失/未加载时回退本文件的程序化像素图。
+ * 两者都走 textureFromPixels/原画的最近邻采样 + createSpriteMesh billboard。
  */
 export type ProjectileArtKind = 'cucumber' | 'bubble' | 'wave' | 'rice' | 'slash'
+
+/** 原画键；按任务约定 rice 没有专属弹道原画，继续走程序化像素图 */
+const ART_KEY: Partial<Record<ProjectileArtKind, ArtKey>> = {
+  cucumber: 'proj_cucumber',
+  bubble: 'proj_bubble',
+  wave: 'proj_wave',
+  slash: 'proj_slash',
+}
+
+/** 原画接入后每种弹道的世界宽度（米）；高度按原画宽高比推出，避免拉伸 */
+const ART_WIDTH: Record<ProjectileArtKind, number> = {
+  cucumber: 0.62,
+  bubble: 0.54,
+  wave: 1.5,
+  slash: 2.8,
+  rice: 0.42,
+}
 
 /** 单帧精灵：四朝向共用同一格 UV */
 function singleFrameAnim(pc: PixelCanvas, worldW: number, worldH: number): SpriteAnim {
@@ -124,30 +143,54 @@ function ricePixels(): PixelCanvas {
 
 interface Art {
   anim: SpriteAnim
+  /** true = 原画（共享纹理，不归本模块释放）；false = 本模块程序化生成 */
+  art: boolean
 }
 
 const cache = new Map<ProjectileArtKind, Art>()
 
-function getArt(kind: ProjectileArtKind): Art {
-  let art = cache.get(kind)
-  if (art) return art
+/** 原画单帧精灵；未加载/缺图返回 null */
+function artAnim(kind: ProjectileArtKind): SpriteAnim | null {
+  const key = ART_KEY[kind]
+  if (!key || !artReady()) return null
+  const tex = artTexture(key)
+  if (!tex) return null
+  const img = tex.image as { width?: number; height?: number } | undefined
+  const w = img?.width ?? 0
+  const h = img?.height ?? 0
+  if (w <= 0 || h <= 0) return null
+  const worldW = ART_WIDTH[kind]
+  return singleFrameAnimFromArt(key, worldW, (worldW * h) / w)
+}
+
+/** 程序化像素图（原画缺失时的回退） */
+function proceduralAnim(kind: ProjectileArtKind): SpriteAnim {
   switch (kind) {
     case 'cucumber':
-      art = { anim: singleFrameAnim(cucumberPixels(), 0.62, 0.32) }
-      break
+      return singleFrameAnim(cucumberPixels(), 0.62, 0.32)
     case 'bubble':
-      art = { anim: singleFrameAnim(bubblePixels(), 0.5, 0.5) }
-      break
+      return singleFrameAnim(bubblePixels(), 0.5, 0.5)
     case 'wave':
-      art = { anim: singleFrameAnim(wavePixels(), 1.5, 1.5) }
-      break
+      return singleFrameAnim(wavePixels(), 1.5, 1.5)
     case 'rice':
-      art = { anim: singleFrameAnim(ricePixels(), 0.42, 0.42) }
-      break
+      return singleFrameAnim(ricePixels(), 0.42, 0.42)
     default:
-      art = { anim: singleFrameAnim(slashPixels(), 2.8, 2.8) }
-      break
+      return singleFrameAnim(slashPixels(), 2.8, 2.8)
   }
+}
+
+function getArt(kind: ProjectileArtKind): Art {
+  const cached = cache.get(kind)
+  // 原画一旦加载完成就替换掉缓存里的回退版本；本就没有原画的种类直接复用
+  if (cached && (cached.art || !ART_KEY[kind])) return cached
+  const fromArt = artAnim(kind)
+  if (fromArt) {
+    const art: Art = { anim: fromArt, art: true }
+    cache.set(kind, art)
+    return art
+  }
+  if (cached) return cached
+  const art: Art = { anim: proceduralAnim(kind), art: false }
   cache.set(kind, art)
   return art
 }
@@ -163,8 +206,10 @@ export function createProjectileMesh(
   scale = 1,
   opts: { color?: number; additive?: boolean; opacity?: number } = {},
 ): THREE.Mesh {
-  const { anim } = getArt(kind)
+  const { anim, art } = getArt(kind)
   const mesh = createSpriteMesh(anim)
+  // 原画纹理 flipY=false：平面默认 UV 会上下颠倒，按图集约定把 v 轴翻过来
+  if (art && anim.texture.flipY === false) setSpriteFrame(mesh, anim, 'down', 0)
   // createSpriteMesh 把原点放在脚底，弹道要绕中心旋转，挪回来
   mesh.geometry.translate(0, -anim.worldH / 2, 0)
   const mat = mesh.material as THREE.MeshBasicMaterial
@@ -180,8 +225,8 @@ export function createProjectileMesh(
   return mesh
 }
 
-/** 整局结束释放共享纹理（Combat.dispose 调一次） */
+/** 整局结束释放共享纹理（Combat.dispose 调一次）；原画纹理由 atlasImport 管理，不在这里释放 */
 export function disposeProjectileArt(): void {
-  for (const art of cache.values()) art.anim.texture.dispose()
+  for (const art of cache.values()) if (!art.art) art.anim.texture.dispose()
   cache.clear()
 }

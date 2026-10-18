@@ -188,7 +188,8 @@ export class Game {
     this.riceStacks = 0
     this.run = makeRunState(character, difficulty)
     audio.resume()
-    audio.bgmStart()
+    audio.startBgm('battle')
+    audio.setBgmIntensity(1)
     this.run.seed = Math.floor(Math.random() * 1e9)
     this.rng = new Rng(this.run.seed)
     this.inventory = new Inventory(12)
@@ -249,7 +250,8 @@ export class Game {
   }
 
   quitToTitle(): void {
-    audio.bgmStop()
+    audio.startBgm('title')
+    audio.setBgmIntensity(0)
     this.cleanupFloor()
     this.player?.dispose()
     this.player = null
@@ -299,6 +301,15 @@ export class Game {
     this.coreClean()
 
     const bossLayer = isBossLayer(diff, layer)
+    // BGM：Boss 层切 boss 曲并拉满强度，普通层回战斗曲
+    if (bossLayer) {
+      audio.startBgm('boss')
+      audio.setBgmIntensity(2)
+    } else {
+      audio.startBgm('battle')
+      audio.setBgmIntensity(1)
+    }
+    audio.duck(false)
     const sceneDef = pickScene(this.run.stage, bossLayer, this.rng)
     this.floor = new TowerFloor(this.scene)
     this.floor.build(sceneDef)
@@ -496,12 +507,14 @@ export class Game {
       this.phase = this.pausedFrom
       this.hud.hidePause()
       this.hud.setPaused(false)
+      audio.duck(false)
       audio.click()
     } else {
       this.pausedFrom = this.phase
       this.paused = true
       this.hud.showPause(listSlots())
       this.hud.setPaused(true)
+      audio.duck(true)
       audio.click()
     }
   }
@@ -971,6 +984,7 @@ export class Game {
     this.rig.shake(0.9)
     this.fx.flash(0.6, 220)
     audio.win()
+    audio.setBgmIntensity(1)
     this.vfx.levelUpBurst(boss.x, boss.z)
     this.vfx.ring(boss.x, boss.z, { color: 0xffd166, radius: 3, life: 1.2, grow: 4 })
     this.vfx.burst(boss.x, boss.z, { color: 0xffd166, count: 40, speed: 9, life: 0.9, size: 0.4 })
@@ -991,6 +1005,8 @@ export class Game {
     if (this.player) this.player.alive = false
     this.fx.hurt(1)
     audio.lose()
+    audio.startBgm('title', { fadeMs: 900 })
+    audio.setBgmIntensity(0)
     this.hud.hideBoss()
     this.fx.setBossMode(false)
     this.hud.showDefeat(reason, this.runStats())
@@ -998,6 +1014,8 @@ export class Game {
 
   private win(): void {
     this.phase = 'victory'
+    audio.startBgm('victory')
+    audio.setBgmIntensity(1)
     audio.win()
     this.hud.showVictory(this.runStats())
   }
@@ -1059,12 +1077,16 @@ export class Game {
     }
     this.bonusActive = true
     this.phase = 'tunnel'
+    audio.startBgm('shop')
+    audio.duck(false)
     this.hud.showTunnelOffers(this.bonusOffers, this.run.layer)
     audio.levelUp()
   }
 
   private openTunnels(): void {
     this.phase = 'tunnel'
+    audio.startBgm('shop')
+    audio.duck(false)
     const boss = isBossLayer(this.run.difficulty, this.run.layer)
     this.tunnelOffers = rollTunnels(
       this.run.layer,
@@ -1134,6 +1156,8 @@ export class Game {
       this.shopOffers = res.shopOffers
       this.shopMode = 'room'
       this.phase = 'shop'
+      audio.startBgm('shop')
+      audio.setBgmIntensity(0)
       this.hud.showShop(this.shopOffers, this.run.gold, REFRESH_COST)
       return
     }
@@ -1159,6 +1183,8 @@ export class Game {
   private startRoomBattle(count: number, elite: number): void {
     this.phase = 'playing'
     this.roomActive = true
+    audio.startBgm('battle')
+    audio.setBgmIntensity(1)
     this.timeLeft = Math.max(this.timeLeft, 45)
     this.layerTotal = count
     this.layerKilled = 0
@@ -1182,6 +1208,8 @@ export class Game {
     this.shopOffers = generateOffers(this.run.layer, this.run.character, this.run.gold, this.rng, 4, this.run.weaponLv)
     this.shopMode = 'standard'
     this.phase = 'shop'
+    audio.startBgm('shop')
+    audio.duck(false)
     this.hud.showShop(this.shopOffers, this.run.gold, REFRESH_COST)
   }
 

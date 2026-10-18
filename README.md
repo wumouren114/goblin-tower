@@ -2,7 +2,7 @@
 
 像素二次元 × 3D 俯视角 × 割草 Roguelike 爬塔。三角色任选，每层限时清空固定数量的哥布林，穿过「时空隧道」三选一，用金币升级专武与增益卡，最终登上塔顶击杀**哥布林之王**。
 
-> 技术栈：Vite + TypeScript(strict) + three.js。所有像素图、场景贴图、粒子、音效均由代码程序化生成，无外部素材、无 CDN、无新增依赖。
+> 技术栈：Vite + TypeScript(strict) + three.js。**外置美术/音频已接入**（AI 原画 `assets/art_raw/` + 自产 WAV `assets/audio/`），运行时缺失会自动回退到程序化生成；无 CDN、无新增依赖。
 
 ## 运行
 
@@ -61,28 +61,51 @@ npm run build      # tsc --noEmit + vite build
 
 ```
 src/
-  game.ts            总控：相位机、层流程、刷怪、Boss、隧道/商店/背包接线、存档
-  main.ts            入口 + URL 调试参数 + 全局报错兜底
+  game.ts            总控：相位机、层流程、刷怪、Boss、隧道/商店/背包接线、存档、BGM 切曲
+  main.ts            入口 + 原画预加载 + URL 调试参数 + 全局报错兜底
   types.ts           全局契约（HudV3 / WorldV3 / RunState / HUD 快照…）
-  core/              input / audio / rng / math / events
+  core/              input / audio（wav 优先 + 合成回退）/ rng / math / events
   data/              balance.json(+ts) / characters.ts / characterRuntime.ts / stages.ts / gameConfig.ts
-  art/               pixels.ts（像素画布）/ characters.ts（4 套角色图集）/ sprites.ts / projectiles.ts / minions.ts
+  art/               pixels.ts（像素画布）/ characters.ts（程序化图集）/ atlasImport.ts（原画加载切图）/ sprites.ts / projectiles.ts / minions.ts
   entities/          player / goblin / boss / pickups
   systems/           combat / attack / projectiles / minions / charge / economy / inventory / shop / tunnels / saveLoad / cameraRig / vfx / screenFx
   world/             floor.ts（WorldV3 实现）/ themes.ts（9 主题）/ props.ts / textures.ts / util.ts
   ui/                hud.ts（标题/选角/隧道/商店/背包/存档/结算 + HUD）/ dom.ts / styles.css
+assets/
+  art_pack/          AI 原画原始交付（豆包出图，勿直接改）
+  art_raw/           scripts/art-normalize.py 归一化后的图集/单图（游戏实际读这里）
+  audio/             scripts/make-audio.mjs 生成的 5 BGM + 18 SFX（22050Hz 单声道 16bit）
 sim/                 simulate.mjs（整局平衡）/ world-smoke / combat-smoke / economy-smoke / art-smoke
-docs/                01 框架 / 02 角色数值 / 03 角色美术规格 / 04 关卡经济 / 05 实现契约 / 06 v3 规则
+scripts/             art-normalize.py / make-audio.mjs / check-art.mjs / check-audio.mjs / shot.mjs / ui-audit.mjs
+docs/                01 框架 / 02 角色数值 / 03 角色美术规格 / 04 关卡经济 / 05 实现契约 / 06 v3 规则 / 07 美术需求 / 08 音频提示词
+```
+
+## 外置资产（原画 / 音频）
+
+**原画**：37 张 AI 原画在 `assets/art_pack/`，`python scripts/art-normalize.py`（或 `npm run art`）会把图集逐格抠残影、按脚底对齐、统一缩放后输出到 `assets/art_raw/`；游戏启动时 `src/art/atlasImport.ts` 预加载这些 PNG 并切图，**缺图/删目录都会自动回退到 `src/art/characters.ts` 的程序化像素图**，不影响启动。
+```bash
+npm run art          # 重新归一化（需要本机 Python + Pillow）
+npm run art:check    # 校验 37 张图尺寸/图集等分（只读 PNG 头，CI 可用）
+```
+替换原画：把同名 PNG 覆盖进 `assets/art_pack/美术资源整合包/` 对应子目录 → 重新跑 `npm run art`。哥布林小怪没有原画，仍用程序化图集。
+
+**音频**：`assets/audio/` 里的 5 首 BGM（title / battle / boss / shop / victory）和 18 个音效全部由 `scripts/make-audio.mjs` 离线合成（零依赖、固定种子、逐字节可复现），运行时按曲目切歌、暂停压音量，缺文件自动回退旧程序化音效。
+```bash
+npm run audio        # 重新渲染全部 WAV（约 1 秒，6.5MB）
+npm run audio:check  # 格式/哈希/时长/电平/循环接缝/源码接线自检
 ```
 
 ## 自检
 
 ```bash
 npx tsc --noEmit
+npm run smoke                 # 依次跑下面四套
 node sim/world-smoke.mjs      # 488 断言：9 场景构建/碰撞/撒点/drawcall/dispose
 node sim/combat-smoke.mjs     # 50 断言：普攻/暴击/技能/变身/召唤物/专武
 node sim/economy-smoke.mjs    # 37 断言：金币曲线/商店/隧道权重/背包合成/三槽存档
-node sim/art-smoke.mjs        # 16 断言：4 套图集 50 格/描边/色相区分/缓存
+node sim/art-smoke.mjs        # 18 断言：程序化图集 50 格/描边/色相区分/缓存
+npm run art:check             # 37 张原画尺寸/等分
+npm run audio:check           # 23 个 WAV 格式/电平/循环接缝
 node sim/simulate.mjs --runs 500 --difficulty hard
 ```
 
@@ -98,7 +121,9 @@ node sim/simulate.mjs --runs 500 --difficulty hard
 
 ## 已知限制
 
-- 音效为 WebAudio 程序合成，没有 BGM；画面为低多边形 + 像素 billboard，非全 3D 模型。
+- 小怪（哥布林 small/brute/elite/caster）没有原画，仍用程序化像素图集；角色/王/道具/拾取物/弹道/UI 已用 AI 原画。
+- AI 原画切图已做逐格抠残影 + 脚底对齐，个别帧边缘仍有 ~10px 头发残片（原始出图每帧比格子宽），不影响操作。
+- BGM/SFX 为脚本离线合成（chiptune 风格），不是人工作曲；删掉 `assets/audio/` 会静默回退到旧的 WebAudio 合成音。
 - 难度平衡来自模拟模型（非真人操作数据），超时失败在模拟中几乎不触发。
 - 本机沙箱内 `vite dev` 可能因 `spawn EPERM` 失败，这是沙箱限制，真实环境正常。
 - `scripts/recover-game.mjs`、`scripts/recover-hud.mjs` 是 PowerShell 以 GBK 覆写 UTF-8 源码后，从 DSH 会话日志回放恢复文件的急救脚本，保留作工具。

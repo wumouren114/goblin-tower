@@ -7,7 +7,12 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 4173"
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "art": "python scripts/art-normalize.py",
+    "art:check": "node scripts/check-art.mjs",
+    "audio": "node scripts/make-audio.mjs",
+    "audio:check": "node scripts/check-audio.mjs",
+    "smoke": "node sim/world-smoke.mjs && node sim/combat-smoke.mjs && node sim/economy-smoke.mjs && node sim/art-smoke.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"
