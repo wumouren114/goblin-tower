@@ -369,18 +369,34 @@ export class Player {
 
   private animate(dt: number, runFactor: number): void {
     this.animClock += dt
+    const dash = this.dashTimeLeft > 0
+    const moving = dash || runFactor > 0
     let frame: number
-    if (this.dashTimeLeft > 0) {
-      frame = 2 + (Math.floor(this.animClock * 18) % 4)
+    let phase = 0
+    if (dash) {
+      const t = this.animClock * 16
+      frame = 2 + (Math.floor(t) % 4)
+      phase = (t % 4) / 4
     } else if (runFactor > 0) {
-      // 跑动帧率随移速提高，加速词条能看出来更快
-      const runFps = Math.max(7, this.stats.moveSpeed * 1.5)
-      frame = 2 + (Math.floor(this.animClock * runFps) % 4)
+      // 跑动帧率随移速提高（≈15~18fps，之前 7fps 像幻灯片）
+      const runFps = 11 + this.stats.moveSpeed * 1.1
+      const t = this.animClock * runFps
+      frame = 2 + (Math.floor(t) % 4)
+      phase = (t % 4) / 4
     } else {
       frame = Math.floor(this.animClock * 2.2) % 2
     }
     setSpriteFrame(this.sprite, this.anim, this.facing, frame)
     this.sprite.rotation.y = getBillboardYaw()
+
+    // 原画只有 4 张跑动帧，单靠换图仍然像轮播：叠一层程序化「跨步」
+    // —— 交替的小跳 + 左右微倾 + 触地压扁，让 4 帧之间连续起来
+    const wave = Math.sin(phase * Math.PI * 2)
+    const bounce = moving ? Math.abs(wave) : 0
+    this.sprite.position.y = bounce * (dash ? 0.07 : 0.045)
+    this.sprite.rotation.z = moving ? wave * (dash ? 0.10 : 0.045) : 0
+    const squash = moving ? 1 - bounce * 0.03 : 1
+    this.sprite.scale.set(1 + (1 - squash) * 0.7, squash, 1)
   }
 
   private updateVisuals(dt: number): void {
