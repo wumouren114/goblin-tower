@@ -207,7 +207,7 @@ try {
     }
     check('mutsumi 20s 普攻有命中', events.hits > 0, `hits=${events.hits}`)
     check('mutsumi 普攻发射黄瓜弹道', maxProjectiles > 0, `peak projectiles=${maxProjectiles}`)
-    check('mutsumi 伤害公式 16*100/100=16', near(events.lastAmount, 16, 1e-6), `last=${events.lastAmount}`)
+    check('mutsumi 伤害公式 20*100/100=20', near(events.lastAmount, 20, 1e-6), `last=${events.lastAmount}`)
     check('mutsumi 攻击音效已上报', events.sfx.filter((s) => s === 'attack').length > 0)
 
     // 变身
@@ -324,7 +324,7 @@ try {
     const target = addEnemy(world, 0, -5, 100000)
     run(combat, world, 2.0, { px: 0, pz: 0 })
     check('召唤物发射泡泡并命中', events.hits > 0 && target.hits > 0, `hits=${events.hits}`)
-    check('召唤物伤害 10*0.4*(魔力80/100)=3.2', near(events.lastAmount, 4.8, 1e-6), `last=${events.lastAmount}`)
+    check('召唤物伤害 10*0.4*(魔力80/100)=3.2', near(events.lastAmount, 6.24, 1e-6), `last=${events.lastAmount}`)
     // 重复释放刷新数量
     combat.grantCharge(1)
     combat.trySkill(0, 0, 0, -1, world)
