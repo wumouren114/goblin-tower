@@ -623,6 +623,11 @@ export class TextureBook {
   constructor(readonly theme: ThemeLike) {
     const seed = 0x1b873593 ^ (theme.name.length * 7919) ^ (theme.floorColor & 0xffff)
     this.floor = this.reg(makeFloorTexture(theme, seed))
+    // 地面是大幅重复贴图：线性 mipmap 比最近邻更稳，避免转动镜头时格子边缘跳动
+    this.floor.magFilter = THREE.LinearFilter
+    this.floor.minFilter = THREE.LinearMipmapLinearFilter
+    this.floor.anisotropy = 16
+    this.floor.needsUpdate = true
     this.wall = this.reg(makeWallTexture(theme, seed ^ 0x9e3779b9))
     this.rune = this.reg(makeRuneTexture(theme, seed ^ 0x85ebca6b))
     this.doorLocked = this.reg(makeDoorTexture(theme, false))

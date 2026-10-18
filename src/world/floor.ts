@@ -596,7 +596,7 @@ export class TowerFloor implements WorldV3 {
   private buildMotes(half: number, wallH: number, tex: TextureBook): void {
     const theme = this.theme
     if (!theme) return
-    const count = 110
+    const count = 40
     const pos = new Float32Array(count * 3)
     this.moteBase = new Float32Array(count * 3)
     this.motePhase = new Float32Array(count)
@@ -618,9 +618,9 @@ export class TowerFloor implements WorldV3 {
     const mat = new THREE.PointsMaterial({
       map: tex.mote,
       color: mixHex(theme.accentColor, 0xffffff, 0.6),
-      size: 0.14,
+      size: 0.1,
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.3,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       sizeAttenuation: true,
@@ -644,16 +644,15 @@ export class TowerFloor implements WorldV3 {
     // 祭坛符文旋转 + 晶体呼吸
     if (this.altarRune) {
       this.altarRune.rotation.z = t * 0.12
-      const pulse = 0.62 + Math.sin(t * 1.5) * 0.1
       const mat = this.altarRune.material as THREE.MeshBasicMaterial
-      mat.opacity = pulse
+      mat.opacity = 0.66
     }
     if (this.crystal) {
       this.crystal.rotation.y = t * 0.55
       this.crystal.position.y = this.crystalBaseY + Math.sin(t * 1.1) * 0.12
     }
     if (this.altarLight) {
-      this.altarLight.intensity = 9 + Math.sin(t * 3.1) * 1.4 + Math.sin(t * 8.3) * 0.6
+      this.altarLight.intensity = 9
     }
 
     // 火把：火焰缩放抖动 + 真实点光源闪烁
@@ -666,13 +665,13 @@ export class TowerFloor implements WorldV3 {
         Math.sin(t * 2.3 + s * 0.4) * 0.02
       torch.flame.scale.set(0.42 + f * 0.1, 0.7 + f * 0.22, 1)
       if (torch.light) {
-        torch.light.intensity = torch.baseIntensity * (0.92 + (f - 0.95) * 1.1)
+        torch.light.intensity = torch.baseIntensity
       }
     }
 
     // 熔岩/冰晶等主题自发光材质呼吸
     if (this.props && this.props.pulse) {
-      this.props.pulse.emissiveIntensity = 1.35 + Math.sin(t * 1.7) * 0.32 + Math.sin(t * 4.3) * 0.12
+      this.props.pulse.emissiveIntensity = 1.35
     }
 
     // 浮尘缓慢漂移
