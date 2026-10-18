@@ -277,6 +277,9 @@ export class Game {
   // ---------- 楼层 ----------
 
   private enterLayer(layer: number, restoring = false): void {
+    // 进层先把 Boss 血条/狂暴色调清掉，避免调试跳层时残留
+    this.hud.hideBoss()
+    this.fx.setBossMode(false)
     const diff = this.run.difficulty
     const total = layerCount(diff)
     this.run.layer = layer
@@ -493,10 +496,13 @@ export class Game {
     if (!this.floor) return
     const half = this.floor.halfSize
     const cp = this.camera.position
-    this.floor.setWallHidden('south', cp.z > half - 1)
-    this.floor.setWallHidden('north', cp.z < -(half - 1))
-    this.floor.setWallHidden('east', cp.x > half - 1)
-    this.floor.setWallHidden('west', cp.x < -(half - 1))
+    this.floor.setWallHidden('south', cp.z > half - 1.5)
+    this.floor.setWallHidden('north', cp.z < -(half - 1.5))
+    this.floor.setWallHidden('east', cp.x > half - 1.5)
+    this.floor.setWallHidden('west', cp.x < -(half - 1.5))
+    // 角柱很高，贴边时最容易被它糊住，相机一贴边就把四角塔柱一起隐藏
+    const nearEdge = Math.abs(cp.x) > half - 4 || Math.abs(cp.z) > half - 4
+    this.floor.setPillarsHidden(nearEdge)
   }
 
   private updateAim(): void {
@@ -1345,7 +1351,7 @@ export class Game {
       chargeGain: c.chargeGain ?? 0,
       armor: 0,
       armorRate: Math.min(0.6, c.armor ?? 0),
-      dodge: Math.min(0.3, (c.dodge ?? 0) + ((tier.dodgeChance as number) ?? 0)),
+      dodge: Math.min(0.24, (c.dodge ?? 0) + ((tier.dodgeChance as number) ?? 0)),
       critChance: Math.min(0.6, 0.08 + (c.crit ?? 0)),
       critMultiplier: 1.8,
       pickupRadius: 2.0,

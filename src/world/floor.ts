@@ -68,6 +68,8 @@ export class TowerFloor implements WorldV3 {
   private wallMeshes: Partial<Record<'south' | 'north' | 'east' | 'west', THREE.Mesh>> = {}
   private corniceMeshes: Partial<Record<'south' | 'north' | 'east' | 'west', THREE.Mesh>> = {}
   private wallMat: THREE.MeshStandardMaterial | null = null
+  private keyLight: THREE.DirectionalLight | null = null
+  private pillarMeshes: THREE.InstancedMesh[] = []
 
   private altarRune: THREE.Mesh | null = null
   private crystal: THREE.Mesh | null = null
@@ -148,6 +150,7 @@ export class TowerFloor implements WorldV3 {
     key.target.position.set(0, 0, 0)
     this.root.add(key)
     this.root.add(key.target)
+    this.keyLight = key
 
     // 冷色补光（不投影），拉开体积感
     const fill = new THREE.DirectionalLight(mixHex(theme.fogColor, 0x8fb4e6, 0.55), 0.42)
@@ -245,9 +248,12 @@ export class TowerFloor implements WorldV3 {
         this.propColliders.push({ x: px, z: pz, r: 1.35 })
       }
     }
-    this.root.add(this.instanced(shaftGeo, pillarMat, shaftMats, true))
-    this.root.add(this.instanced(baseGeo, pillarMat, baseMats, true))
-    this.root.add(this.instanced(capGeo, pillarCapMat, capMats, true))
+    this.pillarMeshes = [
+      this.instanced(shaftGeo, pillarMat, shaftMats, true),
+      this.instanced(baseGeo, pillarMat, baseMats, true),
+      this.instanced(capGeo, pillarCapMat, capMats, true),
+    ]
+    for (const m of this.pillarMeshes) this.root.add(m)
 
     /* ---------------- 出生锚点（必须在道具之前） ---------------- */
     this.spawnPoints = makeSpawnPoints(half)
@@ -271,6 +277,7 @@ export class TowerFloor implements WorldV3 {
     this.buildMotes(half, wallH, tex)
 
     this.time = 0
+    this.freezeShadows()
     this.built = true
   }
 
@@ -505,7 +512,7 @@ export class TowerFloor implements WorldV3 {
       const scale = rng.range(0.88, 1.16)
       const rot = rng.range(0, Math.PI * 2)
       placements.push({ x, z, scale, rot, kind })
-      this.propColliders.push({ x, z, r: kind.colliderR * scale * 0.98 })
+      this.propColliders.push({ x, z, r: kind.colliderR * scale * 0.78 })
     }
 
     // 放射状三环布置：内环 → 外环，形成对称放射构图
@@ -801,6 +808,27 @@ export class TowerFloor implements WorldV3 {
     if (m) m.visible = !hidden
     const c = this.corniceMeshes[side]
     if (c) c.visible = !hidden
+  }
+
+  /** 相机退到墙外时逐面隐藏 + 同时隐藏四角塔柱，避免任何方向挡视线 */
+  setOutdoorView(hidden: boolean): void {
+    for (const side of ['south', 'north', 'east', 'west'] as const) {
+      this.setWallHidden(side, hidden)
+    }
+    for (const m of this.pillarMeshes) m.visible = !hidden
+  }
+
+  /** 只隐藏塔柱（相机贴边时角柱最容易糊住角色） */
+  setPillarsHidden(hidden: boolean): void {
+    for (const m of this.pillarMeshes) m.visible = !hidden
+  }
+
+  /** 方向光阴影冻结（场景静态，避免每帧重算导致地面阴影闪烁） */
+  freezeShadows(): void {
+    const light = this.keyLight
+    if (!light) return
+    light.shadow.autoUpdate = false
+    light.shadow.needsUpdate = true
   }
 
   /** 0 = 实体墙，1 = 完全透明（相机退到墙外时调用） */
