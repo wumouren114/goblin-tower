@@ -1,7 +1,7 @@
 import * as THREE from 'three'
-import type { Facing } from '../types'
+import type { CharacterId, Facing } from '../types'
 import { PixelCanvas, type AtlasData } from './pixels'
-import { buildGoblinAtlas, buildKingAtlas, buildPlayerAtlas, type GoblinKind } from './characters'
+import { buildCharacterAtlas, buildGoblinAtlas, buildKingAtlas, type GoblinKind } from './characters'
 
 /**
  * 像素精灵的 three.js 包装层。
@@ -10,8 +10,8 @@ import { buildGoblinAtlas, buildKingAtlas, buildPlayerAtlas, type GoblinKind } f
  * 所有同类实体共享同一张 CanvasTexture；每个实体只克隆一个 4 顶点的 PlaneGeometry，
  * 用它自己的 UV 指向图集里的某一格，因此 140 只哥布林同屏也不会重复上传纹理。
  *
- * 图集布局（由 characters.ts 决定）：列 = 帧（idleA / idleB / runA / runB），
- * 行 = 朝向（down / up / left / right）。
+ * 图集布局（由 characters.ts 决定）：列 = 帧（idleA / idleB / run1-4 / attack1-3 / hurt），
+ * 行 = 朝向（down / up / left / right）+ 第 5 行技能态。
  */
 export interface SpriteAnim {
   texture: THREE.CanvasTexture
@@ -24,7 +24,6 @@ export interface SpriteAnim {
   worldH: number
 }
 
-const FRAME_COUNT = 4
 const ROW_OF: Record<Facing, number> = { down: 0, up: 1, left: 2, right: 3 }
 
 const spriteCache = new Map<string, SpriteAnim>()
@@ -80,7 +79,7 @@ function atlasToAnim(atlas: AtlasData): SpriteAnim {
   for (const facing of Object.keys(ROW_OF) as Facing[]) {
     const row = ROW_OF[facing]
     const list: { offsetX: number; offsetY: number }[] = []
-    for (let col = 0; col < FRAME_COUNT; col++) {
+    for (let col = 0; col < atlas.cols; col++) {
       list.push({ offsetX: col / atlas.cols, offsetY: row / atlas.rows })
     }
     frames[facing] = list
@@ -95,12 +94,16 @@ function atlasToAnim(atlas: AtlasData): SpriteAnim {
   }
 }
 
-/** 主角图集（缓存） */
-export function playerSprite(): SpriteAnim {
-  let anim = spriteCache.get('player')
+/**
+ * 主角图集（按角色 id 缓存）：mutsumi / murasame / fish / mortis。
+ * 每个角色 5×10 帧，外观见 characters.ts。
+ */
+export function playerSprite(id: CharacterId | 'mortis' = 'mutsumi'): SpriteAnim {
+  const key = `player-${id}`
+  let anim = spriteCache.get(key)
   if (!anim) {
-    anim = atlasToAnim(buildPlayerAtlas())
-    spriteCache.set('player', anim)
+    anim = atlasToAnim(buildCharacterAtlas(id))
+    spriteCache.set(key, anim)
   }
   return anim
 }
@@ -158,7 +161,8 @@ export function createSpriteMesh(anim: SpriteAnim): THREE.Mesh {
  */
 export function setSpriteFrame(mesh: THREE.Mesh, anim: SpriteAnim, facing: Facing, frame: number): void {
   const list = anim.frames[facing] ?? anim.frames.down
-  const f = list[((frame % FRAME_COUNT) + FRAME_COUNT) % FRAME_COUNT]
+  const count = list.length
+  const f = list[((frame % count) + count) % count]
   const col = Math.round(f.offsetX * anim.cols)
   const row = Math.round(f.offsetY * anim.rows)
   const u0 = col / anim.cols

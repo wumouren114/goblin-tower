@@ -1,9 +1,12 @@
 {
-  "_comment": "哥布林之塔 · 关卡与经济数值唯一数据源（docs/04 的实现口径）。修改后跑 node sim/simulate.mjs 复验困难模式通关率。",
+  "_comment": "哥布林之塔 · 关卡与经济数值唯一数据源（docs/04 的实现口径）。v3：无经验系统，怪物数量固定，超时判负。修改后跑 node sim/simulate.mjs 复验。",
   "meta": {
-    "version": 2,
+    "version": 3,
     "layerTimerSeconds": 60,
-    "bossTimerSeconds": 90
+    "bossTimerSeconds": 90,
+    "timeoutIsDefeat": true,
+    "monsterCountIsFixed": true,
+    "note": "每层怪物总数固定（= quota 字段），刷完即止；限时内清完才通关，超时判负"
   },
   "difficulties": {
     "easy": {
@@ -40,8 +43,8 @@
         5,
         5
       ],
-      "hpMul": 1.5,
-      "damageMul": 1.5,
+      "hpMul": 1.35,
+      "damageMul": 1.35,
       "spawnMul": 1.2,
       "goldMul": 1.05,
       "xpMul": 0.95,
@@ -54,8 +57,8 @@
     "mobHpPerLayer": 0.55,
     "mobDamageBase": 6,
     "mobDamagePerLayer": 0.2,
-    "quotaBase": 34,
-    "quotaPerLayer": 6.5,
+    "quotaBase": 30,
+    "quotaPerLayer": 5,
     "spawnIntervalBase": 0.9,
     "spawnIntervalDecay": 0.032,
     "spawnIntervalMin": 0.4,
@@ -63,16 +66,17 @@
     "maxAliveBase": 18,
     "maxAlivePerLayer": 2,
     "maxAliveCap": 48,
-    "clearGoldBase": 30,
-    "clearGoldPerLayer": 8,
+    "clearGoldBase": 60,
+    "clearGoldPerLayer": 14,
     "goldPerKillBase": 1,
-    "goldPerKillEveryLayers": 5,
+    "goldPerKillEveryLayers": 4,
     "xpPerKillBase": 3,
     "xpPerKillPerLayer": 0.5,
     "bossHpBase": 520,
     "bossHpPerLayer": 0.55,
     "timeoutHpPenaltyRatio": 0.25,
-    "timeoutSkipsReward": true
+    "timeoutSkipsReward": true,
+    "quotaNote": "quota = 本层固定怪物总数，不再随时间无限刷新"
   },
   "portals": {
     "count": 3,
@@ -95,11 +99,11 @@
     },
     "lastLayerOfStageBossChance": 1,
     "otherBattleBossChance": 0,
-    "chestGoldBase": 40,
-    "chestGoldPerLayer": 6,
+    "chestGoldBase": 80,
+    "chestGoldPerLayer": 14,
     "chestCardChance": 0.5,
-    "mobWaveGoldMul": 1.5,
-    "eliteFightGoldMul": 2.2,
+    "mobWaveGoldMul": 1.2,
+    "eliteFightGoldMul": 1.8,
     "altarBaseCost": 30,
     "altarCostStep": 15
   },
@@ -159,7 +163,7 @@
       "stat": "magic",
       "value": 18,
       "basePrice": 55,
-      "maxStacks": 12,
+      "maxStacks": 17,
       "desc": "魔力 +18（伤害 +18% 基准）"
     },
     {
@@ -168,7 +172,7 @@
       "stat": "stamina",
       "value": 16,
       "basePrice": 50,
-      "maxStacks": 12,
+      "maxStacks": 17,
       "desc": "耐力 +16（攻速 +16%）"
     },
     {
@@ -177,7 +181,7 @@
       "stat": "intelligence",
       "value": 12,
       "basePrice": 40,
-      "maxStacks": 10,
+      "maxStacks": 14,
       "desc": "智力 +12（范围 +12%）"
     },
     {
@@ -186,7 +190,7 @@
       "stat": "hp",
       "value": 25,
       "basePrice": 45,
-      "maxStacks": 12,
+      "maxStacks": 17,
       "desc": "生命上限 +25 并立即回复"
     },
     {
@@ -195,7 +199,7 @@
       "stat": "moveSpeed",
       "value": 0.25,
       "basePrice": 40,
-      "maxStacks": 10,
+      "maxStacks": 14,
       "desc": "移速 +0.25"
     },
     {
@@ -204,8 +208,35 @@
       "stat": "chargeMax",
       "value": -8,
       "basePrice": 50,
-      "maxStacks": 8,
+      "maxStacks": 11,
       "desc": "技能所需充能 -8"
+    },
+    {
+      "id": "armor",
+      "name": "铁鳞甲片",
+      "stat": "armor",
+      "value": 0.03,
+      "basePrice": 55,
+      "maxStacks": 10,
+      "desc": "受到的伤害 -3%"
+    },
+    {
+      "id": "dodge",
+      "name": "疾影护符",
+      "stat": "dodge",
+      "value": 0.03,
+      "basePrice": 60,
+      "maxStacks": 8,
+      "desc": "闪避率 +3%（上限 24%）"
+    },
+    {
+      "id": "chargeGain",
+      "name": "猎手徽记",
+      "stat": "chargeGain",
+      "value": 0.08,
+      "basePrice": 45,
+      "maxStacks": 8,
+      "desc": "击杀获得充能 +8%"
     }
   ],
   "skillCards": [
@@ -465,50 +496,11 @@
     "maxMergeTier": 3,
     "note": "两张同等级同种物品合成下一级（数值 ×2）；装备与增益卡共用格子"
   },
-  "levelCards": {
-    "xpPerLevelBase": 9,
-    "xpPerLevelGrowth": 1.27,
-    "cards": [
-      {
-        "stat": "magic",
-        "value": 14,
-        "weight": 22
-      },
-      {
-        "stat": "stamina",
-        "value": 12,
-        "weight": 20
-      },
-      {
-        "stat": "hp",
-        "value": 20,
-        "weight": 16
-      },
-      {
-        "stat": "intelligence",
-        "value": 9,
-        "weight": 14
-      },
-      {
-        "stat": "armor",
-        "value": 0.035,
-        "weight": 10
-      },
-      {
-        "stat": "chargeGain",
-        "value": 0.08,
-        "weight": 8
-      },
-      {
-        "stat": "moveSpeed",
-        "value": 0.2,
-        "weight": 6
-      },
-      {
-        "stat": "dashCooldown",
-        "value": -0.12,
-        "weight": 4
-      }
-    ]
+  "save": {
+    "slots": 3,
+    "storageKey": "goblin-tower-save-v3",
+    "autosaveOnLayerStart": true,
+    "autosaveOnShopExit": true,
+    "note": "每层开始时自动存档；标题页可「继续游戏」，暂停菜单可手动存/读档"
   }
 }

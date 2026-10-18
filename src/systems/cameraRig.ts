@@ -50,6 +50,13 @@ export class CameraRig {
     this.distanceMul = THREE.MathUtils.clamp(this.distanceMul * (1 + wheel * 0.07), 0.72, 1.45)
   }
 
+  /** 按场地半边长收紧镜头距离，避免相机退到墙外被遮挡 */
+  fitForArena(halfSize: number): void {
+    const base = CONFIG.camera.modes[this.mode].distance
+    const want = Math.min(base, halfSize * 0.62)
+    this.distanceMul = THREE.MathUtils.clamp(want / base, 0.5, 1.45)
+  }
+
   shake(amount: number): void {
     this.shakeAmt = Math.min(1.1, this.shakeAmt + amount)
   }

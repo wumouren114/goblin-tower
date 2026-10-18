@@ -1,57 +1,119 @@
-import { createHud } from './ui/hud'
+import './styles.css'
+import { createHud, type HudV3 } from './ui/hud'
 import { Game } from './game'
-import type { HudHandlers } from './types'
+import type { CharacterId, DifficultyId } from './types'
 
-const canvas = document.getElementById('game') as HTMLCanvasElement | null
-
-function showFatal(title: string, detail: string): void {
-  const old = document.getElementById('fatal-overlay')
-  if (old) old.remove()
-  const box = document.createElement('div')
-  box.id = 'fatal-overlay'
-  box.style.cssText =
-    'position:fixed;inset:0;display:flex;flex-direction:column;gap:14px;align-items:center;justify-content:center;padding:32px;color:#ffd9a0;background:rgba(14,9,18,.94);font-family:"Microsoft YaHei",sans-serif;text-align:center;white-space:pre-wrap;z-index:99999;line-height:1.6'
-  box.textContent = `${title}\n\n${detail}\n\n建议使用最新版 Edge / Chrome，并确认浏览器已开启硬件加速。`
-  document.body.appendChild(box)
+function fatal(message: string): void {
+  let el = document.getElementById('fatal-overlay')
+  if (!el) {
+    el = document.createElement('div')
+    el.id = 'fatal-overlay'
+    el.style.cssText =
+      'position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:#0b0d0c;color:#f3d9a4;font-family:system-ui,sans-serif;padding:32px;text-align:center'
+    document.body.appendChild(el)
+  }
+  el.innerHTML = `<h2 style="margin:0">游戏启动失败</h2><pre style="max-width:80vw;white-space:pre-wrap;color:#ff8f8f">${message}</pre><p style="opacity:.7">建议使用 Edge / Chrome 并开启硬件加速。</p>`
 }
 
-window.addEventListener('error', (event) => {
-  showFatal('运行时报错', String(event.message))
+window.onerror = (_e, _src, _line, _col, err) => {
+  fatal(err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err))
+}
+window.addEventListener('unhandledrejection', (ev) => {
+  const r = ev.reason as unknown
+  fatal(r instanceof Error ? `${r.message}\n${r.stack ?? ''}` : String(r))
 })
-window.addEventListener('unhandledrejection', (event) => {
-  showFatal('未处理的异步错误', String(event.reason))
-})
+
+const canvas = document.getElementById('game') as HTMLCanvasElement | null
+if (!canvas) {
+  fatal('找不到 #game canvas')
+  throw new Error('canvas missing')
+}
 
 let game: Game | null = null
 
-const handlers: HudHandlers = {
-  onStart: (difficulty) => game?.startRun(difficulty),
-  onUpgradePick: (id) => game?.chooseUpgrade(id),
-  onRestart: () => game?.restart(),
-}
+const hud: HudV3 = createHud({
+  onStart: (character, difficulty) => game?.startRun(character, difficulty),
+  onContinue: (slot) => game?.continueRun(slot),
+  onTunnelPick: (id) => game?.pickTunnel(id),
+  onShopBuy: (id) => game?.buyOffer(id),
+  onShopRefresh: () => game?.refreshShop(),
+  onShopClose: () => game?.leaveShop(),
+  onOpenInventory: () => game?.openInventory(),
+  onCloseInventory: () => game?.closeInventory(),
+  onMergeItem: (a, b) => game?.mergeItems(a, b),
+  onUseItem: (uid) => game?.useItem(uid),
+  onSave: (slot) => game?.manualSave(slot),
+  onLoad: (slot) => game?.manualLoad(slot),
+  onPauseToggle: () => game?.togglePausePublic(),
+  onRestart: () => game?.quitToTitle(),
+  onQuitToTitle: () => game?.quitToTitle(),
+})
 
-if (!canvas) {
-  showFatal('启动失败', '找不到 #game 画布，index.html 可能未正确加载')
-} else {
-  try {
-    const hud = createHud(handlers)
-    game = new Game(canvas, hud)
-    game.showTitle()
-    // 便于调试：控制台可访问当前游戏实例
-    ;(window as unknown as { __goblinTower?: Game }).__goblinTower = game
+try {
+  game = new Game(canvas, hud)
+  game.quitToTitle()
+  ;(window as unknown as { __goblinTower: Game | null }).__goblinTower = game
 
-    // 联调/截图入口：?autostart=normal&floor=3 可直接进入指定层
-    const params = new URLSearchParams(window.location.search)
-    const autostart = params.get('autostart')
-    if (autostart === 'casual' || autostart === 'normal' || autostart === 'nightmare') {
-      const floor = Math.min(5, Math.max(1, Number(params.get('floor') ?? '1') || 1))
-      game.debugJump(floor, autostart)
-    }
-    // 联调/截图入口：?warmup=20 会先以固定步长快进 20 秒模拟
-    const warmup = Number(params.get('warmup') ?? '0')
-    if (Number.isFinite(warmup) && warmup > 0) game.debugAdvance(Math.min(warmup, 600))
-  } catch (err) {
-    console.error('[GoblinTower] 启动失败', err)
-    showFatal('游戏启动失败', String((err as Error)?.stack ?? err))
+  // 调试入口：?char=mutsumi|murasame|fish &autostart=easy|normal|hard &floor=N &warmup=秒
+  const params = new URLSearchParams(location.search)
+  const char = (params.get('char') ?? 'mutsumi') as CharacterId
+  const diff = (params.get('autostart') ?? '') as DifficultyId | ''
+  const floor = Number(params.get('floor') ?? '1')
+  const warmup = Number(params.get('warmup') ?? '0')
+  if (diff) {
+    game.debugJump(Number.isFinite(floor) ? floor : 1, diff, char)
+    if (params.get('autoattack') === '1') game.debugAutoAttack(true)
+    if (warmup > 0) game.debugAdvance(warmup)
   }
+  if (params.get('debug') === '1') {
+    const box = document.createElement('pre')
+    box.id = 'debug-overlay'
+    box.style.cssText = 'position:fixed;left:8px;bottom:60px;z-index:99999;color:#0f0;font:11px monospace;background:#000a;padding:6px;max-width:520px;white-space:pre-wrap'
+    document.body.appendChild(box)
+    const g = (window as any).__goblinTower as Record<string, any>
+    box.textContent = JSON.stringify(
+      {
+        phase: g.phase,
+        layer: g.run?.layer,
+        stage: g.run?.stage,
+        boss: g.boss ? { hp: g.boss.hp, max: g.boss.maxHp, x: g.boss.x, z: g.boss.z, alive: g.boss.alive } : null,
+        goblins: g.goblins?.length,
+        total: g.layerTotal,
+        killed: g.layerKilled,
+        timeLeft: Math.round(g.timeLeft ?? 0),
+        char: g.run?.character,
+        weapon: g.run?.weaponLv,
+        gold: g.run?.gold,
+        hp: Math.round(g.player?.hp ?? 0),
+        transform: g.combat?.transformActive,
+        bossGroup: g.boss?.group ? { visible: g.boss.group.visible, children: g.boss.group.children.length, y: g.boss.group.position.y } : null,
+        bossSprite: g.boss?.sprite
+          ? {
+              visible: g.boss.sprite.visible,
+              x: Number(g.boss.sprite.position.x.toFixed(2)),
+              y: Number(g.boss.sprite.position.y.toFixed(2)),
+              z: Number(g.boss.sprite.position.z.toFixed(2)),
+              sx: Number(g.boss.sprite.scale.x.toFixed(2)),
+              sy: Number(g.boss.sprite.scale.y.toFixed(2)),
+              opacity: g.boss.mat?.opacity,
+              hasMap: !!g.boss.sprite.material?.map,
+            }
+          : null,
+        bossBar: (() => {
+          const bar = document.querySelector('.boss-bar')
+          if (!bar) return null
+          const cs = getComputedStyle(bar)
+          return { cn: bar.className, hidden: bar.hasAttribute('hidden'), opacity: cs.opacity, visibility: cs.visibility, display: cs.display }
+        })(),
+      },
+      null,
+      1,
+    )
+  }
+
+  const screen = params.get('screen')
+  if (screen) game.debugScreen(screen)
+} catch (err) {
+  fatal(err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err))
+  throw err
 }

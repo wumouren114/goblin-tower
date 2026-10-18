@@ -1,61 +1,59 @@
 /**
- * 哥布林之塔 · UI 模块
- * ------------------------------------------------------------
- * 唯一对外入口：createHud(handlers) -> Hud
- * 负责：标题页 / HUD / 升级三选一 / Boss 血条 / 飘字 / 楼层横幅 /
- *       交互提示 / Toast / 结算 / 暂停 / 静音角标。
+ * 哥布林之塔 v3 · UI 层
  *
  * 约定：
- * - 所有 DOM 只在 createHud 内创建一次，update() 只做文本与 transform 更新；
- * - #ui-root 整体 pointer-events:none，只有标题、升级、结算等全屏界面在打开时
- *   重新开启 pointer-events（见 styles.css），因此不会拦截鼠标拖拽视角；
- * - 飘字需要 setCamera(camera) 注入相机，每帧 update 时把世界坐标投影到屏幕。
+ * - 界面切换只改 class（.is-open），不重建 DOM；update() 每帧只改文本和宽度。
+ * - 所有动态卡片（难度/角色/隧道/商店/背包格）构造时预创建，之后复用节点。
+ * - 不再显示经验条、等级、楼梯 —— v3 用「击杀进度 / 倒计时 / 技能充能」代替。
  */
 
 import * as THREE from 'three'
 import type {
+  CardStat,
+  CharacterId,
+  DefeatReason,
   DifficultyId,
-  HudHandlers,
   HudSnapshot,
-  RunStats,
-  UpgradeDef,
+  HudV3,
+  HudV3Handlers,
+  InventoryItem,
+  RunStatsV3,
+  SaveSlotMeta,
+  ShopOffer,
+  TunnelOffer,
+  TunnelRoom,
+  TunnelType,
 } from '../types'
-import { DIFFICULTY } from '../data/gameConfig'
-import { RARITY_LABEL } from '../data/upgrades'
-import { clamp01, div, el, fmtInt, fmtTime, restartAnim, setBarFill, setText, span } from './dom'
+import { CHARACTERS } from '../data/characters'
+import { BALANCE, DIFFICULTIES, DIFFICULTY_IDS } from '../data/balance'
+import {
+  clamp01,
+  div,
+  el,
+  fmtDelta,
+  fmtInt,
+  fmtPct,
+  fmtTime,
+  restartAnim,
+  setBarFill,
+  setText,
+  span,
+} from './dom'
 
-// ============================================================
-// 对外接口（与 docs/INTERFACES.md 第 4 节严格一致）
-// ============================================================
+/** 契约类型统一从 types.ts 再导出，game.ts / main.ts 只依赖这里 */
+export type { HudSnapshot, HudV3, HudV3Handlers } from '../types'
 
-export interface Hud {
-  setCamera(camera: THREE.PerspectiveCamera): void
-  update(s: HudSnapshot): void
-  showTitle(): void
-  hideTitle(): void
-  showLevelUp(level: number, choices: UpgradeDef[]): void
-  hideLevelUp(): void
-  showBoss(name: string, hp: number, maxHp: number): void
-  updateBoss(hp: number): void
-  hideBoss(): void
-  damageNumber(worldPos: THREE.Vector3, amount: number, kind: 'normal' | 'crit' | 'heal' | 'gold'): void
-  toast(text: string, kind?: 'info' | 'good' | 'bad'): void
-  showPrompt(text: string | null): void
-  showFloorBanner(floor: number, name: string, subtitle: string): void
-  showGameOver(stats: RunStats): void
-  showVictory(stats: RunStats): void
-  hideEnd(): void
-  setPaused(paused: boolean): void
-  setMuted(muted: boolean): void
-  destroy(): void
-}
-
-/** 同屏飘字上限（契约要求 ≤40） */
+/** 同屏最多飘字数量（超出复用最老的） */
 const MAX_FLOATERS = 40
-/** 进入二阶段的 Boss 血量比例 */
+/** Boss 血条狂暴阈值 */
 const BOSS_PHASE2_RATIO = 0.55
-/** 升级卡片点击后的确认延时，防止连点 / 键盘重复触发 */
+/** 倒计时进入危险态（红色闪烁）的秒数 */
+const LOW_TIME_SECONDS = 15
+/** 选卡/按钮防连点间隔 */
 const PICK_DELAY_MS = 150
+/** 飘字上飘距离（px）与存活时长（s） */
+const FLOATER_RISE_PX = 52
+const FLOATER_LIFE = 0.86
 
 type DmgKind = 'normal' | 'crit' | 'heal' | 'gold'
 
@@ -69,39 +67,161 @@ interface Floater {
   active: boolean
 }
 
-const DIFF_ORDER: DifficultyId[] = ['casual', 'normal', 'nightmare']
-
-const DIFF_META: Record<DifficultyId, { icon: string; tag: string }> = {
-  casual: { icon: '🌿', tag: '轻松' },
-  normal: { icon: '⚔️', tag: '推荐' },
-  nightmare: { icon: '💀', tag: '挑战' },
+interface TunnelCardRef {
+  card: HTMLButtonElement
+  band: HTMLSpanElement
+  icon: HTMLSpanElement
+  room: HTMLSpanElement
+  title: HTMLDivElement
+  desc: HTMLDivElement
+  preview: HTMLDivElement
+  key: HTMLElement
 }
 
-// ============================================================
-// 静态结构模板：只创建一次，之后全部通过缓存的元素引用更新
-// ============================================================
+interface ShopCardRef {
+  card: HTMLButtonElement
+  icon: HTMLSpanElement
+  kind: HTMLSpanElement
+  tier: HTMLSpanElement
+  name: HTMLDivElement
+  desc: HTMLDivElement
+  price: HTMLSpanElement
+  buy: HTMLSpanElement
+}
+
+interface InvCellRef {
+  cell: HTMLButtonElement
+  tier: HTMLSpanElement
+  icon: HTMLSpanElement
+  name: HTMLSpanElement
+  meta: HTMLSpanElement
+}
+
+/* ------------------------------------------------------------------ */
+/* 静态数据                                                            */
+/* ------------------------------------------------------------------ */
+
+const CHAR_ORDER: CharacterId[] = ['mutsumi', 'murasame', 'fish']
+const CHAR_EMOJI: Record<CharacterId, string> = { mutsumi: '🥒', murasame: '🗡️', fish: '🐟' }
+
+const DIFF_META: Record<DifficultyId, { icon: string; tag: string }> = {
+  easy: { icon: '🌿', tag: '轻松' },
+  normal: { icon: '⚔️', tag: '推荐' },
+  hard: { icon: '💀', tag: '挑战' },
+}
+
+const TUNNEL_META: Record<TunnelType, { label: string; hint: string }> = {
+  reward: { label: '奖励', hint: '宝箱与技能卡' },
+  trade: { label: '交易', hint: '商人或祭坛' },
+  battle: { label: '对战', hint: '怪潮与精英' },
+}
+
+const ROOM_LABEL: Record<TunnelRoom, string> = {
+  chest: '宝箱密室',
+  'skill-card': '技能圣所',
+  merchant: '流浪商人',
+  altar: '低语祭坛',
+  'mob-wave': '哥布林怪潮',
+  'elite-fight': '精英巢穴',
+  boss: '首领之间',
+}
+
+const STAT_ORDER: CardStat[] = [
+  'magic',
+  'stamina',
+  'intelligence',
+  'hp',
+  'moveSpeed',
+  'chargeMax',
+  'chargeGain',
+  'dodge',
+  'armor',
+]
+
+const STAT_LABEL: Record<CardStat, string> = {
+  magic: '魔力',
+  stamina: '耐力',
+  intelligence: '智力',
+  hp: '生命上限',
+  moveSpeed: '移速',
+  chargeMax: '充能上限',
+  chargeGain: '充能效率',
+  dodge: '闪避',
+  armor: '减伤',
+}
+
+/** 用百分比展示的维度 */
+const STAT_IS_PCT: Partial<Record<CardStat, boolean>> = { chargeGain: true, dodge: true, armor: true }
+
+const SHOP_KIND_LABEL: Record<ShopOffer['kind'], string> = {
+  weapon: '专武券',
+  'buff-card': '增益卡',
+  consumable: '消耗品',
+}
+
+/** 品质名从 balance 读取，读不到就回退 */
+const QUALITY_NAMES = (BALANCE.shop as unknown as { quality?: { tier2?: { name?: string }; tier3?: { name?: string } } }).quality
+const TIER_LABEL: Record<1 | 2 | 3, string> = {
+  1: '普通',
+  2: QUALITY_NAMES?.tier2?.name ?? '精制',
+  3: QUALITY_NAMES?.tier3?.name ?? '臻品',
+}
+
+/** 五维数值文本：18 -> +18、-8 -> -8、0.03 -> +3% */
+function formatStatValue(stat: CardStat, value: number): string {
+  if (!Number.isFinite(value)) return '—'
+  if (STAT_IS_PCT[stat]) return `${fmtDelta(value * 100)}%`
+  if (stat === 'moveSpeed') return fmtDelta(value, 2)
+  return fmtDelta(value)
+}
+
+/** 品质 label：1 普通 / 2 精制 / 3 臻品 */
+function tierLabel(tier: number): string {
+  const t = Math.max(1, Math.min(3, Math.round(tier || 1))) as 1 | 2 | 3
+  return TIER_LABEL[t]
+}
+
+function tierClass(tier: number): string {
+  const t = Math.max(1, Math.min(3, Math.round(tier || 1)))
+  return t >= 3 ? 'tier-3' : t === 2 ? 'tier-2' : 'tier-1'
+}
+
+function pad2(n: number): string {
+  return String(Math.max(0, Math.floor(n))).padStart(2, '0')
+}
+
+function digitFromEvent(event: KeyboardEvent): number {
+  if (/^Digit[1-9]$/.test(event.code)) return Number(event.code.slice(5))
+  if (/^Numpad[1-9]$/.test(event.code)) return Number(event.code.slice(6))
+  if (/^[1-9]$/.test(event.key)) return Number(event.key)
+  return 0
+}
+
+/* ------------------------------------------------------------------ */
+/* 模板                                                                */
+/* ------------------------------------------------------------------ */
 
 const UI_TEMPLATE = /* html */ `
-  <!-- ===================== HUD ===================== -->
-  <div class="hud js-hud" hidden>
+  <div class="hud js-hud">
     <div class="hud-floor js-floor">
       <div class="floor-line">
         <span class="floor-index">第 <b class="js-floor-num">1</b> 层</span>
-        <span class="floor-name js-floor-name">苔石前厅</span>
+        <span class="stage-chip">阶段 <b class="js-stage">1</b></span>
+        <span class="floor-name js-floor-name">未知区域</span>
       </div>
       <div class="quota-row">
         <div class="bar bar-quota"><i class="js-quota-fill"></i></div>
-        <span class="quota-text js-quota-text">击杀 0 / 25</span>
+        <span class="quota-text js-quota-text">击杀 0 / 0</span>
       </div>
-      <div class="alive-row"><span class="live-dot"></span>场上 <b class="js-alive">0</b> 只</div>
+      <div class="alive-row"><span class="live-dot"></span>场上 <b class="js-alive">0</b> 只 · 累计击杀 <b class="js-kills">0</b></div>
     </div>
 
     <div class="hud-right">
       <div class="hud-stats">
         <div class="stat stat-gold"><span class="stat-label">金币</span><span class="stat-val js-gold">0</span></div>
-        <div class="stat stat-level"><span class="stat-label">等级</span><span class="stat-val js-level">1</span></div>
-        <div class="stat stat-time"><span class="stat-label">计时</span><span class="stat-val js-time">00:00</span></div>
-        <div class="stat stat-kill"><span class="stat-label">击杀</span><span class="stat-val js-kills">0</span></div>
+        <div class="stat stat-time js-time-block"><span class="stat-label">倒计时</span><span class="stat-val js-time">00:00</span></div>
+        <div class="stat stat-alive"><span class="stat-label">场上敌人</span><span class="stat-val js-alive-stat">0</span></div>
+        <div class="stat stat-kill"><span class="stat-label">累计击杀</span><span class="stat-val js-kills-stat">0</span></div>
       </div>
       <div class="mute-chip js-mute" hidden>🔇 已静音</div>
     </div>
@@ -110,401 +230,898 @@ const UI_TEMPLATE = /* html */ `
       <div class="vital vital-hp js-hp-block">
         <div class="vital-head">
           <span class="vital-label">生命</span>
-          <span class="vital-num js-hp-text">120 / 120</span>
+          <span class="vital-num js-hp-text">100 / 100</span>
         </div>
-        <div class="bar bar-hp"><i class="js-hp-fill"></i><span class="bar-ticks"></span></div>
+        <div class="bar bar-hp">
+          <i class="js-hp-fill"></i>
+          <span class="bar-ticks"></span>
+        </div>
       </div>
-      <div class="vital vital-xp">
-        <div class="lv-badge">Lv<b class="js-lv-badge">1</b></div>
-        <div class="xp-main">
+      <div class="vital vital-skill js-skill-block">
+        <div class="skill-badge">专武 <b class="js-weapon-lv">1</b></div>
+        <div class="skill-main">
           <div class="vital-head">
-            <span class="vital-label">经验</span>
-            <span class="vital-num js-xp-text">0 / 9</span>
+            <span class="vital-label js-skill-name">技能</span>
+            <span class="vital-num js-charge-text">0 / 100</span>
           </div>
-          <div class="bar bar-xp"><i class="js-xp-fill"></i></div>
+          <div class="bar bar-charge"><i class="js-charge-fill"></i><span class="bar-sheen"></span></div>
         </div>
       </div>
     </div>
-
-    <div class="hud-prompt js-prompt" aria-live="polite"></div>
 
     <div class="hud-bottom">
       <div class="key-hints">
         <span class="key-hint"><kbd>WASD</kbd>移动</span>
-        <span class="key-hint"><kbd>Shift</kbd>冲刺</span>
-        <span class="key-hint"><kbd>E</kbd>交互</span>
-        <span class="key-hint"><kbd>V</kbd>视角</span>
+        <span class="key-hint"><kbd>左键</kbd>普攻</span>
+        <span class="key-hint"><kbd>右键</kbd>技能</span>
         <span class="key-hint"><kbd>P</kbd>暂停</span>
       </div>
-      <div class="objective js-objective">还需击杀 25 只哥布林解锁楼梯</div>
+      <div class="objective js-objective">清空本层敌人</div>
     </div>
   </div>
 
-  <!-- ===================== Boss 血条 ===================== -->
-  <div class="boss-bar js-boss" aria-hidden="true">
+  <div class="boss-bar js-boss" hidden>
     <div class="boss-head">
-      <span class="boss-name js-boss-name">哥布林之王</span>
-      <span class="boss-tag js-boss-tag">第一阶段</span>
+      <span class="boss-name js-boss-name">首领</span>
+      <span class="boss-tag">首领</span>
     </div>
-    <div class="boss-track">
-      <i class="boss-fill js-boss-fill"></i>
-      <span class="boss-ticks"></span>
-    </div>
+    <div class="boss-track"><i class="boss-fill js-boss-fill"></i><span class="boss-ticks"></span></div>
   </div>
 
-  <!-- ===================== 飘字层 ===================== -->
   <div class="dmg-layer js-dmg-layer"></div>
-
-  <!-- ===================== 楼层横幅 ===================== -->
-  <div class="floor-banner js-banner" aria-hidden="true">
+  <div class="floor-banner js-banner" hidden>
     <div class="fb-line"></div>
-    <p class="fb-floor js-banner-floor">FLOOR 01</p>
-    <h2 class="fb-name js-banner-name">第 1 层 · 苔石前厅</h2>
-    <p class="fb-sub js-banner-sub">哥布林把守着塔的第一道门</p>
-    <div class="fb-line"></div>
+    <div class="fb-floor js-banner-floor">LAYER 01 / 12</div>
+    <div class="fb-name js-banner-name"></div>
+    <div class="fb-sub js-banner-sub"></div>
   </div>
+  <div class="toast-layer js-toast-layer"></div>
 
-  <!-- ===================== Toast ===================== -->
-  <div class="toast-layer js-toast-layer" aria-live="polite"></div>
-
-  <!-- ===================== 标题页 ===================== -->
   <section class="screen title-screen js-title" aria-label="标题页">
     <div class="title-bg" aria-hidden="true">
-      <div class="title-stars"></div>
-      <div class="moon"></div>
-      <div class="ridge ridge-far"></div>
-      <div class="ridge ridge-near"></div>
-
-      <div class="tower tower-left">
-        <div class="tower-pole"></div>
-        <div class="tower-crenel"></div>
-        <div class="tower-shaft">
-          <i class="tower-win"></i><i class="tower-win"></i><i class="tower-win"></i>
-          <i class="tower-crack"></i>
-        </div>
-        <div class="tower-foot"></div>
-      </div>
-
-      <div class="tower tower-right">
-        <div class="tower-pole"></div>
-        <div class="tower-crenel"></div>
-        <div class="tower-shaft">
-          <i class="tower-win"></i><i class="tower-win"></i>
-          <i class="tower-crack"></i>
-        </div>
-        <div class="tower-foot"></div>
-      </div>
-
-      <div class="fog fog-a"></div>
-      <div class="fog fog-b"></div>
+      <span class="title-stars"></span>
+      <span class="moon"></span>
+      <span class="ridge-far"></span>
+      <span class="ridge-near"></span>
+      <span class="tower-left"><i class="tower-pole"></i><i class="tower-crenel"></i><i class="tower-shaft"></i><i class="tower-win"></i><i class="tower-crack"></i><i class="tower-foot"></i></span>
+      <span class="tower-right"><i class="tower-pole"></i><i class="tower-crenel"></i><i class="tower-shaft"></i><i class="tower-win"></i><i class="tower-crack"></i><i class="tower-foot"></i></span>
+      <span class="fog"></span>
+      <span class="fog fog-b"></span>
     </div>
-
-    <div class="title-inner">
+    <div class="title-inner js-title-inner">
       <header class="title-logo">
-        <p class="title-kicker">PIXEL ROGUELIKE · 爬塔割草</p>
+        <div class="title-kicker">GOBLIN TOWER</div>
         <h1 class="title-cn">哥布林之塔</h1>
-        <p class="title-en">GOBLIN TOWER</p>
-        <p class="title-tagline">杀死哥布林之王，夺回逃离世界的卷轴</p>
+        <p class="title-en">Tower of the Goblin King · v3</p>
       </header>
+      <div class="title-tagline">三分钟一局 · 清空每层 · 在限时耗尽前登顶</div>
 
       <div class="title-lower">
-        <section class="title-panel panel-diff">
-          <h2 class="panel-label">选择难度</h2>
-          <div class="diff-cards js-diff-cards"></div>
+        <div class="title-row">
+          <section class="title-panel panel-char js-char-panel">
+            <h2 class="panel-label">选择角色</h2>
+            <div class="char-cards js-char-cards"></div>
+          </section>
+          <section class="title-panel panel-diff">
+            <h2 class="panel-label">选择难度</h2>
+            <div class="diff-cards js-diff-cards"></div>
+          </section>
+        </div>
+
+        <div class="title-start-row">
           <button class="btn-start js-start" type="button">开始爬塔</button>
           <p class="diff-tip js-diff-tip"></p>
+        </div>
+
+        <section class="title-panel panel-continue js-continue" hidden>
+          <h2 class="panel-label">继续游戏</h2>
+          <div class="slot-list js-continue-list"></div>
         </section>
 
         <section class="title-panel panel-howto">
-          <h2 class="panel-label">操作说明</h2>
           <div class="howto-list">
-            <div class="howto-row"><span class="howto-keys"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>移动</span></div>
-            <div class="howto-row"><span class="howto-keys"><kbd>Shift</kbd></span><span>冲刺（短暂无敌）</span></div>
-            <div class="howto-row"><span class="howto-keys"><kbd>E</kbd></span><span>交互 / 进入下一层</span></div>
-            <div class="howto-row"><span class="howto-keys"><kbd>V</kbd></span><span>切换视角</span></div>
-            <div class="howto-row"><span class="howto-keys"><kbd>P</kbd></span><span>暂停</span></div>
-            <div class="howto-row"><span class="howto-keys"><kbd>鼠标</kbd></span><span>拖拽旋转镜头</span></div>
+            <div class="howto-row"><span class="howto-keys"><kbd>WASD</kbd></span><span>移动躲闪，左键普攻</span></div>
+            <div class="howto-row"><span class="howto-keys"><kbd>右键</kbd></span><span>释放专武技能，充能靠击杀</span></div>
+            <div class="howto-row"><span class="howto-keys"><kbd>TAB</kbd></span><span>查看背包，两张同级同类卡可合成</span></div>
+            <div class="howto-row"><span class="howto-keys"><kbd>P</kbd></span><span>暂停 / 存档</span></div>
           </div>
-          <p class="howto-note">击杀哥布林填满进度条，楼梯就会亮起；每上一层，怪物都会更凶狠。</p>
+          <p class="howto-note">每层限时，清空全部敌人后从时空隧道三选一前进。</p>
         </section>
       </div>
     </div>
   </section>
 
-  <!-- ===================== 升级三选一 ===================== -->
-  <section class="screen levelup-screen js-levelup" aria-label="升级选择">
-    <div class="levelup-inner">
-      <p class="levelup-kicker">LEVEL UP</p>
-      <h2 class="levelup-title">等级提升！</h2>
-      <p class="levelup-sub js-levelup-sub">达到 Lv.2 · 选择一项强化</p>
-      <div class="upgrade-cards js-upgrade-cards"></div>
-      <p class="levelup-hint">点击卡片，或按 <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 选择</p>
+  <section class="screen tunnel-screen js-tunnel" aria-label="时空隧道">
+    <div class="tunnel-inner">
+      <p class="tunnel-kicker">TIME RIFT</p>
+      <h2 class="tunnel-title">时空隧道 · 三选一</h2>
+      <p class="tunnel-sub js-tunnel-sub">选择前进的路线</p>
+      <div class="tunnel-cards js-tunnel-cards"></div>
+      <p class="tunnel-hint">点击卡牌，或按 <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 选择</p>
     </div>
   </section>
 
-  <!-- ===================== 结算页 ===================== -->
-  <section class="screen end-screen js-end" aria-label="本局结算">
-    <div class="end-rays" aria-hidden="true"></div>
-    <div class="end-inner">
-      <p class="end-kicker js-end-kicker">RUN OVER · 阵亡</p>
-      <h2 class="end-title js-end-title">你倒在了塔中</h2>
-      <p class="end-sub js-end-sub"></p>
-      <div class="end-stats">
-        <div class="end-stat"><span class="end-stat-label">层数</span><span class="end-stat-value js-stat">第 1 层</span></div>
-        <div class="end-stat"><span class="end-stat-label">等级</span><span class="end-stat-value js-stat">Lv.1</span></div>
-        <div class="end-stat"><span class="end-stat-label">击杀</span><span class="end-stat-value js-stat">0</span></div>
-        <div class="end-stat"><span class="end-stat-label">金币</span><span class="end-stat-value js-stat">0</span></div>
-        <div class="end-stat"><span class="end-stat-label">用时</span><span class="end-stat-value js-stat">00:00</span></div>
-        <div class="end-stat"><span class="end-stat-label">难度</span><span class="end-stat-value js-stat">标准</span></div>
+  <section class="screen shop-screen js-shop" aria-label="商店">
+    <div class="shop-panel">
+      <header class="shop-head">
+        <div class="shop-head-main">
+          <p class="shop-kicker">WANDERING MERCHANT</p>
+          <h2 class="shop-title">流浪商人</h2>
+        </div>
+        <div class="shop-gold"><span class="shop-gold-label">金币</span><b class="js-shop-gold">0</b></div>
+      </header>
+      <div class="shop-grid js-shop-grid"></div>
+      <footer class="shop-foot">
+        <button class="btn-ghost js-shop-refresh" type="button">重掷 <b class="js-refresh-cost">25</b> 金</button>
+        <button class="btn-ghost js-shop-inv" type="button">进入背包</button>
+        <button class="btn-primary js-shop-continue" type="button">继续前进</button>
+      </footer>
+    </div>
+  </section>
+
+  <section class="screen inv-screen js-inv" aria-label="背包">
+    <div class="inv-panel">
+      <header class="inv-head">
+        <div class="shop-head-main">
+          <p class="inv-kicker">BACKPACK</p>
+          <h2 class="inv-title">背包</h2>
+        </div>
+        <div class="inv-head-right">
+          <div class="inv-count js-inv-count">0 / 12</div>
+          <div class="shop-gold"><span class="shop-gold-label">金币</span><b class="js-inv-gold">0</b></div>
+        </div>
+      </header>
+      <div class="inv-body">
+        <div class="inv-grid js-inv-grid"></div>
+        <aside class="inv-summary">
+          <h3 class="inv-summary-title">已获卡片汇总</h3>
+          <div class="inv-stats js-inv-stats"></div>
+          <p class="inv-hint js-inv-hint">点击两张同级同种的卡牌合成；消耗品点击即使用。</p>
+          <p class="inv-warn js-inv-warn" hidden>背包已满！合成或使用物品腾出格子。</p>
+        </aside>
       </div>
-      <button class="btn-restart js-restart" type="button">重新开始</button>
-      <p class="end-tip">按 <kbd>Enter</kbd> 或 <kbd>R</kbd> 再爬一次</p>
+      <footer class="inv-foot">
+        <span class="inv-tip">同类同级可合成，最高 3 级；装备与增益卡进包即计入面板。</span>
+        <button class="btn-primary js-inv-close" type="button">关闭</button>
+      </footer>
     </div>
   </section>
 
-  <!-- ===================== 暂停 ===================== -->
   <section class="screen pause-screen js-pause" aria-label="暂停">
     <div class="pause-box">
       <span class="pause-icon">II</span>
       <h2>已暂停</h2>
-      <p>按 <kbd>P</kbd> 继续爬塔</p>
+      <p>按 <kbd>P</kbd> 继续，进度只在你点头时才继续流动</p>
+      <div class="pause-actions">
+        <button class="btn-primary js-pause-resume" type="button">继续游戏</button>
+        <button class="btn-ghost js-pause-save" type="button">存档</button>
+        <button class="btn-ghost js-pause-load" type="button">读档</button>
+        <button class="btn-ghost js-pause-mute" type="button">静音：关</button>
+        <button class="btn-ghost btn-danger js-pause-quit" type="button">返回标题</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="screen slots-screen js-slots" aria-label="存档槽位">
+    <div class="slots-box">
+      <h2 class="slots-title js-slots-title">选择存档槽位</h2>
+      <p class="slots-sub js-slots-sub">存档会覆盖同槽位的旧记录</p>
+      <div class="slot-list js-slot-list"></div>
+      <button class="btn-ghost js-slots-close" type="button">返回</button>
+    </div>
+  </section>
+
+  <section class="screen end-screen js-end" aria-label="结算">
+    <div class="end-rays" aria-hidden="true"></div>
+    <div class="end-inner">
+      <p class="end-kicker js-end-kicker">RUN OVER</p>
+      <h2 class="end-title js-end-title">你倒在了塔中</h2>
+      <p class="end-sub js-end-sub"></p>
+      <div class="end-stats js-end-stats"></div>
+      <button class="btn-restart js-restart" type="button">重新爬塔</button>
+      <button class="btn-ghost js-end-title-btn" type="button">返回标题</button>
+      <p class="end-tip">按 <kbd>R</kbd> 立即重开 · 按 <kbd>Enter</kbd> 返回标题</p>
     </div>
   </section>
 `
 
-// ============================================================
-// 实现
-// ============================================================
+/* ------------------------------------------------------------------ */
+/* 实现                                                                */
+/* ------------------------------------------------------------------ */
 
-class HudImpl implements Hud {
-  private readonly handlers: HudHandlers
-  private readonly root: HTMLElement
+class HudImpl implements HudV3 {
+  private readonly handlers: HudV3Handlers
   private readonly shell: HTMLDivElement
-  private readonly cameraHolder: { camera: THREE.PerspectiveCamera | null } = { camera: null }
-
+  private readonly cameraHolder: { camera: THREE.Camera | null } = { camera: null }
   private destroyed = false
 
-  // ---------- 标题 ----------
-  private titleEl!: HTMLElement
-  private diffCardsEl!: HTMLElement
-  private diffTipEl!: HTMLElement
-  private startBtnEl!: HTMLButtonElement
-  private readonly diffCardEls: HTMLButtonElement[] = []
-  private selectedDifficulty: DifficultyId = 'normal'
-  private startLocked = false
-
-  // ---------- HUD ----------
+  /* ---------- HUD ---------- */
   private hudEl!: HTMLElement
   private floorEl!: HTMLElement
   private floorNumEl!: HTMLElement
+  private stageEl!: HTMLElement
   private floorNameEl!: HTMLElement
   private quotaFillEl!: HTMLElement
   private quotaTextEl!: HTMLElement
   private aliveEl!: HTMLElement
+  private aliveStatEl!: HTMLElement
   private goldEl!: HTMLElement
-  private levelEl!: HTMLElement
   private timeEl!: HTMLElement
+  private timeBlockEl!: HTMLElement
   private killsEl!: HTMLElement
-  private muteEl!: HTMLElement
+  private killsStatEl!: HTMLElement
+  private muteChipEl!: HTMLElement
   private hpBlockEl!: HTMLElement
   private hpFillEl!: HTMLElement
   private hpTextEl!: HTMLElement
-  private xpFillEl!: HTMLElement
-  private xpTextEl!: HTMLElement
-  private lvBadgeEl!: HTMLElement
+  private skillBlockEl!: HTMLElement
+  private skillNameEl!: HTMLElement
+  private chargeFillEl!: HTMLElement
+  private chargeTextEl!: HTMLElement
+  private weaponLvEl!: HTMLElement
   private objectiveEl!: HTMLElement
-  private promptEl!: HTMLElement
-  private readonly barCache = new WeakMap<HTMLElement, number>()
-  private hpDanger = false
 
-  // ---------- 升级 ----------
-  private levelUpEl!: HTMLElement
-  private levelUpSubEl!: HTMLElement
-  private upgradeCardsEl!: HTMLElement
-  private choices: UpgradeDef[] = []
-  private pickLocked = false
-  private pickTimer: number | null = null
-
-  // ---------- Boss ----------
   private bossEl!: HTMLElement
   private bossNameEl!: HTMLElement
-  private bossTagEl!: HTMLElement
   private bossFillEl!: HTMLElement
-  private bossMaxHp = 1
-  private bossVisible = false
-  /** 显式 showBoss 后由 hideBoss 关闭；快照驱动的血条则跟随 snapshot 自动显隐 */
-  private bossPinned = false
-
-  // ---------- 飘字 ----------
   private dmgLayerEl!: HTMLElement
-  private readonly floaters: Floater[] = []
-  private floaterCursor = 0
-  private readonly scratch = new THREE.Vector3()
-  private lastFrameMs = 0
-
-  // ---------- 楼层横幅 ----------
   private bannerEl!: HTMLElement
   private bannerFloorEl!: HTMLElement
   private bannerNameEl!: HTMLElement
   private bannerSubEl!: HTMLElement
-  private bannerTimer: number | null = null
-
-  // ---------- Toast ----------
   private toastLayerEl!: HTMLElement
-  private readonly toastTimers = new Set<number>()
 
-  // ---------- 结算 ----------
+  /* ---------- 标题 ---------- */
+  private titleEl!: HTMLElement
+  private titleInnerEl!: HTMLElement
+  private charCardsEl!: HTMLElement
+  private readonly charCardEls: HTMLButtonElement[] = []
+  private diffCardsEl!: HTMLElement
+  private readonly diffCardEls: HTMLButtonElement[] = []
+  private diffTipEl!: HTMLElement
+  private startBtnEl!: HTMLButtonElement
+  private continuePanelEl!: HTMLElement
+  private continueListEl!: HTMLElement
+  private selectedCharacter: CharacterId = 'mutsumi'
+  private selectedDifficulty: DifficultyId = 'normal'
+  private startLocked = false
+  private lastSlots: SaveSlotMeta[] = []
+
+  /* ---------- 隧道 ---------- */
+  private tunnelEl!: HTMLElement
+  private tunnelSubEl!: HTMLElement
+  private tunnelCardsEl!: HTMLElement
+  private readonly tunnelCardRefs: TunnelCardRef[] = []
+  private tunnelOffers: TunnelOffer[] = []
+  private tunnelLocked = false
+
+  /* ---------- 商店 ---------- */
+  private shopEl!: HTMLElement
+  private shopGridEl!: HTMLElement
+  private shopGoldEl!: HTMLElement
+  private refreshBtnEl!: HTMLButtonElement
+  private refreshCostEl!: HTMLElement
+  private readonly shopCardRefs: ShopCardRef[] = []
+  private shopOffers: ShopOffer[] = []
+  private shopRefreshCost = 0
+  private shopGold = 0
+
+  /* ---------- 背包 ---------- */
+  private invEl!: HTMLElement
+  private invGridEl!: HTMLElement
+  private invCountEl!: HTMLElement
+  private invGoldEl!: HTMLElement
+  private invStatsEl!: HTMLElement
+  private invHintEl!: HTMLElement
+  private invWarnEl!: HTMLElement
+  private readonly invCellRefs: InvCellRef[] = []
+  private readonly invStatValueEls = new Map<CardStat, HTMLElement>()
+  private invItems: InventoryItem[] = []
+  private invMaxSlots = 12
+  private invSelected: string | null = null
+  private invGold = 0
+
+  /* ---------- 暂停 / 存档 ---------- */
+  private pauseEl!: HTMLElement
+  private pauseMuteEl!: HTMLButtonElement
+  private slotsEl!: HTMLElement
+  private slotsTitleEl!: HTMLElement
+  private slotsSubEl!: HTMLElement
+  private slotListEl!: HTMLElement
+  private slotMode: 'save' | 'load' = 'save'
+  private paused = false
+
+  /* ---------- 结算 ---------- */
   private endEl!: HTMLElement
   private endKickerEl!: HTMLElement
   private endTitleEl!: HTMLElement
   private endSubEl!: HTMLElement
-  private readonly endStatEls: HTMLElement[] = []
-  private restartLocked = false
+  private endStatsEl!: HTMLElement
+  private readonly endStatValueEls: HTMLElement[] = []
+  private endLocked = false
 
-  // ---------- 暂停 ----------
-  private pauseEl!: HTMLElement
+  /* ---------- 内部状态 ---------- */
+  private readonly floaters: Floater[] = []
+  private floaterCursor = 0
+  private lastFrame = 0
+  private readonly barCache = new WeakMap<HTMLElement, number>()
+  private timeDanger = false
+  private bossPinned = false
+  private bossRatio = -1
+  private bannerTimer: number | null = null
+  private muted = false
+  private readonly scratchWorld = new THREE.Vector3()
+  private readonly scratchProject = new THREE.Vector3()
 
-  constructor(handlers: HudHandlers) {
+  constructor(handlers: HudV3Handlers) {
     this.handlers = handlers
-
-    // #ui-root 由 index.html 提供；缺失时兜底创建，保证模块独立可测
-    const existing = document.getElementById('ui-root')
-    if (existing) {
-      this.root = existing
-    } else {
-      const created = div()
-      created.id = 'ui-root'
-      document.body.appendChild(created)
-      this.root = created
-    }
-
     this.shell = div('ui-shell')
-    this.shell.innerHTML = UI_TEMPLATE
-    this.root.appendChild(this.shell)
 
-    this.cacheElements()
-    this.bindEvents()
-    this.buildDifficultyCards()
-    this.createFloaterPool()
+    const root = this.ensureRoot()
+    this.shell.innerHTML = UI_TEMPLATE
+    root.appendChild(this.shell)
+
+    this.wireHud()
+    this.wireTitle()
+    this.wireTunnel()
+    this.wireShop()
+    this.wireInventory()
+    this.wirePause()
+    this.wireEnd()
+    this.buildFloaters()
+
+    this.selectCharacter('mutsumi')
     this.selectDifficulty('normal')
 
-    // 默认停在标题页；Lead 之后调用 showTitle/hideTitle 都是幂等的
-    this.showTitle()
+    window.addEventListener('keydown', this.onKeyDown)
+    this.refreshHud()
   }
 
-  // ==========================================================
-  // 初始化
-  // ==========================================================
+  /* ================================================================ */
+  /* HudV3 接口                                                        */
+  /* ================================================================ */
+
+  setCamera(camera: THREE.Camera): void {
+    this.cameraHolder.camera = camera ?? null
+  }
+
+  update(snapshot: HudSnapshot): void {
+    if (this.destroyed) return
+    const now = performance.now()
+    const dt = this.lastFrame > 0 ? Math.min(0.1, (now - this.lastFrame) / 1000) : 0
+    this.lastFrame = now
+
+    const floor = Math.max(1, Math.floor(snapshot.floor || 1))
+    setText(this.floorNumEl, String(floor))
+    if (snapshot.stage != null) setText(this.stageEl, String(Math.max(1, Math.floor(snapshot.stage))))
+    setText(this.floorNameEl, snapshot.floorName || '未知区域')
+
+    const total = Math.max(0, Math.floor(snapshot.monsterTotal ?? snapshot.quotaMax ?? 0))
+    const killed = Math.max(0, Math.floor(snapshot.monsterKilled ?? snapshot.quota ?? 0))
+    const cleared = total > 0 && killed >= total
+    this.floorEl.classList.toggle('is-cleared', cleared)
+    setText(this.quotaTextEl, total > 0 ? `击杀 ${Math.min(killed, total)} / ${total}` : '首领层 · 击败首领')
+    setBarFill(this.quotaFillEl, total > 0 ? clamp01(killed / total) : 0, this.barCache)
+
+    const alive = Math.max(0, Math.floor(snapshot.enemiesAlive || 0))
+    setText(this.aliveEl, String(alive))
+    setText(this.aliveStatEl, String(alive))
+    setText(this.killsEl, fmtInt(snapshot.kills || 0))
+    setText(this.killsStatEl, fmtInt(snapshot.kills || 0))
+    setText(this.goldEl, fmtInt(snapshot.gold || 0))
+
+    // 倒计时：优先 timeLeft，其次把 time 当作倒计时剩余显示
+    const left =
+      typeof snapshot.timeLeft === 'number' && Number.isFinite(snapshot.timeLeft)
+        ? Math.max(0, snapshot.timeLeft)
+        : null
+    setText(this.timeEl, fmtTime(Math.ceil(left ?? Math.max(0, snapshot.time || 0))))
+    const danger = left !== null && left <= LOW_TIME_SECONDS
+    if (danger !== this.timeDanger) {
+      this.timeDanger = danger
+      this.timeBlockEl.classList.toggle('is-danger', danger)
+    }
+
+    // 生命
+    const maxHp = Math.max(1, snapshot.maxHp || 1)
+    const hp = Math.max(0, Math.min(snapshot.hp || 0, maxHp))
+    setText(this.hpTextEl, `${Math.ceil(hp)} / ${Math.ceil(maxHp)}`)
+    setBarFill(this.hpFillEl, clamp01(hp / maxHp), this.barCache)
+    this.hpBlockEl.classList.toggle('is-danger', hp / maxHp <= 0.3)
+
+    // 技能充能
+    const chargeMax = Math.max(1, snapshot.chargeMax ?? 100)
+    const charge = Math.max(0, Math.min(snapshot.charge ?? 0, chargeMax))
+    setText(this.chargeTextEl, `${Math.floor(charge)} / ${Math.round(chargeMax)}`)
+    setText(this.skillNameEl, snapshot.skillName || '技能')
+    setText(this.weaponLvEl, String(Math.max(1, Math.floor(snapshot.weaponLv ?? 1))))
+    setBarFill(this.chargeFillEl, clamp01(charge / chargeMax), this.barCache)
+    this.skillBlockEl.classList.toggle('is-ready', Boolean(snapshot.skillReady))
+
+    // 目标提示
+    setText(
+      this.objectiveEl,
+      total <= 0
+        ? '击败本层首领'
+        : cleared
+          ? '本层已清空 · 前往时空隧道'
+          : `剩余 ${total - killed} 只 · 清空后进入时空隧道`,
+    )
+
+    this.updateBossFromSnapshot(snapshot)
+    this.updateFloaters(dt)
+  }
+
+  showTitle(slots: SaveSlotMeta[]): void {
+    this.lastSlots = slots.slice()
+    this.startLocked = false
+    this.tunnelLocked = false
+    this.endLocked = false
+    this.hideEnd()
+    this.hidePause()
+    this.hideTunnels()
+    this.hideShop()
+    this.hideInventory()
+    this.hideSaveSlots()
+    this.renderContinueSlots()
+    this.selectCharacter(this.selectedCharacter, true)
+    this.selectDifficulty(this.selectedDifficulty, true)
+    this.titleEl.classList.add('is-open')
+    this.refreshHud()
+  }
+
+  hideTitle(): void {
+    this.titleEl.classList.remove('is-open')
+    this.titleInnerEl.classList.remove('is-char-focus')
+    this.hideEnd()
+    this.hidePause()
+    this.hideTunnels()
+    this.hideShop()
+    this.hideInventory()
+    this.hideSaveSlots()
+    this.refreshHud()
+  }
+
+  showCharacterSelect(): void {
+    this.titleEl.classList.add('is-open')
+    this.titleInnerEl.classList.add('is-char-focus')
+    this.refreshHud()
+  }
+
+  hideCharacterSelect(): void {
+    this.titleInnerEl.classList.remove('is-char-focus')
+  }
+
+  showTunnelOffers(offers: TunnelOffer[], layer: number): void {
+    this.tunnelOffers = offers.slice(0, this.tunnelCardRefs.length)
+    setText(this.tunnelSubEl, layer > 0 ? `第 ${layer} 层已清空 · 选择前进的路线` : '选择前进的路线')
+    for (let i = 0; i < this.tunnelCardRefs.length; i += 1) {
+      const ref = this.tunnelCardRefs[i]
+      const offer = this.tunnelOffers[i]
+      if (!offer) {
+        ref.card.hidden = true
+        continue
+      }
+      ref.card.hidden = false
+      ref.card.disabled = false
+      ref.card.dataset.offerId = offer.id
+      ref.card.className = `tunnel-card kind-${offer.kind}`
+      setText(ref.band, TUNNEL_META[offer.kind]?.label ?? '未知')
+      setText(ref.icon, offer.icon || '✦')
+      setText(ref.room, ROOM_LABEL[offer.room] ?? '未知房间')
+      setText(ref.title, offer.title)
+      setText(ref.desc, offer.desc)
+      const lines = this.tunnelPreviewLines(offer)
+      ref.preview.replaceChildren(...lines.map((line) => span('tc-row', line)))
+      setText(ref.key, String(i + 1))
+    }
+    this.tunnelEl.classList.add('is-open')
+    this.refreshHud()
+  }
+
+  hideTunnels(): void {
+    this.tunnelEl.classList.remove('is-open')
+    this.tunnelLocked = false
+    this.refreshHud()
+  }
+
+  showShop(offers: ShopOffer[], gold: number, refreshCost: number): void {
+    this.shopOffers = offers.slice(0, 4)
+    this.shopRefreshCost = Math.max(0, refreshCost)
+    this.renderShop(gold)
+    this.shopEl.classList.add('is-open')
+    this.refreshHud()
+  }
+
+  updateShop(offers: ShopOffer[], gold: number, refreshCost: number): void {
+    this.shopOffers = offers.slice(0, 4)
+    this.shopRefreshCost = Math.max(0, refreshCost)
+    this.renderShop(gold)
+  }
+
+  hideShop(): void {
+    this.shopEl.classList.remove('is-open')
+    this.refreshHud()
+  }
+
+  showInventory(items: InventoryItem[], gold: number, maxSlots: number): void {
+    this.invMaxSlots = Math.max(1, Math.min(24, Math.floor(maxSlots) || 12))
+    this.ensureInvCells(this.invMaxSlots)
+    this.invSelected = null
+    this.invItems = items.slice()
+    this.renderInventory(gold)
+    this.invEl.classList.add('is-open')
+    this.refreshHud()
+  }
+
+  updateInventory(items: InventoryItem[], gold: number): void {
+    this.invItems = items.slice()
+    if (this.invSelected && !this.invItems.some((item) => item.uid === this.invSelected)) {
+      this.invSelected = null
+    }
+    this.renderInventory(gold)
+  }
+
+  hideInventory(): void {
+    this.invEl.classList.remove('is-open')
+    this.invSelected = null
+    this.refreshHud()
+  }
+
+  showPause(slots: SaveSlotMeta[]): void {
+    this.lastSlots = slots.slice()
+    this.paused = true
+    this.pauseEl.classList.add('is-open')
+    this.refreshHud()
+  }
+
+  hidePause(): void {
+    this.paused = false
+    this.pauseEl.classList.remove('is-open')
+    this.slotsEl.classList.remove('is-open')
+    this.refreshHud()
+  }
+
+  showSaveSlots(mode: 'save' | 'load', slots: SaveSlotMeta[]): void {
+    this.slotMode = mode
+    this.lastSlots = slots.slice()
+    setText(this.slotsTitleEl, mode === 'save' ? '选择存档槽位' : '选择读档槽位')
+    setText(this.slotsSubEl, mode === 'save' ? '存档会覆盖同槽位的旧记录' : '读取存档会放弃当前进度')
+    this.renderSlotList()
+    this.slotsEl.classList.add('is-open')
+    this.refreshHud()
+  }
+
+  hideSaveSlots(): void {
+    this.slotsEl.classList.remove('is-open')
+  }
+
+  showDefeat(reason: DefeatReason, stats: RunStatsV3): void {
+    this.renderEnd(stats, false, reason)
+  }
+
+  showVictory(stats: RunStatsV3): void {
+    this.renderEnd(stats, true)
+  }
+
+  hideEnd(): void {
+    this.endEl.classList.remove('is-open')
+    this.endLocked = false
+    this.refreshHud()
+  }
+
+  showLayerBanner(layer: number, name: string, subtitle: string, total: number): void {
+    setText(this.bannerFloorEl, `LAYER ${pad2(layer)} / ${pad2(Math.max(layer, total))}`)
+    setText(this.bannerNameEl, name)
+    setText(this.bannerSubEl, subtitle)
+    this.bannerEl.hidden = false
+    restartAnim(this.bannerEl)
+    if (this.bannerTimer !== null) window.clearTimeout(this.bannerTimer)
+    this.bannerTimer = window.setTimeout(() => {
+      this.bannerTimer = null
+      if (!this.destroyed) this.bannerEl.hidden = true
+    }, 2400)
+  }
+
+  showBoss(name: string, hp: number, maxHp: number): void {
+    this.bossPinned = true
+    this.bossEl.hidden = false
+    this.bossEl.dataset.maxHp = String(Math.max(1, maxHp))
+    this.bossEl.classList.add('is-open')
+    setText(this.bossNameEl, name)
+    this.setBossRatio(maxHp > 0 ? hp / maxHp : 0)
+  }
+
+  updateBoss(hp: number): void {
+    const maxHp = Number(this.bossEl.dataset.maxHp || 0)
+    this.setBossRatio(maxHp > 0 ? hp / maxHp : 0)
+  }
+
+  hideBoss(): void {
+    this.bossPinned = false
+    this.bossEl.hidden = true
+    this.bossEl.classList.remove('is-open')
+    this.bossRatio = -1
+  }
+
+  damageNumber(worldPos: THREE.Vector3, amount: number, kind: 'normal' | 'crit' | 'heal' | 'gold'): void {
+    if (this.destroyed || this.floaters.length === 0) return
+    const floater = this.acquireFloater()
+    floater.world.copy(worldPos)
+    floater.age = 0
+    floater.life = FLOATER_LIFE + Math.random() * 0.18
+    floater.kind = kind
+    floater.drift = (Math.random() - 0.5) * 26
+    floater.active = true
+    floater.el.className = `dmg kind-${kind}`
+    floater.el.textContent = this.formatDamage(amount, kind)
+    this.renderFloater(floater)
+  }
+
+  toast(text: string, kind: 'info' | 'good' | 'bad' = 'info'): void {
+    if (this.destroyed || !text) return
+    while (this.toastLayerEl.childElementCount >= 4) {
+      this.toastLayerEl.firstElementChild?.remove()
+    }
+    const node = div(`toast kind-${kind}`, text)
+    this.toastLayerEl.appendChild(node)
+    window.setTimeout(() => node.remove(), 2150)
+  }
+
+  setPaused(paused: boolean): void {
+    this.paused = paused
+    if (paused) {
+      this.pauseEl.classList.add('is-open')
+    } else {
+      this.pauseEl.classList.remove('is-open')
+      this.slotsEl.classList.remove('is-open')
+    }
+    this.refreshHud()
+  }
+
+  setMuted(muted: boolean): void {
+    this.muted = muted
+    this.muteChipEl.hidden = !muted
+    setText(this.pauseMuteEl, muted ? '静音：开' : '静音：关')
+  }
+
+  destroy(): void {
+    if (this.destroyed) return
+    this.destroyed = true
+    window.removeEventListener('keydown', this.onKeyDown)
+    if (this.bannerTimer !== null) window.clearTimeout(this.bannerTimer)
+    this.bannerTimer = null
+    this.floaters.length = 0
+    this.shell.remove()
+  }
+
+  /* ================================================================ */
+  /* 构造：绑定各块                                                    */
+  /* ================================================================ */
+
+  private ensureRoot(): HTMLElement {
+    let root = document.getElementById('ui-root')
+    if (!root) {
+      root = div('')
+      root.id = 'ui-root'
+      document.body.appendChild(root)
+    }
+    return root
+  }
 
   private q<T extends HTMLElement>(selector: string): T {
     const node = this.shell.querySelector<T>(selector)
-    if (!node) throw new Error(`[hud] 缺少界面节点：${selector}`)
+    if (!node) throw new Error(`[hud] 模板缺少节点：${selector}`)
     return node
   }
 
-  private cacheElements(): void {
-    this.titleEl = this.q('.js-title')
-    this.diffCardsEl = this.q('.js-diff-cards')
-    this.diffTipEl = this.q('.js-diff-tip')
-    this.startBtnEl = this.q('.js-start')
-
+  private wireHud(): void {
     this.hudEl = this.q('.js-hud')
     this.floorEl = this.q('.js-floor')
     this.floorNumEl = this.q('.js-floor-num')
+    this.stageEl = this.q('.js-stage')
     this.floorNameEl = this.q('.js-floor-name')
     this.quotaFillEl = this.q('.js-quota-fill')
     this.quotaTextEl = this.q('.js-quota-text')
     this.aliveEl = this.q('.js-alive')
+    this.aliveStatEl = this.q('.js-alive-stat')
     this.goldEl = this.q('.js-gold')
-    this.levelEl = this.q('.js-level')
     this.timeEl = this.q('.js-time')
+    this.timeBlockEl = this.q('.js-time-block')
     this.killsEl = this.q('.js-kills')
-    this.muteEl = this.q('.js-mute')
+    this.killsStatEl = this.q('.js-kills-stat')
+    this.muteChipEl = this.q('.js-mute')
     this.hpBlockEl = this.q('.js-hp-block')
     this.hpFillEl = this.q('.js-hp-fill')
     this.hpTextEl = this.q('.js-hp-text')
-    this.xpFillEl = this.q('.js-xp-fill')
-    this.xpTextEl = this.q('.js-xp-text')
-    this.lvBadgeEl = this.q('.js-lv-badge')
+    this.skillBlockEl = this.q('.js-skill-block')
+    this.skillNameEl = this.q('.js-skill-name')
+    this.chargeFillEl = this.q('.js-charge-fill')
+    this.chargeTextEl = this.q('.js-charge-text')
+    this.weaponLvEl = this.q('.js-weapon-lv')
     this.objectiveEl = this.q('.js-objective')
-    this.promptEl = this.q('.js-prompt')
-
-    this.levelUpEl = this.q('.js-levelup')
-    this.levelUpSubEl = this.q('.js-levelup-sub')
-    this.upgradeCardsEl = this.q('.js-upgrade-cards')
-
     this.bossEl = this.q('.js-boss')
     this.bossNameEl = this.q('.js-boss-name')
-    this.bossTagEl = this.q('.js-boss-tag')
     this.bossFillEl = this.q('.js-boss-fill')
-
     this.dmgLayerEl = this.q('.js-dmg-layer')
-
     this.bannerEl = this.q('.js-banner')
     this.bannerFloorEl = this.q('.js-banner-floor')
     this.bannerNameEl = this.q('.js-banner-name')
     this.bannerSubEl = this.q('.js-banner-sub')
-
     this.toastLayerEl = this.q('.js-toast-layer')
+  }
 
+  private wireTitle(): void {
+    this.titleEl = this.q('.js-title')
+    this.titleInnerEl = this.q('.js-title-inner')
+    this.charCardsEl = this.q('.js-char-cards')
+    this.diffCardsEl = this.q('.js-diff-cards')
+    this.diffTipEl = this.q('.js-diff-tip')
+    this.startBtnEl = this.q('.js-start')
+    this.continuePanelEl = this.q('.js-continue')
+    this.continueListEl = this.q('.js-continue-list')
+
+    for (const id of CHAR_ORDER) {
+      const def = CHARACTERS[id]
+      if (!def) continue
+      const card = el('button', 'char-card')
+      card.type = 'button'
+      card.dataset.char = id
+      const avatar = div(`char-avatar avatar-${id}`)
+      avatar.appendChild(span('char-emoji', CHAR_EMOJI[id] ?? '✦'))
+      const info = div('char-info')
+      info.appendChild(span('char-name', def.name))
+      info.appendChild(span('char-title', def.title))
+      info.appendChild(span('char-role', def.role))
+      card.append(avatar, info)
+      card.addEventListener('click', () => this.selectCharacter(id))
+      this.charCardsEl.appendChild(card)
+      this.charCardEls.push(card)
+    }
+
+    for (const id of DIFFICULTY_IDS) {
+      const def = DIFFICULTIES[id]
+      if (!def) continue
+      const meta = DIFF_META[id] ?? { icon: '✦', tag: '' }
+      const card = el('button', 'diff-card')
+      card.type = 'button'
+      card.dataset.diff = id
+      const head = div('diff-head')
+      head.append(span('diff-icon', meta.icon), span('diff-name', def.name), span('diff-tag', meta.tag))
+      const desc = div('diff-desc', def.note)
+      const mods = div('diff-mods')
+      mods.append(
+        span('diff-mod', `敌人 ×${def.stages?.length ?? 1} 阶段`),
+        span('diff-mod', `生命 ×${def.hpMul}`),
+        span('diff-mod', `计时 ×${def.timerMul}`),
+      )
+      const check = span('diff-check', '✓')
+      card.append(head, desc, mods, check)
+      card.addEventListener('click', () => this.selectDifficulty(id))
+      this.diffCardsEl.appendChild(card)
+      this.diffCardEls.push(card)
+    }
+
+    this.startBtnEl.addEventListener('click', () => this.startGame())
+
+    this.q('.js-end-title-btn').addEventListener('click', () => {
+      this.hideEnd()
+      this.handlers.onQuitToTitle()
+    })
+  }
+
+  private wireTunnel(): void {
+    this.tunnelEl = this.q('.js-tunnel')
+    this.tunnelSubEl = this.q('.js-tunnel-sub')
+    this.tunnelCardsEl = this.q('.js-tunnel-cards')
+    for (let i = 0; i < 3; i += 1) {
+      const card = el('button', 'tunnel-card')
+      card.type = 'button'
+      const band = span('tc-band', '奖励')
+      const key = span('tc-key', String(i + 1))
+      const head = div('tc-head')
+      const icon = span('tc-icon', '✦')
+      const room = span('tc-room', '未知房间')
+      head.append(icon, room)
+      const title = div('tc-title', '')
+      const desc = div('tc-desc', '')
+      const preview = div('tc-preview')
+      card.append(band, key, head, title, desc, preview)
+      card.addEventListener('click', () => this.pickTunnel(i))
+      this.tunnelCardsEl.appendChild(card)
+      this.tunnelCardRefs.push({ card, band, icon, room, title, desc, preview, key })
+    }
+  }
+
+  private wireShop(): void {
+    this.shopEl = this.q('.js-shop')
+    this.shopGridEl = this.q('.js-shop-grid')
+    this.shopGoldEl = this.q('.js-shop-gold')
+    this.refreshBtnEl = this.q('.js-shop-refresh')
+    this.refreshCostEl = this.q('.js-refresh-cost')
+
+    this.refreshBtnEl.addEventListener('click', () => {
+      if (this.shopGold < this.shopRefreshCost) return
+      this.handlers.onShopRefresh()
+    })
+    this.q('.js-shop-inv').addEventListener('click', () => this.handlers.onOpenInventory())
+    this.q('.js-shop-continue').addEventListener('click', () => {
+      this.hideShop()
+      this.handlers.onShopClose()
+    })
+  }
+
+  private wireInventory(): void {
+    this.invEl = this.q('.js-inv')
+    this.invGridEl = this.q('.js-inv-grid')
+    this.invCountEl = this.q('.js-inv-count')
+    this.invGoldEl = this.q('.js-inv-gold')
+    this.invStatsEl = this.q('.js-inv-stats')
+    this.invHintEl = this.q('.js-inv-hint')
+    this.invWarnEl = this.q('.js-inv-warn')
+    this.q('.js-inv-close').addEventListener('click', () => {
+      this.hideInventory()
+      this.handlers.onCloseInventory()
+    })
+
+    for (const stat of STAT_ORDER) {
+      const row = div('inv-stat')
+      row.appendChild(span('inv-stat-label', STAT_LABEL[stat]))
+      const value = span('inv-stat-value', '0')
+      row.appendChild(value)
+      this.invStatsEl.appendChild(row)
+      this.invStatValueEls.set(stat, value)
+    }
+  }
+
+  private wirePause(): void {
+    this.pauseEl = this.q('.js-pause')
+    this.pauseMuteEl = this.q('.js-pause-mute')
+    this.slotsEl = this.q('.js-slots')
+    this.slotsTitleEl = this.q('.js-slots-title')
+    this.slotsSubEl = this.q('.js-slots-sub')
+    this.slotListEl = this.q('.js-slot-list')
+
+    this.q('.js-pause-resume').addEventListener('click', () => this.handlers.onPauseToggle())
+    this.q('.js-pause-save').addEventListener('click', () => this.showSaveSlots('save', this.lastSlots))
+    this.q('.js-pause-load').addEventListener('click', () => this.showSaveSlots('load', this.lastSlots))
+    this.q('.js-pause-quit').addEventListener('click', () => {
+      this.hidePause()
+      this.handlers.onQuitToTitle()
+    })
+    this.pauseMuteEl.addEventListener('click', () => this.toggleMute())
+    this.q('.js-slots-close').addEventListener('click', () => this.hideSaveSlots())
+  }
+
+  private wireEnd(): void {
     this.endEl = this.q('.js-end')
     this.endKickerEl = this.q('.js-end-kicker')
     this.endTitleEl = this.q('.js-end-title')
     this.endSubEl = this.q('.js-end-sub')
-    this.endStatEls.push(...Array.from(this.shell.querySelectorAll<HTMLElement>('.js-stat')))
+    this.endStatsEl = this.q('.js-end-stats')
 
-    this.pauseEl = this.q('.js-pause')
-  }
-
-  private bindEvents(): void {
-    this.startBtnEl.addEventListener('click', () => this.startGame())
-    this.q<HTMLButtonElement>('.js-restart').addEventListener('click', () => this.restart())
-    document.addEventListener('keydown', this.onKeyDown)
-  }
-
-  /** 三个难度卡片：名称/描述取自 gameConfig，保证与数值一致 */
-  private buildDifficultyCards(): void {
-    for (const id of DIFF_ORDER) {
-      const data = DIFFICULTY[id]
-      const meta = DIFF_META[id]
-      const card = el('button', 'diff-card')
-      card.type = 'button'
-      card.dataset.diff = id
-      card.setAttribute('aria-pressed', 'false')
-
-      const head = div('diff-head')
-      head.append(
-        span('diff-icon', meta.icon),
-        span('diff-name', data.name),
-        span('diff-tag', meta.tag),
-      )
-
-      const mods = div('diff-mods')
-      mods.append(
-        span('diff-mod', `敌人生命 ${Math.round(data.hp * 100)}%`),
-        span('diff-mod', `敌人伤害 ${Math.round(data.damage * 100)}%`),
-        span('diff-mod', `刷怪量 ${Math.round(data.spawn * 100)}%`),
-      )
-
-      card.append(head, span('diff-desc', data.desc), mods, span('diff-check', '已选择'))
-      card.addEventListener('click', () => this.selectDifficulty(id))
-
-      this.diffCardsEl.appendChild(card)
-      this.diffCardEls.push(card)
+    const labels = ['角色', '难度', '层数', '击杀', '金币', '专武', '卡片', '用时']
+    for (const label of labels) {
+      const cell = div('end-stat')
+      cell.appendChild(span('end-stat-label', label))
+      const value = span('end-stat-value', '—')
+      cell.appendChild(value)
+      this.endStatsEl.appendChild(cell)
+      this.endStatValueEls.push(value)
     }
+
+    this.q('.js-restart').addEventListener('click', () => this.restart())
   }
 
-  /** 预创建 40 个飘字节点，运行时只复用，不增删 DOM */
-  private createFloaterPool(): void {
+  private buildFloaters(): void {
     for (let i = 0; i < MAX_FLOATERS; i += 1) {
       const node = div('dmg')
-      node.style.opacity = '0'
       this.dmgLayerEl.appendChild(node)
       this.floaters.push({
         el: node,
         world: new THREE.Vector3(),
         age: 0,
-        life: 1,
+        life: FLOATER_LIFE,
         kind: 'normal',
         drift: 0,
         active: false,
@@ -512,570 +1129,568 @@ class HudImpl implements Hud {
     }
   }
 
-  // ==========================================================
-  // 标题页
-  // ==========================================================
+  /* ================================================================ */
+  /* 标题页                                                            */
+  /* ================================================================ */
 
-  private selectDifficulty(id: DifficultyId): void {
-    if (!DIFF_ORDER.includes(id)) return
+  private selectCharacter(id: CharacterId, silent = false): void {
+    this.selectedCharacter = id
+    for (const card of this.charCardEls) {
+      card.classList.toggle('is-active', card.dataset.char === id)
+    }
+    if (!silent) this.updateDiffTip()
+  }
+
+  private selectDifficulty(id: DifficultyId, silent = false): void {
     this.selectedDifficulty = id
     for (const card of this.diffCardEls) {
-      const active = card.dataset.diff === id
-      card.classList.toggle('is-active', active)
-      card.setAttribute('aria-pressed', active ? 'true' : 'false')
+      card.classList.toggle('is-active', card.dataset.diff === id)
     }
-    const data = DIFFICULTY[id]
-    setText(this.diffTipEl, `当前选择：${data.name} — ${data.desc}`)
+    if (!silent) this.updateDiffTip()
+  }
+
+  private updateDiffTip(): void {
+    const def = DIFFICULTIES[this.selectedDifficulty]
+    if (!def) {
+      setText(this.diffTipEl, '')
+      return
+    }
+    setText(this.diffTipEl, `${def.name} · ${def.note}`)
   }
 
   private startGame(): void {
-    if (this.destroyed || this.startLocked) return
+    if (this.startLocked || this.destroyed) return
     this.startLocked = true
-    const difficulty = this.selectedDifficulty
+    window.setTimeout(() => {
+      this.startLocked = false
+    }, PICK_DELAY_MS * 2)
     this.hideTitle()
-    this.handlers.onStart(difficulty)
+    this.handlers.onStart(this.selectedCharacter, this.selectedDifficulty)
   }
 
-  showTitle(): void {
-    if (this.destroyed) return
-    this.startLocked = false
-    this.hideLevelUp()
-    this.hideEnd()
-    this.hideBoss()
-    this.hideFloorBanner()
-    this.showPrompt(null)
-    this.setPaused(false)
-    this.titleEl.classList.add('is-open')
-    this.hudEl.hidden = true
-  }
-
-  hideTitle(): void {
-    if (this.destroyed) return
-    this.titleEl.classList.remove('is-open')
-    this.hudEl.hidden = false
-  }
-
-  // ==========================================================
-  // HUD 每帧更新
-  // ==========================================================
-
-  update(s: HudSnapshot): void {
-    if (this.destroyed) return
-
-    // 帧间隔只用于飘字动画；暂停或切后台时夹紧，避免一帧跳太远
-    const now = performance.now()
-    const dt =
-      this.lastFrameMs === 0 ? 1 / 60 : Math.min(0.1, Math.max(0, (now - this.lastFrameMs) / 1000))
-    this.lastFrameMs = now
-
-    // ---- 左上：楼层 / 击杀目标 ----
-    const floor = Math.max(1, Math.floor(s.floor))
-    setText(this.floorNumEl, String(floor))
-    setText(this.floorNameEl, s.floorName)
-
-    const quotaMax = Math.max(0, Math.floor(s.quotaMax))
-    const quota = Math.max(0, Math.floor(s.quota))
-    setBarFill(this.quotaFillEl, quotaMax > 0 ? quota / quotaMax : s.stairsUnlocked ? 1 : 0, this.barCache)
-    if (quotaMax > 0) {
-      setText(this.quotaTextEl, `击杀 ${Math.min(quota, quotaMax)} / ${quotaMax}`)
-    } else {
-      setText(this.quotaTextEl, '首领层 · 击败哥布林之王')
+  private renderContinueSlots(): void {
+    const rows = this.lastSlots.filter((meta) => !meta.empty)
+    this.continueListEl.replaceChildren()
+    if (rows.length === 0) {
+      this.continuePanelEl.hidden = true
+      return
     }
-    this.floorEl.classList.toggle('stairs-open', s.stairsUnlocked)
-    setText(this.aliveEl, String(Math.max(0, Math.floor(s.enemiesAlive))))
-
-    // ---- 右上：金币 / 等级 / 计时 / 击杀 ----
-    setText(this.goldEl, fmtInt(s.gold))
-    setText(this.levelEl, String(Math.max(1, Math.floor(s.level))))
-    setText(this.timeEl, fmtTime(s.time))
-    setText(this.killsEl, fmtInt(s.kills))
-
-    // ---- 左下：HP / XP ----
-    const maxHp = Math.max(1, s.maxHp)
-    const hp = Math.max(0, Math.min(s.hp, maxHp))
-    const hpRatio = clamp01(hp / maxHp)
-    setBarFill(this.hpFillEl, hpRatio, this.barCache)
-    setText(this.hpTextEl, `${Math.ceil(hp)} / ${Math.ceil(maxHp)}`)
-
-    const danger = hpRatio <= 0.3
-    if (danger !== this.hpDanger) {
-      this.hpDanger = danger
-      this.hpBlockEl.classList.toggle('is-danger', danger)
+    this.continuePanelEl.hidden = false
+    for (const meta of rows) {
+      const row = this.makeSlotRow(meta, 'continue')
+      row.addEventListener('click', () => {
+        if (this.startLocked) return
+        this.startLocked = true
+        this.hideTitle()
+        this.handlers.onContinue(meta.slot)
+      })
+      this.continueListEl.appendChild(row)
     }
+  }
 
-    const nextXp = Math.max(1, Math.floor(s.xpToNext))
-    const xp = Math.max(0, s.xp)
-    setBarFill(this.xpFillEl, xp / nextXp, this.barCache)
-    setText(this.xpTextEl, `${Math.floor(xp)} / ${nextXp}`)
-    setText(this.lvBadgeEl, String(Math.max(1, Math.floor(s.level))))
+  /* ================================================================ */
+  /* 时空隧道                                                          */
+  /* ================================================================ */
 
-    // ---- 底部目标提示 ----
-    let objective: string
-    if (quotaMax <= 0) {
-      objective = s.stairsUnlocked ? '楼梯已开启 · 按 E 离开' : '目标：击败哥布林之王，夺回卷轴'
-    } else if (s.stairsUnlocked) {
-      objective = '楼梯已开启 · 按 E 进入下一层'
-    } else {
-      const remain = Math.max(0, quotaMax - Math.min(quota, quotaMax))
-      objective = `还需击杀 ${remain} 只哥布林解锁楼梯`
+  private tunnelPreviewLines(offer: TunnelOffer): string[] {
+    const payload = offer.payload ?? {}
+    const lines: string[] = []
+    if (typeof payload.gold === 'number' && payload.gold > 0) lines.push(`金币 +${fmtInt(payload.gold)}`)
+    if (payload.card) lines.push(`卡牌 · ${payload.card.name}`)
+    if (payload.skillCard) lines.push(`技能卡 · ${payload.skillCard.name}`)
+    if (payload.shopOffers && payload.shopOffers.length > 0) {
+      lines.push(`商会 · ${payload.shopOffers.length} 件商品`)
     }
-    setText(this.objectiveEl, objective)
-    this.objectiveEl.classList.toggle('is-ready', s.stairsUnlocked)
-
-    // ---- Boss 血条（快照驱动；显式 showBoss 后的 pinned 状态交给 hideBoss） ----
-    if (s.boss) {
-      const bossMax = Math.max(1, s.boss.maxHp)
-      const same =
-        this.bossVisible &&
-        this.bossNameEl.textContent === s.boss.name &&
-        Math.abs(this.bossMaxHp - bossMax) < 0.5
-      if (same) {
-        this.applyBossHp(s.boss.hp)
-      } else {
-        this.showBoss(s.boss.name, s.boss.hp, bossMax)
-        this.bossPinned = false
-      }
-    } else if (!this.bossPinned) {
-      this.hideBoss()
+    if (typeof payload.altarCost === 'number') {
+      const reward = payload.altarReward
+        ? ` → ${STAT_LABEL[payload.altarReward.stat]} ${formatStatValue(payload.altarReward.stat, payload.altarReward.value)}`
+        : ''
+      lines.push(`献祭 ${fmtInt(payload.altarCost)} 金币${reward}`)
     }
-
-    // ---- 世界坐标飘字投影 ----
-    this.updateFloaters(dt)
+    if (typeof payload.enemyCount === 'number') {
+      lines.push(`${payload.bossLayer ? '首领' : '敌人'} ${payload.enemyCount} 只`)
+    } else if (payload.bossLayer) {
+      lines.push('首领战')
+    }
+    if (lines.length === 0) lines.push(TUNNEL_META[offer.kind]?.hint ?? '未知的际遇')
+    return lines
   }
 
-  // ==========================================================
-  // 升级三选一
-  // ==========================================================
-
-  showLevelUp(level: number, choices: UpgradeDef[]): void {
-    if (this.destroyed) return
-
-    this.pickLocked = false
-    this.clearPickTimer()
-    this.choices = choices.slice(0, 3)
-    this.upgradeCardsEl.replaceChildren()
-    this.choices.forEach((def, index) => {
-      this.upgradeCardsEl.appendChild(this.buildUpgradeCard(def, index))
-    })
-
-    setText(this.levelUpSubEl, `达到 Lv.${Math.max(1, Math.floor(level))} · 选择一项强化`)
-    this.levelUpEl.classList.add('is-open')
-    this.showPrompt(null)
-  }
-
-  hideLevelUp(): void {
-    if (this.destroyed) return
-    this.levelUpEl.classList.remove('is-open')
-    this.choices = []
-    this.upgradeCardsEl.replaceChildren()
-    this.pickLocked = false
-    this.clearPickTimer()
-  }
-
-  private buildUpgradeCard(def: UpgradeDef, index: number): HTMLButtonElement {
-    const card = el('button', `upgrade-card rarity-${def.rarity}`)
-    card.type = 'button'
-    card.dataset.id = def.id
-    card.dataset.index = String(index)
-    card.style.setProperty('--i', String(index))
-    card.setAttribute('aria-label', `${RARITY_LABEL[def.rarity] ?? def.rarity}：${def.name}，${def.desc}`)
-
-    const top = div('uc-top')
-    top.append(span('uc-icon', def.icon), span('uc-rarity', RARITY_LABEL[def.rarity] ?? def.rarity))
-
-    const key = div('uc-key')
-    key.appendChild(el('kbd', '', String(index + 1)))
-    key.appendChild(document.createTextNode('选择'))
-
-    card.append(top, div('uc-name', def.name), div('uc-desc', def.desc), key)
-    card.addEventListener('click', () => this.pickUpgrade(index))
-    return card
-  }
-
-  private pickUpgrade(index: number): void {
-    if (this.destroyed || this.pickLocked) return
-    if (!this.levelUpEl.classList.contains('is-open')) return
-    const def = this.choices[index]
-    if (!def) return
-
-    this.pickLocked = true
-    const cards = Array.from(this.upgradeCardsEl.children) as HTMLElement[]
-    cards.forEach((card, i) => {
-      card.classList.toggle('is-picked', i === index)
-      card.classList.toggle('is-dim', i !== index)
-    })
-
-    // 留一点确认反馈时间，同时锁住重复点击/按键
-    this.clearPickTimer()
-    this.pickTimer = window.setTimeout(() => {
-      this.pickTimer = null
-      if (this.destroyed) return
-      const id = def.id
-      this.hideLevelUp()
-      this.handlers.onUpgradePick(id)
+  private pickTunnel(index: number): void {
+    if (this.tunnelLocked || this.destroyed) return
+    const offer = this.tunnelOffers[index]
+    if (!offer) return
+    this.tunnelLocked = true
+    window.setTimeout(() => {
+      this.tunnelLocked = false
     }, PICK_DELAY_MS)
+    for (const ref of this.tunnelCardRefs) ref.card.disabled = true
+    this.tunnelCardRefs[index]?.card.classList.add('is-picked')
+    this.tunnelEl.classList.remove('is-open')
+    this.handlers.onTunnelPick(offer.id)
   }
 
-  private clearPickTimer(): void {
-    if (this.pickTimer === null) return
-    window.clearTimeout(this.pickTimer)
-    this.pickTimer = null
+  /* ================================================================ */
+  /* 商店                                                              */
+  /* ================================================================ */
+
+  private growShopCards(count: number): void {
+    while (this.shopCardRefs.length < count) {
+      const index = this.shopCardRefs.length
+      const card = el('button', 'shop-card')
+      card.type = 'button'
+      const icon = span('sc-icon', '✦')
+      const kind = span('sc-kind', '商品')
+      const tier = span('sc-tier', '普通')
+      const name = div('sc-name', '')
+      const desc = div('sc-desc', '')
+      const price = span('sc-price', '0')
+      const buy = span('sc-buy', '购买')
+      const head = div('sc-head')
+      head.append(icon, kind, tier)
+      const foot = div('sc-foot')
+      foot.append(price, buy)
+      card.append(head, name, desc, foot)
+      card.addEventListener('click', () => {
+        const offer = this.shopOffers[index]
+        if (!offer) return
+        this.handlers.onShopBuy(offer.id)
+      })
+      this.shopGridEl.appendChild(card)
+      this.shopCardRefs.push({ card, icon, kind, tier, name, desc, price, buy })
+    }
   }
 
-  // ==========================================================
-  // Boss 血条
-  // ==========================================================
+  private renderShop(gold: number): void {
+    this.shopGold = Math.max(0, gold)
+    setText(this.shopGoldEl, fmtInt(this.shopGold))
+    setText(this.refreshCostEl, fmtInt(this.shopRefreshCost))
+    const canRefresh = this.shopGold >= this.shopRefreshCost
+    this.refreshBtnEl.disabled = !canRefresh
+    this.refreshBtnEl.classList.toggle('is-poor', !canRefresh)
 
-  showBoss(name: string, hp: number, maxHp: number): void {
-    if (this.destroyed) return
-    this.bossMaxHp = Number.isFinite(maxHp) && maxHp > 0 ? maxHp : 1
-    setText(this.bossNameEl, name)
-    this.applyBossHp(hp)
-    this.bossEl.classList.add('is-open')
-    this.bossVisible = true
-    this.bossPinned = true
-  }
-
-  updateBoss(hp: number): void {
-    if (this.destroyed || !this.bossVisible) return
-    this.applyBossHp(hp)
-  }
-
-  hideBoss(): void {
-    if (this.destroyed) return
-    this.bossEl.classList.remove('is-open')
-    this.bossVisible = false
-    this.bossPinned = false
-  }
-
-  private applyBossHp(hp: number): void {
-    const ratio = clamp01((Number.isFinite(hp) ? hp : 0) / this.bossMaxHp)
-    setBarFill(this.bossFillEl, ratio, this.barCache)
-    const phase2 = ratio <= BOSS_PHASE2_RATIO
-    this.bossEl.classList.toggle('is-phase2', phase2)
-    setText(this.bossTagEl, phase2 ? '第二阶段 · 狂暴' : '第一阶段')
-  }
-
-  // ==========================================================
-  // 相机注入 & 世界坐标飘字
-  // ==========================================================
-
-  setCamera(camera: THREE.PerspectiveCamera): void {
-    this.cameraHolder.camera = camera
-  }
-
-  damageNumber(
-    worldPos: THREE.Vector3,
-    amount: number,
-    kind: 'normal' | 'crit' | 'heal' | 'gold',
-  ): void {
-    if (this.destroyed) return
-    const floater = this.floaters[this.floaterCursor]
-    if (!floater) return
-    this.floaterCursor = (this.floaterCursor + 1) % this.floaters.length
-
-    // 必须拷贝：调用方的 Vector3 很可能被复用/改写
-    floater.world.copy(worldPos)
-    floater.age = 0
-    floater.kind = kind
-    floater.life = kind === 'crit' ? 1 : kind === 'gold' || kind === 'heal' ? 0.95 : 0.88
-    floater.drift = Math.random() * 2 - 1
-    floater.active = true
-
-    const value = Math.max(0, Math.round(Number.isFinite(amount) ? amount : 0))
-    const text = kind === 'gold' || kind === 'heal' ? `+${fmtInt(value)}` : fmtInt(value)
-    floater.el.className = `dmg kind-${kind}`
-    floater.el.textContent = text
-    floater.el.style.opacity = '1'
-    this.renderFloater(floater)
-  }
-
-  private updateFloaters(dt: number): void {
-    const camera = this.cameraHolder.camera
-    // 每帧刷新一次相机的世界逆矩阵，保证投影不会落后一帧
-    if (camera) camera.updateMatrixWorld()
-
-    for (const floater of this.floaters) {
-      if (!floater.active) continue
-      floater.age += dt
-      if (floater.age >= floater.life) {
-        floater.active = false
-        floater.el.style.opacity = '0'
+    this.growShopCards(this.shopOffers.length)
+    for (let i = 0; i < this.shopCardRefs.length; i += 1) {
+      const ref = this.shopCardRefs[i]
+      const offer = this.shopOffers[i]
+      if (!offer) {
+        ref.card.hidden = true
         continue
       }
-      this.renderFloater(floater)
+      ref.card.hidden = false
+      ref.card.className = `shop-card ${tierClass(offer.tier)}`
+      const poor = this.shopGold < offer.price
+      ref.card.classList.toggle('is-poor', poor)
+      ref.card.dataset.offerId = offer.id
+      setText(ref.icon, offer.icon || '✦')
+      setText(ref.kind, SHOP_KIND_LABEL[offer.kind] ?? '商品')
+      setText(ref.tier, tierLabel(offer.tier))
+      setText(ref.name, offer.name)
+      setText(ref.desc, offer.desc)
+      setText(ref.price, fmtInt(offer.price))
+      setText(ref.buy, poor ? '金币不足' : '购买')
     }
   }
 
-  /** 投影一个飘字：上飘 + 淡出 + 出生放大，超出视锥直接隐藏 */
-  private renderFloater(floater: Floater): void {
-    const camera = this.cameraHolder.camera
-    if (!camera) {
-      floater.el.style.opacity = '0'
+  /* ================================================================ */
+  /* 背包                                                              */
+  /* ================================================================ */
+
+  private ensureInvCells(count: number): void {
+    while (this.invCellRefs.length < count) {
+      const index = this.invCellRefs.length
+      const cell = el('button', 'inv-cell is-empty')
+      cell.type = 'button'
+      const tier = span('ic-tier', '')
+      const icon = span('ic-icon', '')
+      const name = span('ic-name', '空')
+      const meta = span('ic-meta', '')
+      cell.append(tier, icon, name, meta)
+      cell.addEventListener('click', () => this.onInvCellClick(index))
+      this.invGridEl.appendChild(cell)
+      this.invCellRefs.push({ cell, tier, icon, name, meta })
+    }
+  }
+
+  private canMerge(a: InventoryItem, b: InventoryItem): boolean {
+    if (a.uid === b.uid) return false
+    if (a.kind !== b.kind) return false
+    if (a.kind === 'consumable') return false
+    if (a.tier !== b.tier) return false
+    if (a.tier >= 3) return false
+    return (a.stat ?? '') === (b.stat ?? '')
+  }
+
+  private onInvCellClick(index: number): void {
+    const item = this.invItems[index]
+    if (!item) {
+      this.invSelected = null
+      this.renderInventory(this.invGold)
       return
     }
-
-    const t = clamp01(floater.age / floater.life)
-    const v = this.scratch.copy(floater.world).project(camera)
-
-    if (
-      !Number.isFinite(v.x) ||
-      !Number.isFinite(v.y) ||
-      !Number.isFinite(v.z) ||
-      v.z > 1 ||
-      v.z < -1 ||
-      v.x < -1.15 ||
-      v.x > 1.15 ||
-      v.y < -1.15 ||
-      v.y > 1.15
-    ) {
-      floater.el.style.opacity = '0'
+    if (item.kind === 'consumable') {
+      this.handlers.onUseItem(item.uid)
       return
     }
-
-    const width = window.innerWidth
-    const height = window.innerHeight
-    const screenX = (v.x * 0.5 + 0.5) * width
-    const screenY = (-v.y * 0.5 + 0.5) * height
-    const rise = 52 + floater.drift * 16
-    const y = screenY - t * rise
-
-    // 0~0.16 弹出，之后轻微回落，形成"顿一下再飘"的手感
-    const pop =
-      t < 0.16 ? 0.72 + (t / 0.16) * 0.43 : 1.15 - Math.min(0.15, (t - 0.16) * 0.32)
-    const opacity = t < 0.65 ? 1 : 1 - (t - 0.65) / 0.35
-
-    floater.el.style.transform =
-      `translate3d(${screenX.toFixed(1)}px, ${y.toFixed(1)}px, 0) ` +
-      `translate(-50%, -50%) scale(${pop.toFixed(3)})`
-    floater.el.style.opacity = opacity.toFixed(3)
+    const selected = this.invSelected ? this.invItems.find((entry) => entry.uid === this.invSelected) : null
+    if (selected && this.canMerge(selected, item)) {
+      this.invSelected = null
+      this.handlers.onMergeItem(selected.uid, item.uid)
+      return
+    }
+    this.invSelected = item.uid === this.invSelected ? null : item.uid
+    this.renderInventory(this.invGold)
   }
 
-  // ==========================================================
-  // 交互提示 / Toast / 楼层横幅
-  // ==========================================================
+  private renderInventory(gold: number): void {
+    this.invGold = Math.max(0, gold)
+    setText(this.invGoldEl, fmtInt(this.invGold))
+    setText(this.invCountEl, `${this.invItems.length} / ${this.invMaxSlots}`)
+    setText(this.invHintEl, '点击两张同级同种的卡牌合成；消耗品点击即使用。')
+    const full = this.invItems.length >= this.invMaxSlots
+    this.invWarnEl.hidden = !full
 
-  showPrompt(text: string | null): void {
-    if (this.destroyed) return
-    if (text !== null && text.trim().length > 0) {
-      setText(this.promptEl, text)
-      this.promptEl.classList.add('is-open')
-    } else {
-      this.promptEl.classList.remove('is-open')
+    const selectedItem = this.invSelected
+      ? this.invItems.find((item) => item.uid === this.invSelected) ?? null
+      : null
+
+    for (let i = 0; i < this.invCellRefs.length; i += 1) {
+      const ref = this.invCellRefs[i]
+      if (i >= this.invMaxSlots) {
+        ref.cell.hidden = true
+        continue
+      }
+      ref.cell.hidden = false
+      const item = this.invItems[i]
+      if (!item) {
+        ref.cell.className = 'inv-cell is-empty'
+        setText(ref.tier, '')
+        setText(ref.icon, '＋')
+        setText(ref.name, '空')
+        setText(ref.meta, '')
+        continue
+      }
+      ref.cell.className = `inv-cell ${tierClass(item.tier)}`
+      if (item.uid === this.invSelected) ref.cell.classList.add('is-selected')
+      if (selectedItem && this.canMerge(selectedItem, item)) ref.cell.classList.add('is-mergeable')
+      if (item.kind === 'consumable') ref.cell.classList.add('is-consumable')
+      setText(ref.tier, tierLabel(item.tier))
+      setText(ref.icon, item.icon || '✦')
+      setText(ref.name, item.name)
+      const bits: string[] = [SHOP_KIND_LABEL[item.kind] ?? '物品']
+      if (item.stat && typeof item.value === 'number') {
+        bits.push(`${STAT_LABEL[item.stat]} ${formatStatValue(item.stat, item.value)}`)
+      } else if (typeof item.value === 'number' && item.kind === 'consumable') {
+        bits.push(`${fmtDelta(item.value)}`)
+      }
+      setText(ref.meta, bits.join(' · '))
+    }
+
+    if (selectedItem) {
+      setText(
+        this.invHintEl,
+        `已选中「${selectedItem.name}」：点击另一张同级同种的卡牌合成，或再次点击取消。`,
+      )
+    }
+
+    // 汇总五维
+    const totals = new Map<CardStat, number>()
+    for (const stat of STAT_ORDER) totals.set(stat, 0)
+    for (const item of this.invItems) {
+      if (!item.stat || typeof item.value !== 'number') continue
+      totals.set(item.stat, (totals.get(item.stat) ?? 0) + item.value)
+    }
+    for (const stat of STAT_ORDER) {
+      const valueEl = this.invStatValueEls.get(stat)
+      if (!valueEl) continue
+      const total = totals.get(stat) ?? 0
+      setText(valueEl, total === 0 ? '0' : formatStatValue(stat, total))
+      valueEl.classList.toggle('is-zero', total === 0)
     }
   }
 
-  toast(text: string, kind: 'info' | 'good' | 'bad' = 'info'): void {
-    if (this.destroyed || text.trim().length === 0) return
-    const node = div(`toast kind-${kind}`, text)
-    this.toastLayerEl.appendChild(node)
+  /* ================================================================ */
+  /* 暂停 / 存档                                                       */
+  /* ================================================================ */
 
-    // 同屏最多 4 条，超出先移除最旧的
-    while (this.toastLayerEl.childElementCount > 4) {
-      const first = this.toastLayerEl.firstElementChild
-      if (!first) break
-      first.remove()
+  private toggleMute(): void {
+    this.setMuted(!this.muted)
+    window.dispatchEvent(new CustomEvent('goblin:mute', { detail: { muted: this.muted } }))
+  }
+
+  private makeSlotRow(meta: SaveSlotMeta, variant: 'continue' | 'save' | 'load'): HTMLButtonElement {
+    const row = el('button', 'slot-row')
+    row.type = 'button'
+    const no = span('slot-no', `S${meta.slot + 1}`)
+    const main = div('slot-main')
+    row.append(no, main)
+
+    if (meta.empty) {
+      row.classList.add('is-empty')
+      main.appendChild(div('slot-title', '空槽位'))
+      main.appendChild(div('slot-meta', variant === 'save' ? '点击保存当前进度' : '暂无存档'))
+      if (variant === 'load') row.disabled = true
+      row.append(span('slot-go', variant === 'save' ? '保存' : '空'))
+      return row
     }
 
-    const timer = window.setTimeout(() => {
-      this.toastTimers.delete(timer)
-      node.remove()
-    }, 2150)
-    this.toastTimers.add(timer)
+    const character = meta.character ? CHARACTERS[meta.character] : undefined
+    const difficulty = meta.difficulty ? DIFFICULTIES[meta.difficulty] : undefined
+    main.appendChild(div('slot-title', `${character?.name ?? '未知角色'} · ${difficulty?.name ?? '未知难度'}`))
+    const bits: string[] = []
+    if (meta.layer != null) bits.push(`第 ${meta.layer} 层`)
+    if (meta.stage != null) bits.push(`阶段 ${meta.stage}`)
+    if (meta.weaponLv != null) bits.push(`专武 Lv${meta.weaponLv}`)
+    if (meta.gold != null) bits.push(`${fmtInt(meta.gold)} 金`)
+    if (meta.playTime != null) bits.push(fmtTime(meta.playTime))
+    main.appendChild(div('slot-meta', bits.join(' · ') || '存档记录'))
+    row.append(span('slot-go', variant === 'continue' ? '继续' : variant === 'save' ? '覆盖' : '读取'))
+    return row
   }
 
-  showFloorBanner(floor: number, name: string, subtitle: string): void {
-    if (this.destroyed) return
-    const index = Math.max(1, Math.floor(floor))
-    setText(this.bannerFloorEl, `FLOOR ${String(index).padStart(2, '0')}`)
-    setText(this.bannerNameEl, `第 ${index} 层 · ${name}`)
-    setText(this.bannerSubEl, subtitle)
-
-    // 先清掉上一条横幅的计时器，再重播进场（不能调用 hideFloorBanner，否则会移除 is-open）
-    if (this.bannerTimer !== null) {
-      window.clearTimeout(this.bannerTimer)
-      this.bannerTimer = null
+  private renderSlotList(): void {
+    this.slotListEl.replaceChildren()
+    const slots = this.lastSlots.length > 0 ? this.lastSlots : []
+    const count = Math.max(slots.length, 3)
+    for (let i = 0; i < count; i += 1) {
+      const meta: SaveSlotMeta = slots[i] ?? { slot: i, empty: true }
+      const row = this.makeSlotRow(meta, this.slotMode)
+      row.addEventListener('click', () => {
+        if (this.slotMode === 'save') {
+          this.handlers.onSave(meta.slot)
+          this.hideSaveSlots()
+        } else if (!meta.empty) {
+          this.handlers.onLoad(meta.slot)
+          this.hideSaveSlots()
+        }
+      })
+      this.slotListEl.appendChild(row)
     }
-    this.bannerEl.classList.remove('is-open')
-    restartAnim(this.bannerEl)
-    this.bannerEl.classList.add('is-open')
-
-    this.bannerTimer = window.setTimeout(() => {
-      this.bannerTimer = null
-      if (!this.destroyed) this.bannerEl.classList.remove('is-open')
-    }, 2000)
   }
 
-  private hideFloorBanner(): void {
-    if (this.bannerTimer !== null) {
-      window.clearTimeout(this.bannerTimer)
-      this.bannerTimer = null
-    }
-    this.bannerEl.classList.remove('is-open')
-  }
-
-  // ==========================================================
-  // 结算
-  // ==========================================================
-
-  showGameOver(stats: RunStats): void {
-    this.showEnd(stats, false)
-  }
-
-  showVictory(stats: RunStats): void {
-    this.showEnd(stats, true)
-  }
-
-  private showEnd(stats: RunStats, victory: boolean): void {
-    if (this.destroyed) return
-
-    this.restartLocked = false
-    this.hideLevelUp()
-    this.hideBoss()
-    this.showPrompt(null)
-    this.setPaused(false)
-
-    const floor = Math.max(1, Math.floor(stats.floor))
-    const level = Math.max(1, Math.floor(stats.level))
-    this.endEl.classList.toggle('is-victory', victory)
-    setText(this.endKickerEl, victory ? 'ESCAPED · 通关' : 'RUN OVER · 阵亡')
-    setText(this.endTitleEl, victory ? '你逃出了哥布林之塔' : '你倒在了塔中')
-    setText(
-      this.endSubEl,
-      victory
-        ? '你带着卷轴逃出了哥布林之塔，塔顶只剩下不甘的咆哮。'
-        : '哥布林的笑声在塔中回荡，卷轴还在塔顶等待下一位挑战者。',
-    )
-
-    const diffName = DIFFICULTY[stats.difficulty]?.name ?? stats.difficulty
-    const values = [
-      `第 ${floor} 层`,
-      `Lv.${level}`,
-      fmtInt(stats.kills),
-      fmtInt(stats.gold),
-      fmtTime(stats.time),
-      diffName,
-    ]
-    this.endStatEls.forEach((node, index) => setText(node, values[index] ?? '—'))
-
-    this.hudEl.hidden = true
-    this.endEl.classList.add('is-open')
-  }
-
-  hideEnd(): void {
-    if (this.destroyed) return
-    this.endEl.classList.remove('is-open')
-    this.restartLocked = false
-    this.hudEl.hidden = this.titleEl.classList.contains('is-open')
-  }
+  /* ================================================================ */
+  /* 结算                                                              */
+  /* ================================================================ */
 
   private restart(): void {
-    if (this.destroyed || this.restartLocked) return
-    this.restartLocked = true
+    if (this.endLocked || this.destroyed) return
+    this.endLocked = true
+    window.setTimeout(() => {
+      this.endLocked = false
+    }, PICK_DELAY_MS * 2)
     this.hideEnd()
     this.handlers.onRestart()
   }
 
-  // ==========================================================
-  // 暂停 / 静音
-  // ==========================================================
+  private renderEnd(stats: RunStatsV3, victory: boolean, reason?: DefeatReason): void {
+    this.endLocked = false
+    this.endEl.classList.toggle('is-victory', victory)
+    setText(this.endKickerEl, victory ? 'VICTORY · 通关' : 'RUN OVER · 失败')
 
-  setPaused(paused: boolean): void {
-    if (this.destroyed) return
-    this.pauseEl.classList.toggle('is-open', paused)
+    if (victory) {
+      setText(this.endTitleEl, '塔顶的黎明')
+      setText(this.endSubEl, '你带着战利品走出了哥布林之塔。')
+    } else if (reason === 'timeout') {
+      setText(this.endTitleEl, '时间耗尽')
+      setText(this.endSubEl, '倒计时归零，塔门在你身后合拢。')
+    } else {
+      setText(this.endTitleEl, '生命耗尽')
+      setText(this.endSubEl, '你倒在了塔中，哥布林的笑声在石壁间回荡。')
+    }
+
+    const character = CHARACTERS[stats.character]
+    const difficulty = DIFFICULTIES[stats.difficulty]
+    const values = [
+      character?.name ?? '—',
+      difficulty?.name ?? '—',
+      `第 ${stats.layer} / ${stats.totalLayers} 层`,
+      fmtInt(stats.kills),
+      fmtInt(stats.gold),
+      `Lv.${stats.weaponLv}`,
+      `${stats.cardCount} 张`,
+      fmtTime(stats.time),
+    ]
+    for (let i = 0; i < this.endStatValueEls.length; i += 1) {
+      setText(this.endStatValueEls[i], values[i] ?? '—')
+    }
+
+    this.endEl.classList.add('is-open')
+    this.refreshHud()
   }
 
-  setMuted(muted: boolean): void {
-    if (this.destroyed) return
-    this.muteEl.hidden = !muted
+  /* ================================================================ */
+  /* Boss / 飘字 / 状态                                                */
+  /* ================================================================ */
+
+  private updateBossFromSnapshot(snapshot: HudSnapshot): void {
+    if (this.bossPinned) return
+    const boss = snapshot.boss
+    if (!boss || boss.maxHp <= 0 || boss.hp <= 0) {
+      this.bossEl.hidden = true
+      this.bossEl.classList.remove('is-open')
+      this.bossRatio = -1
+      return
+    }
+    this.bossEl.hidden = false
+    this.bossEl.classList.add('is-open')
+    setText(this.bossNameEl, boss.name)
+    this.bossEl.dataset.maxHp = String(boss.maxHp)
+    this.setBossRatio(boss.hp / boss.maxHp)
   }
 
-  // ==========================================================
-  // 键盘：标题页 1/2/3 选难度、Enter 开始；升级 1/2/3；结算 Enter/R
-  // ==========================================================
+  private setBossRatio(rawRatio: number): void {
+    const ratio = clamp01(Number.isFinite(rawRatio) ? rawRatio : 0)
+    if (Math.abs(ratio - this.bossRatio) < 0.0005) return
+    this.bossRatio = ratio
+    this.bossFillEl.style.transform = `scaleX(${ratio.toFixed(4)})`
+    this.bossEl.classList.toggle('is-phase2', ratio <= BOSS_PHASE2_RATIO)
+  }
+
+  private acquireFloater(): Floater {
+    for (let i = 0; i < this.floaters.length; i += 1) {
+      const candidate = this.floaters[(this.floaterCursor + i) % this.floaters.length]
+      if (!candidate.active) {
+        this.floaterCursor = (this.floaterCursor + i + 1) % this.floaters.length
+        return candidate
+      }
+    }
+    const oldest = this.floaters[this.floaterCursor]
+    this.floaterCursor = (this.floaterCursor + 1) % this.floaters.length
+    return oldest
+  }
+
+  private formatDamage(amount: number, kind: DmgKind): string {
+    const value = Number.isFinite(amount) ? amount : 0
+    if (kind === 'gold') return `+${fmtInt(Math.abs(value))}`
+    if (kind === 'heal') return `+${Math.round(Math.abs(value))}`
+    return String(Math.round(value))
+  }
+
+  private renderFloater(floater: Floater): void {
+    if (!floater.active) return
+    const camera = this.cameraHolder.camera
+    const node = floater.el
+    if (!camera) {
+      node.style.opacity = '0'
+      return
+    }
+    const t = floater.age / floater.life
+    if (t >= 1) {
+      floater.active = false
+      node.style.opacity = '0'
+      return
+    }
+    this.scratchWorld.copy(floater.world)
+    this.scratchProject.copy(this.scratchWorld).project(camera)
+    if (this.scratchProject.z > 1) {
+      node.style.opacity = '0'
+      return
+    }
+    const rect = this.dmgLayerEl.getBoundingClientRect()
+    const halfW = rect.width * 0.5
+    const halfH = rect.height * 0.5
+    const rise = FLOATER_RISE_PX * Math.min(1, t * 1.35)
+    node.style.left = `${(this.scratchProject.x * halfW + halfW + floater.drift * t).toFixed(1)}px`
+    node.style.top = `${(-this.scratchProject.y * halfH + halfH - rise).toFixed(1)}px`
+
+    let opacity = 1
+    if (t > 0.65) opacity = Math.max(0, 1 - (t - 0.65) / 0.35)
+    const pop = t < 0.16 ? 0.72 + (t / 0.16) * 0.43 : 1.15 - Math.min(0.15, (t - 0.16) * 0.5)
+    node.style.opacity = opacity.toFixed(3)
+    node.style.transform = `translate(-50%, -50%) scale(${pop.toFixed(3)})`
+  }
+
+  private updateFloaters(dt: number): void {
+    if (this.floaters.length === 0) return
+    for (const floater of this.floaters) {
+      if (!floater.active) continue
+      floater.age += dt
+      this.renderFloater(floater)
+    }
+  }
+
+  private refreshHud(): void {
+    const titleOpen = this.titleEl.classList.contains('is-open')
+    const endOpen = this.endEl.classList.contains('is-open')
+    this.hudEl.hidden = titleOpen || endOpen
+  }
+
+  /* ================================================================ */
+  /* 键盘                                                              */
+  /* ================================================================ */
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (this.destroyed || event.repeat) return
+    if (this.destroyed) return
+    if (event.repeat) return
+
+    if (this.slotsEl.classList.contains('is-open')) {
+      if (event.code === 'Escape') {
+        event.preventDefault()
+        this.hideSaveSlots()
+      }
+      return
+    }
+
+    if (this.tunnelEl.classList.contains('is-open')) {
+      const index = digitFromEvent(event) - 1
+      if (index >= 0 && index < this.tunnelOffers.length) {
+        event.preventDefault()
+        this.pickTunnel(index)
+      }
+      return
+    }
+
+    if (this.invEl.classList.contains('is-open')) {
+      if (event.code === 'Escape' || event.code === 'Tab') {
+        event.preventDefault()
+        this.hideInventory()
+        this.handlers.onCloseInventory()
+      }
+      return
+    }
+
+    if (this.endEl.classList.contains('is-open')) {
+      if (event.code === 'KeyR') {
+        event.preventDefault()
+        this.restart()
+      } else if (event.code === 'Enter') {
+        event.preventDefault()
+        this.hideEnd()
+        this.handlers.onQuitToTitle()
+      }
+      return
+    }
 
     if (this.titleEl.classList.contains('is-open')) {
-      const digit = digitFromEvent(event)
-      if (digit >= 0 && digit < DIFF_ORDER.length) {
-        const id = DIFF_ORDER[digit]
-        if (id) this.selectDifficulty(id)
-        event.preventDefault()
+      const index = digitFromEvent(event) - 1
+      if (index >= 0 && index < this.diffCardEls.length) {
+        const id = this.diffCardEls[index]?.dataset.diff
+        if (id) {
+          event.preventDefault()
+          this.selectDifficulty(id as DifficultyId)
+        }
         return
       }
-      if (event.code === 'Enter' || event.code === 'NumpadEnter' || event.code === 'Space') {
+      if (event.code === 'Enter' || event.code === 'Space') {
         event.preventDefault()
         this.startGame()
       }
       return
     }
 
-    if (this.levelUpEl.classList.contains('is-open')) {
-      const digit = digitFromEvent(event)
-      if (digit >= 0) {
+    if (this.pauseEl.classList.contains('is-open')) {
+      if (event.code === 'Escape') {
         event.preventDefault()
-        this.pickUpgrade(digit)
-      }
-      return
-    }
-
-    if (this.endEl.classList.contains('is-open')) {
-      if (
-        event.code === 'Enter' ||
-        event.code === 'NumpadEnter' ||
-        event.code === 'KeyR'
-      ) {
-        event.preventDefault()
-        this.restart()
+        this.hidePause()
+        this.handlers.onPauseToggle()
       }
     }
   }
-
-  // ==========================================================
-  // 销毁
-  // ==========================================================
-
-  destroy(): void {
-    if (this.destroyed) return
-    this.destroyed = true
-
-    document.removeEventListener('keydown', this.onKeyDown)
-    this.clearPickTimer()
-    this.hideFloorBanner()
-    for (const timer of this.toastTimers) window.clearTimeout(timer)
-    this.toastTimers.clear()
-
-    this.floaters.length = 0
-    this.cameraHolder.camera = null
-    this.shell.remove()
-    this.hudEl.hidden = true
-  }
 }
 
-/** 从键盘事件取 0/1/2，兼容数字行与小键盘 */
-function digitFromEvent(event: KeyboardEvent): number {
-  switch (event.code) {
-    case 'Digit1':
-    case 'Numpad1':
-      return 0
-    case 'Digit2':
-    case 'Numpad2':
-      return 1
-    case 'Digit3':
-    case 'Numpad3':
-      return 2
-    default:
-      break
-  }
-  if (event.key === '1') return 0
-  if (event.key === '2') return 1
-  if (event.key === '3') return 2
-  return -1
-}
-
-/** 创建 HUD。若重复调用，由调用方负责先销毁旧实例。 */
-export function createHud(handlers: HudHandlers): Hud {
+/**
+ * 创建 v3 HUD。整个 UI 只挂载一次，之后通过 class 切换界面。
+ */
+export function createHud(handlers: HudV3Handlers): HudV3 {
   return new HudImpl(handlers)
 }

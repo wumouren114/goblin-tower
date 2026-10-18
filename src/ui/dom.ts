@@ -40,6 +40,19 @@ export function fmtInt(value: number): string {
   return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
+/** 带符号整数/小数格式化：18 -> "+18"，-8 -> "-8"，0.25 -> "+0.25" */
+export function fmtDelta(value: number, digits = 0): string {
+  const v = Number.isFinite(value) ? value : 0
+  const abs = digits > 0 ? Math.abs(v).toFixed(digits) : String(Math.round(Math.abs(v)))
+  return v < 0 ? `-${abs}` : `+${abs}`
+}
+
+/** 0~1 比例 -> 百分比文本：0.03 -> "3%" */
+export function fmtPct(ratio: number, digits = 0): string {
+  const v = Number.isFinite(ratio) ? ratio * 100 : 0
+  return `${v.toFixed(digits)}%`
+}
+
 /** 秒 -> "mm:ss"（超过一小时也能正常显示） */
 export function fmtTime(seconds: number): string {
   const total = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0))

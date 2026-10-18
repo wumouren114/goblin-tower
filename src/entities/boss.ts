@@ -1,5 +1,4 @@
 import * as THREE from 'three'
-import { CONFIG } from '../data/gameConfig'
 import type { Facing } from '../types'
 import { rotateInput } from '../core/math'
 import { kingSprite } from '../art/sprites'
@@ -20,7 +19,24 @@ export interface BossCallbacks {
 
 type BossState = 'chase' | 'windup' | 'recover' | 'charge'
 
-const WINDUP = CONFIG.boss.slamWindup
+/**
+ * Boss 手感参数（旧 gameConfig.CONFIG.boss 的本地化，v3 不再依赖全局配置）。
+ * 血量最终由 game 按 balance.bossHpFor(difficulty, layer) 覆写 boss.hp / maxHp。
+ */
+export const BOSS_TUNING = {
+  hp: 2600,
+  damage: 18,
+  speed: 2.5,
+  radius: 1.5,
+  slamRadius: 4.6,
+  slamWindup: 0.85,
+  summonCount: 5,
+  summonEvery: 9,
+  chargeSpeed: 11,
+  phase2At: 0.55,
+} as const
+
+const WINDUP = BOSS_TUNING.slamWindup
 
 /**
  * 哥布林之王：追击 → 蓄力砸地（0.85s 红圈预警）→ 硬直 → 追击。
@@ -30,9 +46,9 @@ export class GoblinKing {
   readonly group: THREE.Group
   x: number
   z: number
-  hp: number = CONFIG.boss.hp
-  maxHp: number = CONFIG.boss.hp
-  radius: number = CONFIG.boss.radius
+  hp: number = BOSS_TUNING.hp
+  maxHp: number = BOSS_TUNING.hp
+  radius: number = BOSS_TUNING.radius
   alive = true
   phase2 = false
 
@@ -89,7 +105,7 @@ export class GoblinKing {
     this.warn = new THREE.Mesh(warnGeo, this.warnMat)
     this.warn.rotation.x = -Math.PI / 2
     this.warn.position.set(x, 0.045, z)
-    this.warn.scale.setScalar(CONFIG.boss.slamRadius * 2)
+    this.warn.scale.setScalar(BOSS_TUNING.slamRadius * 2)
     this.warn.visible = false
     this.warn.renderOrder = 2
     scene.add(this.warn)
@@ -105,19 +121,19 @@ export class GoblinKing {
     this.chargeCd = Math.max(0, this.chargeCd - dt)
 
     // 进入二阶段
-    if (!this.phase2 && this.hp <= this.maxHp * CONFIG.boss.phase2At) {
+    if (!this.phase2 && this.hp <= this.maxHp * BOSS_TUNING.phase2At) {
       this.phase2 = true
-      this.summonTimer = CONFIG.boss.summonEvery
+      this.summonTimer = BOSS_TUNING.summonEvery
       this.callbacks.onRoar()
-      this.callbacks.onSummon(CONFIG.boss.summonCount)
+      this.callbacks.onSummon(BOSS_TUNING.summonCount)
     }
 
     // 二阶段定期召唤
     if (this.phase2) {
       this.summonTimer -= dt
       if (this.summonTimer <= 0) {
-        this.summonTimer = CONFIG.boss.summonEvery
-        this.callbacks.onSummon(CONFIG.boss.summonCount)
+        this.summonTimer = BOSS_TUNING.summonEvery
+        this.callbacks.onSummon(BOSS_TUNING.summonCount)
       }
     }
 
@@ -136,7 +152,7 @@ export class GoblinKing {
         if (this.stateTimer <= 0) {
           this.warn.visible = false
           this.warnMat.opacity = 0
-          this.callbacks.onSlam(this.slamX, this.slamZ, CONFIG.boss.slamRadius, CONFIG.boss.damage)
+          this.callbacks.onSlam(this.slamX, this.slamZ, BOSS_TUNING.slamRadius, BOSS_TUNING.damage)
           this.state = 'recover'
           this.stateTimer = 1.1
           this.slamCd = 3.4
@@ -150,7 +166,7 @@ export class GoblinKing {
       }
       case 'charge': {
         this.stateTimer -= dt
-        const sp = CONFIG.boss.chargeSpeed * dt
+        const sp = BOSS_TUNING.chargeSpeed * dt
         this.x += this.chargeX * sp
         this.z += this.chargeZ * sp
         moving = true
@@ -164,8 +180,8 @@ export class GoblinKing {
       default: {
         // 追击玩家
         if (dist > 0.001) {
-          this.x += nx * CONFIG.boss.speed * dt
-          this.z += nz * CONFIG.boss.speed * dt
+          this.x += nx * BOSS_TUNING.speed * dt
+          this.z += nz * BOSS_TUNING.speed * dt
           moving = true
         }
         if (this.slamCd <= 0 && dist < 8.5) {
@@ -174,7 +190,7 @@ export class GoblinKing {
           this.slamX = targetX
           this.slamZ = targetZ
           this.warn.position.set(this.slamX, 0.045, this.slamZ)
-          this.warn.scale.setScalar(CONFIG.boss.slamRadius * 2)
+          this.warn.scale.setScalar(BOSS_TUNING.slamRadius * 2)
           this.warn.visible = true
           this.warnMat.opacity = 0.35
         } else if (this.phase2 && this.chargeCd <= 0 && dist > 6.5) {
@@ -190,7 +206,7 @@ export class GoblinKing {
 
     // 预警圈随 Boss 动画保持可见性
     this.warn.position.y = 0.045
-    this.warn.scale.setScalar(CONFIG.boss.slamRadius * 2)
+    this.warn.scale.setScalar(BOSS_TUNING.slamRadius * 2)
 
     // 朝向按相机转屏幕系
     const screen = rotateInput(nx, nz, getBillboardYaw())

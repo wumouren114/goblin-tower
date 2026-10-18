@@ -1,10 +1,11 @@
 import * as THREE from 'three'
-import type { Circle, DifficultyId, FloorDef, ThemeDef, Vec2, WorldApi } from '../types'
+import type { Circle, SceneDef, Vec2, WorldV3 } from '../types'
 import { Rng } from '../core/rng'
 import { mixHex, TextureBook } from './textures'
 import { PropSet } from './props'
 import type { PropKind } from './props'
-import { StairGate } from './stairs'
+import type { ThemeV3 } from './themes'
+import { themeFor } from './themes'
 import { disposeTree } from './util'
 
 const UP = new THREE.Vector3(0, 1, 0)
@@ -32,28 +33,33 @@ interface PropPlacement {
 
 /**
  * ============================================================
- *  TowerFloor —— 一层塔内方形石厅（实现 WorldApi）
- *  - 构建：地砖 + 四周墙/压边/角柱 + 中央祭坛 + 火把 + 楼梯门 + 主题道具
- *  - 布局全部走 core/rng 的 Rng，保证同一层重建结果一致
+ *  TowerFloor —— v3 的一层场景（实现 WorldV3）
+ *  - build(def: SceneDef)：按场景 halfSize + themeId 构建
+ *    地砖 + 四面墙/压边/角柱 + 中央祭坛 + 火把 + 主题道具 + 浮尘
+ *  - v3 不再有楼梯门：清层后由 game 直接传送，StairGate 文件仅保留
+ *  - 布局全部走 core/rng 的 Rng，同一场景重建结果一致
  *  - 整层内容放在 this.root 下，build() 时可整体清理
  *  - 顶点/材质/纹理复用，道具按零件合并为 InstancedMesh 控制 drawcall
+ *
+ *  性能口径（契约 §5）：单层 drawcall < 80、实时点光 ≤ 6、
+ *  FogExp2 + 1 张 2048 阴影贴图、入口 5m 内不放阻挡物。
  * ============================================================
  */
-export class TowerFloor implements WorldApi {
+export class TowerFloor implements WorldV3 {
   readonly group = new THREE.Group()
 
-  readonly stairs: StairGate
-
-  halfSize = 17
+  halfSize = 15
   spawnPoints: Vec2[] = []
   propColliders: Circle[] = []
+  /** 入口（南墙中点内侧）：5m 内不放任何阻挡物 */
+  entrance: Vec2 = { x: 0, z: 0 }
 
   private readonly scene: THREE.Scene
   /** 整层内容的父节点（build 时整体清空重建） */
   private readonly root = new THREE.Group()
 
-  private def: FloorDef | null = null
-  private theme: ThemeDef | null = null
+  private def: SceneDef | null = null
+  private theme: ThemeV3 | null = null
   private tex: TextureBook | null = null
   private props: PropSet | null = null
 
@@ -72,9 +78,15 @@ export class TowerFloor implements WorldApi {
   private built = false
   private time = 0
 
+  /**
+   * 入口净空半径（米）：契约 §5 要求「入口 5m 内不放阻挡物」。
+   * 这里按**道具中心**判定，所以额外加上最大道具半径（≈1.8m），
+   * 保证碰撞体表面到入口也至少有 5m。
+   */
+  private static readonly ENTRANCE_CLEAR = 6.8
+
   constructor(scene: THREE.Scene) {
     this.scene = scene
-    this.stairs = new StairGate()
     this.group.name = 'TowerFloor'
     this.root.name = 'FloorContent'
     this.group.add(this.root)
@@ -85,14 +97,16 @@ export class TowerFloor implements WorldApi {
   /*  构建                                                             */
   /* ================================================================ */
 
-  build(def: FloorDef, theme: ThemeDef, difficulty: DifficultyId): void {
+  build(def: SceneDef): void {
     this.clear()
 
+    const theme = themeFor(def.themeId)
     this.def = def
     this.theme = theme
     this.halfSize = def.halfSize
     const half = def.halfSize
-    const wallH = def.wallHeight
+    // SceneDef 不单独给墙高：按场地大小等比，矮墙保持俯视可读性
+    const wallH = Math.round((3.2 + half * 0.07) * 100) / 100
     const size = half * 2
 
     if (this.group.parent !== this.scene) this.scene.add(this.group)
@@ -102,19 +116,17 @@ export class TowerFloor implements WorldApi {
     const props = new PropSet(theme)
     this.props = props
 
-    // 难度只影响氛围亮度（道具数量严格按 def.props）
-    const mood = difficulty === 'nightmare' ? 0.86 : difficulty === 'casual' ? 1.12 : 1
-
     /* ---------------- 场景光照与雾 ---------------- */
     this.scene.fog = new THREE.FogExp2(theme.fogColor, theme.fogDensity)
 
     const hemi = new THREE.HemisphereLight(
       theme.ambientColor,
       mixHex(theme.fogColor, 0x000000, 0.45),
-      theme.ambientIntensity * mood,
+      theme.ambientIntensity,
     )
     this.root.add(hemi)
 
+    // 主光：唯一投影光源（2048 阴影贴图）
     const key = new THREE.DirectionalLight(theme.keyColor, theme.keyIntensity)
     key.position.set(-half * 0.46, wallH * 4.6 + 7, half * 0.58)
     key.castShadow = true
@@ -134,7 +146,7 @@ export class TowerFloor implements WorldApi {
     this.root.add(key.target)
 
     // 冷色补光（不投影），拉开体积感
-    const fill = new THREE.DirectionalLight(mixHex(theme.fogColor, 0x8fb4e6, 0.55), 0.42 * mood)
+    const fill = new THREE.DirectionalLight(mixHex(theme.fogColor, 0x8fb4e6, 0.55), 0.42)
     fill.position.set(half * 0.7, wallH * 1.8, -half * 0.75)
     this.root.add(fill)
 
@@ -232,19 +244,19 @@ export class TowerFloor implements WorldApi {
     /* ---------------- 出生锚点（必须在道具之前） ---------------- */
     this.spawnPoints = makeSpawnPoints(half)
 
+    // 入口：南墙中点内侧（玩家从这里进场，也是 5m 净空区的圆心）
+    this.entrance = { x: 0, z: half - 2.4 }
+
     /* ---------------- 中央祭坛 ---------------- */
     this.buildAltar(half, wallH, tex)
 
     /* ---------------- 火把 ---------------- */
     this.buildTorches(half, wallH, tex)
 
-    /* ---------------- 楼梯门 ---------------- */
-    this.stairs.build(theme, tex, half, wallH)
-    this.root.add(this.stairs.group)
-
     /* ---------------- 主题道具 ---------------- */
-    const layoutRng = new Rng(0x9e3779b9 ^ (def.index * 2654435761) ^ (half << 3))
-    this.dropRng = new Rng(0x1f123bb5 ^ (def.index * 40503) ^ half)
+    const seed = hashSeed(def.id)
+    const layoutRng = new Rng(0x9e3779b9 ^ seed ^ (half << 3))
+    this.dropRng = new Rng(0x1f123bb5 ^ seed ^ half)
     this.buildProps(def, props, layoutRng)
 
     /* ---------------- 空气浮尘 ---------------- */
@@ -327,7 +339,7 @@ export class TowerFloor implements WorldApi {
     const theme = this.theme
     if (!theme) return
     const mountY = Math.max(1.5, Math.min(wallH * 0.66, wallH - 0.45))
-    // S/E/N/W 四面
+    // S/E/N/W 四面，每面 2 支；每面只有 1 支带真实点光（4 盏 + 祭坛 1 盏 = 5 ≤ 6）
     const sides: { inx: number; inz: number; per: number }[] = [
       { inx: 0, inz: -1, per: 2 },
       { inx: -1, inz: 0, per: 2 },
@@ -364,12 +376,9 @@ export class TowerFloor implements WorldApi {
         const t = side.per === 1 ? 0 : -1 + (2 * i) / (side.per - 1)
         along.push(t * spanHalf)
       }
-      // 北墙避开门洞（门宽约 ±2.4），若落在门洞附近则外推
-      const filtered = along.filter((a) => !(side.inz > 0 && Math.abs(a) < 3.2))
-      const list = filtered.length > 0 ? filtered : along
       // 每面亮度最高的火把带真实点光源
-      const litIndex = Math.floor(list.length / 2)
-      list.forEach((a, idx) => {
+      const litIndex = Math.floor(along.length / 2)
+      along.forEach((a, idx) => {
         let x = 0
         let z = 0
         if (side.inz !== 0) {
@@ -453,18 +462,20 @@ export class TowerFloor implements WorldApi {
   }
 
   /* ---------------- 道具 ---------------- */
-  private buildProps(def: FloorDef, props: PropSet, rng: Rng): void {
+  private buildProps(def: SceneDef, props: PropSet, rng: Rng): void {
     const half = def.halfSize
     const count = Math.max(0, def.props)
     const placements: PropPlacement[] = []
     const gap = 2.25
+    const entrance = this.entrance
+    const entryClear = TowerFloor.ENTRANCE_CLEAR
 
     const accept = (x: number, z: number): boolean => {
-      // 留出墙边 + 不挡中央祭坛/门前通道/出生点
+      // 留出墙边 + 不挡中央祭坛/出生点/入口
       if (Math.abs(x) > half - 2.5 || Math.abs(z) > half - 2.5) return false
       if (Math.hypot(x, z) < 4.5) return false
-      if (z < -(half - 7.5) && Math.abs(x) < 3.1) return false
-      if (Math.hypot(x - this.stairs.x, z - this.stairs.z) < 4.6) return false
+      // 契约 §5：入口 5m 内不许有阻挡物
+      if (Math.hypot(x - entrance.x, z - entrance.z) < entryClear) return false
       for (const s of this.spawnPoints) {
         if (Math.hypot(x - s.x, z - s.z) < 2.5) return false
       }
@@ -560,9 +571,6 @@ export class TowerFloor implements WorldApi {
       im.frustumCulled = false
       this.root.add(im)
     }
-
-    // 道具落位后，撒点随机序列与之一致（同层重建结果相同）
-    this.dropRng = new Rng(0x1f123bb5 ^ (def.index * 40503) ^ half)
   }
 
   /* ---------------- 浮尘 ---------------- */
@@ -609,7 +617,7 @@ export class TowerFloor implements WorldApi {
   /*  每帧更新                                                          */
   /* ================================================================ */
 
-  update(dt: number, elapsed: number): void {
+  update(dt: number, _elapsed: number): void {
     if (!this.built) return
     this.time += dt
     const t = this.time
@@ -665,8 +673,6 @@ export class TowerFloor implements WorldApi {
       }
       attr.needsUpdate = true
     }
-
-    this.stairs.update(dt, elapsed)
   }
 
   /* ================================================================ */
@@ -689,14 +695,15 @@ export class TowerFloor implements WorldApi {
     }
   }
 
-  /** 某点是否被道具/祭坛/楼梯口占据（pad 为额外安全距离） */
+  /** 某点是否被道具/祭坛/入口净空区占据（pad 为额外安全距离） */
   private blocked(x: number, z: number, pad: number): boolean {
     for (const c of this.propColliders) {
       if (Math.hypot(x - c.x, z - c.z) < c.r + pad) return true
     }
-    // 楼梯门前通道
-    if (z < -(this.halfSize - 7.5) && Math.abs(x) < 2.8) return true
-    if (Math.hypot(x - this.stairs.x, z - this.stairs.z) < 2.8) return true
+    // 入口净空区（掉落物也别堆在出生点脚下）：5m 净空再内缩 1.2m
+    if (Math.hypot(x - this.entrance.x, z - this.entrance.z) < TowerFloor.ENTRANCE_CLEAR - 1.2) {
+      return true
+    }
     return false
   }
 
@@ -766,7 +773,6 @@ export class TowerFloor implements WorldApi {
     this.moteBase = null
     this.motePhase = null
 
-    this.stairs.dispose()
     disposeTree(this.root)
 
     if (this.tex) {
@@ -815,6 +821,16 @@ export class TowerFloor implements WorldApi {
 
 function noRotQuat(): THREE.Quaternion {
   return new THREE.Quaternion()
+}
+
+/** 字符串 → 32 位种子（FNV-1a 变体），保证同一场景重建布局一致 */
+function hashSeed(text: string): number {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return h >>> 0
 }
 
 /** 贴墙内 16 个出生锚点（四面各 4 个，均匀分布） */

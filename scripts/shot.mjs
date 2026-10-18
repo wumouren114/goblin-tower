@@ -3,6 +3,7 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 
 const CANDIDATES = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -32,6 +33,8 @@ const result = spawnSync(
   browser,
   [
     '--headless=new',
+    '--user-data-dir=' + path.join(os.tmpdir(), 'gt-headless-profile'),
+    '--disable-dev-shm-usage',
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-extensions',

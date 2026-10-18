@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { CONFIG, BASE_STATS } from '../data/gameConfig'
-import type { Circle, Facing, PlayerStats } from '../types'
+import type { CharacterId, Circle, Facing, PlayerStats } from '../types'
 import { rotateInput } from '../core/math'
+import { rng } from '../core/rng'
 import {
   createShadowMesh,
   createSpriteMesh,
@@ -21,6 +22,14 @@ interface Ghost {
   life: number
   maxLife: number
 }
+
+/** 三角色的 billboard 染色（美术资源只有一张图集，先用色调区分） */
+const CHAR_TINT: Record<CharacterId, { sprite: number; ring: number; ghost: number }> = {
+  mutsumi: { sprite: 0xffffff, ring: 0x5ff5da, ghost: 0x6fe6ff },
+  murasame: { sprite: 0xffc2c2, ring: 0xff9fb0, ghost: 0xff9fb0 },
+  fish: { sprite: 0xbdefff, ring: 0x7fd8ff, ghost: 0x7fd8ff },
+}
+
 
 /**
  * 主角：红黑长发冒险者少女（像素 billboard）。
@@ -42,8 +51,9 @@ export class Player {
   dashTimeLeft = 0
 
   private readonly scene: THREE.Scene
-  private readonly anim: SpriteAnim
+  private anim: SpriteAnim
   private readonly sprite: THREE.Mesh
+  private charId: CharacterId | 'mortis'
   private readonly spriteMat: THREE.MeshBasicMaterial
   private readonly shadow: THREE.Mesh
   private readonly ring: THREE.Mesh
@@ -52,20 +62,29 @@ export class Player {
   private animClock = 0
   private flash = 0
   private ghostTimer = 0
-  /** 冲刺方向（屏幕系，update 时再按当前 yaw 转世界） */
+  /** 冲刺方向（屏幕系；dashToward 时为世界系，见 dashWorld） */
   private dashX = 0
   private dashZ = 1
+  private dashWorld = false
+  private dashSpeed = CONFIG.player.dashSpeed
+  private cameraYaw = 0
+  private tint = new THREE.Color(0xffffff)
   private moving = false
 
-  constructor(scene: THREE.Scene) {
+  constructor(scene: THREE.Scene, x = 0, z = 0, charId: CharacterId = 'mutsumi') {
     this.scene = scene
-    this.anim = playerSprite()
+    this.x = x
+    this.z = z
+    this.charId = charId
+    this.tint.setHex(CHAR_TINT[charId].sprite)
+    this.anim = playerSprite(charId)
     this.group = new THREE.Group()
     this.group.position.set(this.x, 0, this.z)
     scene.add(this.group)
 
     this.sprite = createSpriteMesh(this.anim)
     this.spriteMat = this.sprite.material as THREE.MeshBasicMaterial
+    this.spriteMat.color.setHex(0xffffff)
     this.group.add(this.sprite)
 
     this.shadow = createShadowMesh(1.0, 0.62)
@@ -79,7 +98,7 @@ export class Player {
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      color: 0x5ff5da,
+      color: CHAR_TINT[charId].ring,
       toneMapped: false,
     })
     this.ring = new THREE.Mesh(ringGeo, ringMat)
@@ -100,7 +119,7 @@ export class Player {
         depthWrite: false,
         side: THREE.DoubleSide,
         blending: THREE.AdditiveBlending,
-        color: 0x6fe6ff,
+        color: CHAR_TINT[charId].ghost,
         toneMapped: false,
       })
       const mesh = new THREE.Mesh(geo, mat)
@@ -112,6 +131,13 @@ export class Player {
   }
 
   /** 主角数值变化：maxHp 变化不会自动回血 */
+  /** 切换角色/形态外观（若叶睦 ↔ Mortis），无头模式下也安全 */
+  setVisual(id: CharacterId | 'mortis'): void {
+    if (this.charId === id) return
+    this.charId = id
+    this.anim = playerSprite(id)
+  }
+
   setStats(stats: PlayerStats): void {
     this.stats = { ...stats }
     if (this.hp > this.stats.maxHp) this.hp = this.stats.maxHp
@@ -123,10 +149,31 @@ export class Player {
     this.hp = Math.min(this.stats.maxHp, this.hp + amount)
   }
 
+  /** 读档 / 被动回血上限：直接设定当前血量（0 即倒地） */
+  setHp(n: number): void {
+    this.hp = Math.max(0, Math.min(this.stats.maxHp, n))
+    this.alive = this.hp > 0
+  }
+
+  /** 无敌帧（突进/技能给） */
+  grantInvuln(seconds: number): void {
+    if (seconds <= 0) return
+    this.invuln = Math.max(this.invuln, seconds)
+  }
+
   /** 返回实际扣血量；无敌帧内返回 0 */
   takeDamage(amount: number): number {
     if (!this.alive || this.invuln > 0 || amount <= 0) return 0
-    const dealt = Math.max(1, amount - this.stats.armor)
+    // 闪避：0..0.24（game.ts 若已在外部掷过，传 0 伤害即可）
+    if (this.stats.dodge > 0 && rng.chance(this.stats.dodge)) {
+      this.invuln = Math.max(this.invuln, 0.18)
+      this.flash = 0.08
+      return 0
+    }
+    // armorRate 比例减伤 + armor 固定减伤
+    const rate = Math.max(0, Math.min(0.6, this.stats.armorRate))
+    const flat = Math.max(0, this.stats.armor)
+    const dealt = Math.max(1, amount * (1 - rate) - flat)
     this.hp = Math.max(0, this.hp - dealt)
     this.invuln = CONFIG.player.iFrames
     this.flash = 0.14
@@ -160,6 +207,8 @@ export class Player {
     }
     this.dashX = dx
     this.dashZ = dz
+    this.dashWorld = false
+    this.dashSpeed = CONFIG.player.dashSpeed
     this.dashTimeLeft = CONFIG.player.dashDuration
     this.dashCooldownLeft = Math.max(0.2, this.stats.dashCooldown)
     // 冲刺全程无敌（覆盖后续 1 帧保险）
@@ -169,9 +218,31 @@ export class Player {
     return true
   }
 
+  /**
+   * 世界系定向突进（丛雨右键）：不占冲刺冷却，速度 = distance/duration。
+   * game.ts 通过 CombatWorld.dashPlayer 转调；方向已归一化。
+   */
+  dashToward(dirX: number, dirZ: number, distance: number, duration: number): void {
+    if (!this.alive || distance <= 0 || duration <= 0) return
+    const len = Math.hypot(dirX, dirZ)
+    if (len < 1e-4) return
+    const dx = dirX / len
+    const dz = dirZ / len
+    this.dashX = dx
+    this.dashZ = dz
+    this.dashWorld = true
+    this.dashSpeed = distance / duration
+    this.dashTimeLeft = duration
+    this.invuln = Math.max(this.invuln, duration + 0.05)
+    this.ghostTimer = 0
+    const screen = rotateInput(dx, dz, this.cameraYaw)
+    this.faceFromInput(screen.x, screen.z)
+  }
+
   update(dt: number, moveX: number, moveZ: number, cameraYaw: number, colliders: Circle[], bounds: number): void {
     // 相机 yaw 提供给所有 billboard 实体
     setBillboardYaw(cameraYaw)
+    this.cameraYaw = cameraYaw
 
     this.invuln = Math.max(0, this.invuln - dt)
     this.dashCooldownLeft = Math.max(0, this.dashCooldownLeft - dt)
@@ -188,16 +259,21 @@ export class Player {
 
     let moving = false
     if (this.dashTimeLeft > 0) {
-      // 冲刺：按当前相机朝向把屏幕方向转成世界方向
-      const dir = rotateInput(this.dashX, this.dashZ, cameraYaw)
-      this.x += dir.x * CONFIG.player.dashSpeed * dt
-      this.z += dir.z * CONFIG.player.dashSpeed * dt
+      // 冲刺：世界系方向直接用；屏幕系方向按当前相机朝向转世界
+      const screen = this.dashWorld
+        ? rotateInput(this.dashX, this.dashZ, cameraYaw)
+        : { x: this.dashX, z: this.dashZ }
+      const dir = this.dashWorld
+        ? { x: this.dashX, z: this.dashZ }
+        : rotateInput(this.dashX, this.dashZ, cameraYaw)
+      this.x += dir.x * this.dashSpeed * dt
+      this.z += dir.z * this.dashSpeed * dt
       this.dashTimeLeft = Math.max(0, this.dashTimeLeft - dt)
       moving = true
       this.moving = true
-      this.lastInputX = this.dashX
-      this.lastInputZ = this.dashZ
-      this.faceFromInput(this.dashX, this.dashZ)
+      this.lastInputX = screen.x
+      this.lastInputZ = screen.z
+      this.faceFromInput(screen.x, screen.z)
       this.emitGhosts(dt)
     } else {
       let mx = moveX
@@ -283,11 +359,11 @@ export class Player {
     this.animClock += dt
     let frame: number
     if (this.dashTimeLeft > 0) {
-      frame = 2 + (Math.floor(this.animClock * 16) % 2)
+      frame = 2 + (Math.floor(this.animClock * 18) % 4)
     } else if (runFactor > 0) {
       // 跑动帧率随移速提高，加速词条能看出来更快
       const runFps = Math.max(7, this.stats.moveSpeed * 1.5)
-      frame = 2 + (Math.floor(this.animClock * runFps) % 2)
+      frame = 2 + (Math.floor(this.animClock * runFps) % 4)
     } else {
       frame = Math.floor(this.animClock * 2.2) % 2
     }
@@ -299,7 +375,7 @@ export class Player {
     // 受击闪白用颜色乘数，无敌帧用轻微闪烁
     const flashK = this.flash > 0 ? this.flash / 0.14 : 0
     const base = 1 + flashK * 2.4
-    this.spriteMat.color.setScalar(base)
+    this.spriteMat.color.setScalar(base).multiply(this.tint)
     if (this.invuln > 0 && this.dashTimeLeft <= 0 && this.flash <= 0) {
       this.spriteMat.opacity = 0.55 + 0.45 * Math.abs(Math.sin(this.animClock * 26))
     } else {

@@ -1,10 +1,24 @@
-/** 键盘 / 鼠标输入：帧内边沿触发 + 相机拖拽/滚轮 */
+/**
+ * 键盘 / 鼠标输入（v3：左键普攻、右键技能、中键拖拽转视角）
+ *
+ * - 左键按住 = 持续普攻（attackHeld）
+ * - 右键按下 = 技能（skillPressed，仅边沿触发）
+ * - 中键拖拽 / 滚轮 = 转视角 / 缩放
+ * - 鼠标位置以 NDC 暴露，game.ts 用它把准星投到地面
+ */
 export class Input {
   private down = new Set<string>()
   private pressedThisFrame = new Set<string>()
   private pointerDown = false
+  private button = -1
   private lastX = 0
   private lastY = 0
+  /** NDC：(-1..1)，y 向上 */
+  ndcX = 0
+  ndcY = 0
+  attackHeld = false
+  skillPressed = false
+  private skillQueued = false
   dragX = 0
   dragY = 0
   wheel = 0
@@ -13,14 +27,15 @@ export class Input {
 
   constructor(el: HTMLElement) {
     this.el = el
+
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.repeat) return
       const code = e.code
       if (
         ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(code)
       ) {
         e.preventDefault()
       }
+      if (e.repeat) return
       this.down.add(code)
       this.pressedThisFrame.add(code)
     }
@@ -30,26 +45,42 @@ export class Input {
     const onBlur = () => {
       this.down.clear()
       this.pointerDown = false
+      this.attackHeld = false
     }
+    const isUi = (t: EventTarget | null): boolean => !!t && !!(t as HTMLElement).closest('#ui-root')
+
     const onPointerDown = (e: PointerEvent) => {
-      if (e.target && (e.target as HTMLElement).closest('#ui-root')) return
-      this.pointerDown = true
-      this.lastX = e.clientX
-      this.lastY = e.clientY
-      this.el.setPointerCapture?.(e.pointerId)
+      if (isUi(e.target)) return
+      this.updatePointer(e)
+      this.button = e.button
+      if (e.button === 0) {
+        this.attackHeld = true
+      } else if (e.button === 2) {
+        this.skillQueued = true
+      } else if (e.button === 1) {
+        this.pointerDown = true
+        this.lastX = e.clientX
+        this.lastY = e.clientY
+        this.el.setPointerCapture?.(e.pointerId)
+        e.preventDefault()
+      }
     }
-    const onPointerUp = () => {
-      this.pointerDown = false
+    const onPointerUp = (e: PointerEvent) => {
+      if (e.button === 0) this.attackHeld = false
+      if (e.button === 1) this.pointerDown = false
+      this.button = -1
     }
     const onPointerMove = (e: PointerEvent) => {
-      if (!this.pointerDown) return
-      this.dragX += e.clientX - this.lastX
-      this.dragY += e.clientY - this.lastY
-      this.lastX = e.clientX
-      this.lastY = e.clientY
+      this.updatePointer(e)
+      if (this.pointerDown) {
+        this.dragX += e.clientX - this.lastX
+        this.dragY += e.clientY - this.lastY
+        this.lastX = e.clientX
+        this.lastY = e.clientY
+      }
     }
     const onWheel = (e: WheelEvent) => {
-      if (e.target && (e.target as HTMLElement).closest('#ui-root')) return
+      if (isUi(e.target)) return
       this.wheel += Math.sign(e.deltaY)
       e.preventDefault()
     }
@@ -76,6 +107,13 @@ export class Input {
     )
   }
 
+  private updatePointer(e: PointerEvent): void {
+    const rect = this.el.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return
+    this.ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    this.ndcY = -((e.clientY - rect.top) / rect.height) * 2 + 1
+  }
+
   isDown(code: string): boolean {
     return this.down.has(code)
   }
@@ -83,6 +121,13 @@ export class Input {
   /** 本帧是否刚按下（每帧末尾自动清空） */
   justPressed(code: string): boolean {
     return this.pressedThisFrame.has(code)
+  }
+
+  /** 本帧是否按下了右键（边沿触发，读取后消费） */
+  consumeSkill(): boolean {
+    const v = this.skillQueued
+    this.skillQueued = false
+    return v
   }
 
   /** 屏幕坐标系方向：x 右，z 前（远离相机） */
@@ -116,6 +161,7 @@ export class Input {
 
   endFrame(): void {
     this.pressedThisFrame.clear()
+    this.skillPressed = false
   }
 
   dispose(): void {

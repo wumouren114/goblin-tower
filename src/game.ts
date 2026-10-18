@@ -1,287 +1,366 @@
 import * as THREE from 'three'
-import { Input } from './core/input'
-import { audio } from './core/audio'
-import { clamp, rotateInput } from './core/math'
-import {
-  BASE_STATS,
-  CONFIG,
-  DIFFICULTY,
-  GOBLIN_BRUTE,
-  GOBLIN_ELITE,
-  GOBLIN_SMALL,
-  THEMES,
-  xpToNext,
-} from './data/gameConfig'
-import { floorAt } from './data/floors'
-import { computeStats, rollUpgradeChoices } from './systems/stats'
-import { CameraRig } from './systems/cameraRig'
-import { Vfx } from './systems/vfx'
-import { Blades, type BladeTarget } from './systems/blades'
-import { ScreenFx } from './systems/screenFx'
-import { TowerFloor } from './world/floor'
 import { Player } from './entities/player'
 import { Goblin } from './entities/goblin'
+import { GOBLIN_SMALL, GOBLIN_BRUTE, GOBLIN_ELITE } from './data/gameConfig'
 import { GoblinKing } from './entities/boss'
 import { PickupManager } from './entities/pickups'
-import type { Hud } from './ui/hud'
+import { CameraRig } from './systems/cameraRig'
+import { Vfx } from './systems/vfx'
+import { ScreenFx } from './systems/screenFx'
+import { Combat, type CombatWorld, type Hittable } from './systems/combat'
+import { Input } from './core/input'
+import { audio } from './core/audio'
+import { Rng } from './core/rng'
+import { TowerFloor } from './world/floor'
+import { pickScene, STAGE_NAMES } from './data/stages'
+import { CHARACTERS } from './data/characters'
+import { getWeaponTier, charTakeDamageMul } from './data/characterRuntime'
+import {
+  DIFFICULTIES,
+  layerCount,
+  isBossLayer,
+  stageOfLayer,
+  mobHpFor,
+  mobDamageFor,
+  quotaFor,
+  spawnIntervalFor,
+  maxAliveFor,
+  clearGoldFor,
+  layerTimerFor,
+  bossHpFor,
+} from './data/balance'
+import { Inventory } from './systems/inventory'
+import { generateOffers, REFRESH_COST } from './systems/shop'
+import { rollTunnels, resolveRoom } from './systems/tunnels'
+import { listSlots, loadFromSlot, saveToSlot } from './systems/saveLoad'
+import {
+  applyItemToCards,
+  clearGold,
+  emptyCards,
+  killGold,
+  makeCardItem,
+} from './systems/economy'
+import type { HudV3 } from './ui/hud'
 import type {
+  CardStat,
+  CharacterId,
   DifficultyId,
-  EnemyDef,
-  FloorDef,
   GamePhase,
   HudSnapshot,
-  PickupKind,
+  InventoryItem,
   PlayerStats,
-  RunStats,
-  UpgradeDef,
+  RunState,
+  RunStatsV3,
+  ShopOffer,
+  TunnelOffer,
 } from './types'
 
-const BOSS_NAME = '哥布林之王'
+/** 自动存档槽：每层开始/离开商店时覆盖；手动存档 UI 里也会列出，因此要标注 */
+const AUTOSAVE_SLOT = 1
+const NEUTRAL_MODS = { staminaMul: 1, magicMul: 1, intelligenceMul: 1, moveSpeedMul: 1, damageReduction: 0 }
 
-/**
- * 游戏总控：把输入 / 相机 / 实体 / 场景 / UI 串成一局 run。
- *
- * 一局的流程：
- *   标题 → 第 1 层（刷怪攒经验，攒满目标或拖到兜底时间开楼梯）
- *   → 2/3/4 层 → 第 5 层 Boss → 掉落卷轴 → 拾取通关
- * 死亡/通关后回到结算页，可原难度重开。
- */
+/** CombatWorld 的可选扩展（combat 侧 duck-type 探测） */
+interface GameWorld extends CombatWorld {
+  spawnPickup?: (x: number, z: number, kind: 'rice' | 'heart' | 'gold') => void
+}
+
+function makeRunState(character: CharacterId, difficulty: DifficultyId): RunState {
+  return {
+    version: 3,
+    difficulty,
+    character,
+    layer: 1,
+    stage: 1,
+    gold: 0,
+    hp: 100,
+    maxHp: 100,
+    weaponLv: 1,
+    cards: emptyCards(),
+    inventory: [],
+    kills: 0,
+    playTime: 0,
+    seed: Math.floor(Math.random() * 1e9),
+    savedAt: Date.now(),
+  }
+}
+
 export class Game {
   readonly renderer: THREE.WebGLRenderer
-  readonly scene: THREE.Scene
+  readonly scene = new THREE.Scene()
   readonly camera: THREE.PerspectiveCamera
+  readonly rig: CameraRig
+  readonly fx: ScreenFx
+  readonly vfx: Vfx
+  readonly input: Input
+  private hud: HudV3
 
-  private hud: Hud
-  private input: Input
-  private rig: CameraRig
-  private vfx: Vfx
-  private fx: ScreenFx
-  private blades: Blades
-  private player: Player
-  private floor!: TowerFloor
+  private player: Player | null = null
+  private floor: TowerFloor | null = null
+  private combat: Combat | null = null
   private pickups: PickupManager
-  private clock = new THREE.Clock()
-  private raf = 0
-  private disposed = false
-
   private goblins: Goblin[] = []
   private boss: GoblinKing | null = null
-  private bossDeathTimer = 0
-  private bossSpawned = false
-  private scrollDropped = false
+  private goblinKinds = new Map<Goblin, 'small' | 'brute' | 'elite'>()
+  private contactCd = new Map<Goblin, number>()
 
-  private phase: GamePhase = 'title'
-  private paused = false
-  private difficulty: DifficultyId = 'normal'
-  private floorIndex = 1
-  private floorDef: FloorDef = floorAt(1)
+  private clock = new THREE.Clock()
+  private raycaster = new THREE.Raycaster()
+  private aimPoint = new THREE.Vector3(0, 0.6, -6)
+  private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.6)
 
-  private level = 1
-  private xp = 0
-  private gold = 0
-  private kills = 0
-  private runTime = 0
-  private floorTime = 0
+  phase: GamePhase = 'title'
+  paused = false
+  private pausedFrom: GamePhase = 'playing'
+
+  private run: RunState = makeRunState('mutsumi', 'normal')
+  private cards: Record<CardStat, number> = emptyCards()
+  private inventory = new Inventory(12)
+  private prevMaxHp = 100
+
+  private layerTotal = 0
+  private layerSpawned = 0
+  private layerKilled = 0
+  private timeLeft = 60
+  private timeLimit = 60
+  private spawnTimer = 0
+  private roomActive = false
+
+  private tunnelOffers: TunnelOffer[] = []
+  private shopOffers: ShopOffer[] = []
+  private shopMode: 'room' | 'standard' = 'standard'
+
+  private rng = new Rng(1)
+  private moveInput = { x: 0, z: 0 }
   private elapsed = 0
-  private quotaKills = 0
-  private stairsUnlocked = false
-  private promptsVisible = false
+  private deathTimer = 0
+  private sceneName = ''
+  private statDirty = false
+  private mortisVisual = false
+  private autoPlay = false
+  private disposed = false
 
-  private baseStats: PlayerStats = { ...BASE_STATS }
-  private stats: PlayerStats = { ...BASE_STATS }
-  private stacks = new Map<string, number>()
-  private pendingLevelUps = 0
-  private currentChoices: UpgradeDef[] = []
-
-  private spawnTimer = 1.4
-  private eliteTimer = CONFIG.spawn.eliteEvery
-  private bossSpawnTimer = -1
-  private contactCooldowns = new WeakMap<Goblin, number>()
-  private scratch = new THREE.Vector3()
-  private snapshot: HudSnapshot | null = null
-
-  constructor(canvas: HTMLCanvasElement, hud: Hud) {
+  constructor(canvas: HTMLCanvasElement, hud: HudV3) {
     this.hud = hud
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.setSize(window.innerWidth, window.innerHeight)
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.08
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+    this.renderer.toneMappingExposure = 1.05
 
-    this.scene = new THREE.Scene()
-    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, window.innerWidth / window.innerHeight, 0.1, 180)
-
-    this.input = new Input(canvas)
+    this.camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 220)
     this.rig = new CameraRig(this.camera)
-    this.vfx = new Vfx(this.scene)
     this.fx = new ScreenFx()
-    this.blades = new Blades(this.scene)
+    this.vfx = new Vfx(this.scene)
+    this.input = new Input(canvas)
     this.pickups = new PickupManager(this.scene)
-    this.player = new Player(this.scene)
 
     this.hud.setCamera(this.camera)
-    this.buildFloor(1, false)
-    this.player.group.visible = true
-
     window.addEventListener('resize', this.onResize)
-    this.clock.start()
-    this.tick()
+    this.renderer.setAnimationLoop(() => this.frame())
   }
 
-  // ───────────────────────────── 生命周期 ─────────────────────────────
+  // ---------- 生命周期 ----------
 
-  showTitle(): void {
-    this.phase = 'title'
+  startRun(character: CharacterId, difficulty: DifficultyId): void {
+    this.cleanupFloor()
+    this.run = makeRunState(character, difficulty)
+    this.run.seed = Math.floor(Math.random() * 1e9)
+    this.rng = new Rng(this.run.seed)
+    this.inventory = new Inventory(12)
+    this.cards = emptyCards()
+    this.run.weaponLv = 1
+    this.player = new Player(this.scene, 0, 0, character)
+    this.player.setHp(CHARACTERS[character].base.hp)
+    this.run.hp = CHARACTERS[character].base.hp
+    this.combat = new Combat(this.scene, {
+      onHit: (t, amount, crit, killed) => this.onCombatHit(t, amount, crit, killed),
+      onSfx: (name) => {
+        if (name === 'attack') audio.hit()
+        else if (name === 'crit') audio.crit()
+        else if (name === 'dash') audio.dash()
+        else if (name === 'summon') audio.levelUp()
+        else audio.click()
+      },
+    })
+    this.combat.setCharacter(character)
+    this.combat.setWeaponLv(1)
     this.rig.reset()
-    this.hud.showTitle()
-    this.hud.setPaused(false)
+    this.hud.hideTitle()
+    this.hud.hideCharacterSelect()
+    this.hud.hideEnd()
+    this.enterLayer(1)
   }
 
-  startRun(difficulty: DifficultyId): void {
-    audio.resume()
-    audio.click()
-    this.difficulty = difficulty
+  continueRun(slot: number): void {
+    const state = loadFromSlot(slot)
+    if (!state) {
+      this.hud.toast('存档读取失败', 'bad')
+      return
+    }
+    this.cleanupFloor()
+    this.run = state
+    this.rng = new Rng(state.seed)
+    this.inventory = new Inventory(12)
+    for (const item of state.inventory) this.inventory.add(item)
+    this.player = new Player(this.scene, 0, 0, state.character)
+    this.combat = new Combat(this.scene, {
+      onHit: (t, amount, crit, killed) => this.onCombatHit(t, amount, crit, killed),
+      onSfx: (name) => {
+        if (name === 'attack') audio.hit()
+        else if (name === 'crit') audio.crit()
+        else if (name === 'dash') audio.dash()
+        else if (name === 'summon') audio.levelUp()
+        else audio.click()
+      },
+    })
+    this.combat.setCharacter(state.character)
+    this.combat.setWeaponLv(state.weaponLv)
+    this.rig.reset()
     this.hud.hideTitle()
     this.hud.hideEnd()
-    this.hud.hideLevelUp()
+    this.enterLayer(state.layer, true)
+    this.player.setHp(Math.max(1, Math.round(state.hp)))
+    this.hud.toast(`读取存档：第 ${state.layer} 层`, 'good')
+  }
+
+  quitToTitle(): void {
+    this.cleanupFloor()
+    this.player?.dispose()
+    this.player = null
+    this.combat?.dispose()
+    this.combat = null
+    this.phase = 'title'
     this.paused = false
-    this.phase = 'playing'
-
-    this.floorIndex = 1
-    this.level = 1
-    this.xp = 0
-    this.gold = 0
-    this.kills = 0
-    this.runTime = 0
-    this.stacks.clear()
-    this.pendingLevelUps = 0
-    this.currentChoices = []
-    this.baseStats = { ...BASE_STATS }
-    this.stats = computeStats(this.baseStats, this.stacks)
-    this.player.setStats(this.stats)
-    this.player.hp = this.stats.maxHp
-    this.player.alive = true
-    this.player.group.visible = true
-    this.blades.setCount(this.stats.blades)
-    this.buildFloor(1, true)
+    this.hud.hideShop()
+    this.hud.hideInventory()
+    this.hud.hideTunnels()
+    this.hud.hidePause()
+    this.hud.hideEnd()
+    this.hud.showTitle(listSlots())
   }
 
-  restart(): void {
-    this.startRun(this.difficulty)
-  }
-
-  /** 调试用：直接开一局并跳到指定层（截图/联调脚本用） */
-  debugJump(targetFloor: number, difficulty: DifficultyId = 'normal'): void {
-    this.startRun(difficulty)
-    for (let i = 1; i < targetFloor && i < 5; i += 1) this.advanceFloor()
-  }
-
-  /**
-   * 调试用：以固定步长快进模拟若干秒，用于无头截图或控制台快速验收
-   * （无头浏览器里 requestAnimationFrame 的虚拟时间不推进，只能手动步进）
-   */
-  debugAdvance(seconds: number, dt = 1 / 30): void {
-    if (this.phase === 'title') this.startRun(this.difficulty)
-    const steps = Math.max(1, Math.round(seconds / dt))
-    for (let i = 0; i < steps; i += 1) {
-      this.elapsed += dt
-      this.update(dt)
-      this.input.endFrame()
-      if (this.phase === 'levelup') break
-    }
-    this.renderer.render(this.scene, this.camera)
-  }
-
-  private advanceFloor(): void {
-    if (this.floorIndex >= 5) return
-    this.floorIndex += 1
-    this.fx.flash(0.85, 340)
-    this.buildFloor(this.floorIndex, true)
-  }
-
-  private onResize = (): void => {
-    this.camera.aspect = window.innerWidth / window.innerHeight
-    this.camera.updateProjectionMatrix()
-    this.renderer.setSize(window.innerWidth, window.innerHeight)
-  }
-
-  private disposeFloorEntities(): void {
-    for (const g of this.goblins) {
-      g.dispose()
-    }
+  private cleanupFloor(): void {
+    for (const g of this.goblins) g.dispose()
     this.goblins.length = 0
+    this.goblinKinds.clear()
+    this.contactCd.clear()
     if (this.boss) {
       this.boss.dispose()
       this.boss = null
     }
-    this.bossDeathTimer = 0
     this.pickups.clear()
-    this.contactCooldowns = new WeakMap()
     this.vfx.clear()
-  }
-
-  private buildFloor(index: number, announce: boolean): void {
-    this.disposeFloorEntities()
-    if (this.floor) this.floor.dispose()
-
-    this.floorIndex = index
-    this.floorDef = floorAt(index)
-    this.floor = new TowerFloor(this.scene)
-    this.floor.build(this.floorDef, THEMES[this.floorDef.theme], this.difficulty)
-
-    const h = this.floor.halfSize
-    this.player.setStats(this.stats)
-    this.player.x = 0
-    this.player.z = -h * 0.55
-    this.player.group.position.set(this.player.x, 0, this.player.z)
-    this.rig.reset()
-    this.rig.update(0, this.player.x, this.player.z, 0, 0)
-
-    this.floorTime = 0
-    this.quotaKills = 0
-    this.stairsUnlocked = false
-    this.promptsVisible = false
-    this.hud.showPrompt(null)
-    this.spawnTimer = 1.4
-    this.eliteTimer = CONFIG.spawn.eliteEvery
-    this.bossSpawned = false
-    this.bossSpawnTimer = this.floorDef.boss ? 2.2 : -1
-    this.scrollDropped = false
+    if (this.floor) {
+      this.floor.dispose()
+      this.floor = null
+    }
     this.hud.hideBoss()
     this.fx.setBossMode(false)
-
-    this.scatterInitialLoot()
-    if (announce) {
-      this.hud.showFloorBanner(this.floorIndex, this.floorDef.name, this.floorDef.subtitle)
-      this.hud.toast(`第 ${this.floorIndex} 层 · ${this.floorDef.name}`, 'info')
-    }
-    this.pushSnapshot()
   }
 
-  private scatterInitialLoot(): void {
-    const def = this.floorDef
-    const points = this.floor.scatterPoints(def.coinPiles + 6, 3)
-    let goldLeft = def.coinPiles
-    for (const p of points) {
-      const distToPlayer = Math.hypot(p.x - this.player.x, p.z - this.player.z)
-      if (distToPlayer < 4) continue
-      if (goldLeft > 0) {
-        this.pickups.spawn('gold', p.x, p.z, 1 + Math.floor(Math.random() * 3))
-        goldLeft -= 1
-      } else {
-        this.pickups.spawn('xp', p.x, p.z, CONFIG.economy.xpPerBean)
-      }
+  // ---------- 楼层 ----------
+
+  private enterLayer(layer: number, restoring = false): void {
+    const diff = this.run.difficulty
+    const total = layerCount(diff)
+    this.run.layer = layer
+    this.run.stage = stageOfLayer(diff, layer)
+    this.phase = 'playing'
+    this.roomActive = false
+    this.coreClean()
+
+    const bossLayer = isBossLayer(diff, layer)
+    const sceneDef = pickScene(this.run.stage, bossLayer, this.rng)
+    this.floor = new TowerFloor(this.scene)
+    this.floor.build(sceneDef)
+
+    const half = this.floor.halfSize
+    if (this.player) {
+      this.player.x = 0
+      this.player.z = half * 0.22
     }
+    this.rig.fitForArena(half)
+    this.sceneName = sceneDef.name
+    this.player?.grantInvuln(1.0)
+    this.rig.reset()
+
+    this.layerTotal = bossLayer ? quotaFor(layer) : quotaFor(layer)
+    this.layerSpawned = 0
+    this.layerKilled = 0
+    this.timeLimit = layerTimerFor(diff, bossLayer)
+    this.timeLeft = this.timeLimit
+    this.spawnTimer = bossLayer ? 2.0 : 0.4
+    this.combat?.resetLayer(0.5)
+
+    if (bossLayer) {
+      this.layerTotal = Math.round(quotaFor(layer) * 0.6)
+      this.spawnBoss()
+    }
+
+    this.hud.hideTunnels()
+    this.hud.hideShop()
+    this.hud.showLayerBanner(layer, sceneDef.name, STAGE_NAMES[this.run.stage - 1] ?? '', total)
+    if (!restoring) this.hud.toast(bossLayer ? 'Boss 层：击杀哥布林之王！' : `第 ${layer} 层 · 清完 ${this.layerTotal} 只哥布林`, 'info')
+    this.recalcStats()
+    this.saveRun(AUTOSAVE_SLOT)
   }
 
-  // ───────────────────────────── 主循环 ─────────────────────────────
+  /** 清掉非场景实体的临时对象（保留下层可复用的池） */
+  private coreClean(): void {
+    for (const g of this.goblins) g.dispose()
+    this.goblins.length = 0
+    this.goblinKinds.clear()
+    this.contactCd.clear()
+    if (this.boss) {
+      this.boss.dispose()
+      this.boss = null
+    }
+    this.pickups.clear()
+  }
 
-  private tick = (): void => {
+  private spawnBoss(): void {
+    const diff = this.run.difficulty
+    const half = this.floor?.halfSize ?? 20
+    const boss = new GoblinKing(this.scene, 0, -half * 0.55, {
+      onSlam: (x, z, radius, damage) => {
+        this.vfx.telegraph(x, z, radius, 0.2)
+        this.vfx.burst(x, z, { color: 0xff5a2a, count: 26, speed: 7, life: 0.5, size: 1.0 })
+        this.rig.shake(0.5)
+        audio.enemyDie()
+        this.damagePlayer(damage)
+      },
+      onSummon: (count) => {
+        for (let i = 0; i < count; i += 1) {
+          const a = (i / count) * Math.PI * 2
+          const sx = boss.x + Math.cos(a) * 3.2
+          const sz = boss.z + Math.sin(a) * 3.2
+          this.spawnGoblin('small', sx, sz)
+        }
+        this.vfx.ring(boss.x, boss.z, { color: 0x8a2be2, radius: 4.2, life: 0.6, grow: 1.4 })
+        this.hud.toast('哥布林之王撕开了裂隙，召唤援军！', 'bad')
+      },
+      onRoar: () => {
+        audio.bossRoar()
+        this.rig.shake(0.35)
+        this.hud.toast('哥布林之王进入狂暴状态！', 'bad')
+      },
+    })
+    boss.hp = bossHpFor(diff, this.run.layer)
+    boss.maxHp = boss.hp
+    this.boss = boss
+    this.hud.showBoss('哥布林之王', boss.hp, boss.maxHp)
+    this.fx.setBossMode(true)
+    audio.bossRoar()
+    this.rig.shake(0.6)
+    this.vfx.ring(0, -half * 0.55, { color: 0xffb703, radius: 3, life: 0.9, grow: 2 })
+  }
+
+  // ---------- 帧 ----------
+
+  private frame(): void {
     if (this.disposed) return
-    this.raf = requestAnimationFrame(this.tick)
     const dt = Math.min(this.clock.getDelta(), 1 / 30)
     this.elapsed += dt
     this.update(dt)
@@ -290,56 +369,29 @@ export class Game {
   }
 
   private update(dt: number): void {
+    if (this.paused) {
+      this.input.consumeDrag()
+      this.input.consumeWheel()
+      this.input.endFrame()
+      return
+    }
+
     this.handleHotkeys()
-    const target = this.input.isDown('KeyW') || this.input.isDown('ArrowUp')
-    void target
+    this.updateAim()
+    if (this.phase === 'playing') this.updatePlaying(dt)
+    else if (this.phase === 'dead' || this.phase === 'victory') this.updateEnd(dt)
+    else this.idleScene(dt)
 
-    const drag = this.input.consumeDrag()
-    if (drag.x || drag.y) {
-      this.rig.addYaw(drag.x * 0.005)
-      if (drag.y) this.rig.zoom(drag.y * 0.002)
-    }
-    this.rig.zoom(-this.input.consumeWheel())
-
-    const playing = this.phase === 'playing' && !this.paused
-    const title = this.phase === 'title'
-    const axis = playing ? this.input.moveAxis() : { x: 0, z: 0 }
-    const worldDir = rotateInput(axis.x, axis.z, this.rig.yaw)
-    const dtWorld = playing ? dt : dt * 0.2
-
-    // 冲刺
-    if (playing && (this.input.justPressed('ShiftLeft') || this.input.justPressed('Space'))) {
-      if (this.player.tryDash(axis.x, axis.z)) {
-        audio.dash()
-        this.vfx.burst(this.player.x, this.player.z, { color: 0x9fe8ff, count: 8, speed: 2.6, life: 0.3, size: 0.3, y: 0.5 })
-      }
-    }
-
-    this.player.update(dtWorld, axis.x, axis.z, this.rig.yaw, this.floor.propColliders, this.floor.halfSize - 0.55)
-    const clamped = this.floor.clampToArena(this.player.x, this.player.z, this.player.radius)
-    this.player.x = clamped.x
-    this.player.z = clamped.z
-
-    if (playing) {
-      this.floorTime += dt
-      this.runTime += dt
-      this.updateSpawner(dt)
-      this.updateEnemies(dt)
-      this.updateBoss(dt)
-      this.updateCombat(dt)
-      this.updatePickups(dt)
-      this.updateStairs()
-      this.updateBossSpawnTimer(dt)
-      if (this.player.hp <= 0) this.die()
+    const p = this.player
+    if (p) {
+      this.rig.update(dt, p.x, p.z, this.moveInput.x, this.moveInput.z, this.phase === 'title')
+      this.pickups.update(dt, p.x, p.z, 0, () => {})
     } else {
-      this.updateAmbientBossDeath(dt)
+      this.rig.update(dt, 0, 0, 0, 0, this.phase === 'title')
     }
-
-    this.floor.update(dtWorld, this.elapsed)
-    this.vfx.update(dtWorld)
     this.fx.update(dt)
-    this.rig.update(dt, this.player.x, this.player.z, worldDir.x, worldDir.z, title)
-    this.player.group.visible = this.player.alive || this.phase !== 'dead'
+    this.vfx.update(dt)
+    this.floor?.update(dt, this.elapsed)
     this.pushSnapshot()
   }
 
@@ -347,546 +399,858 @@ export class Game {
     if (this.input.justPressed('KeyM')) {
       const muted = audio.toggleMute()
       this.hud.setMuted(muted)
-      this.hud.toast(muted ? '音效已关闭' : '音效已开启', 'info')
     }
-    if (this.input.justPressed('KeyV') && this.phase !== 'title') {
-      this.rig.toggleMode()
-      this.hud.toast(`切换为${this.rig.modeName}`, 'info')
+    if (this.input.justPressed('KeyV')) this.rig.toggleMode()
+    if (this.input.justPressed('KeyP') || this.input.justPressed('Escape')) {
+      if (this.phase === 'playing' || this.phase === 'shop') this.togglePause()
     }
-    if (this.input.justPressed('KeyP') && this.phase === 'playing') {
-      this.paused = !this.paused
-      this.hud.setPaused(this.paused)
-    }
-    if (this.input.justPressed('Escape') && this.paused) {
-      this.paused = false
-      this.hud.setPaused(false)
+    if (this.input.justPressed('KeyI')) {
+      if (this.phase === 'shop') this.openInventory()
+      else if (this.inventoryOpen()) this.closeInventory()
     }
   }
 
-  // ───────────────────────────── 刷怪 ─────────────────────────────
+  togglePausePublic(): void {
+    this.togglePause()
+  }
+
+  private togglePause(): void {
+    if (this.paused) {
+      this.paused = false
+      this.phase = this.pausedFrom
+      this.hud.hidePause()
+      this.hud.setPaused(false)
+      audio.click()
+    } else {
+      this.pausedFrom = this.phase
+      this.paused = true
+      this.hud.showPause(listSlots())
+      this.hud.setPaused(true)
+      audio.click()
+    }
+  }
+
+  private updateAim(): void {
+    const v = new THREE.Vector2(this.input.ndcX, this.input.ndcY)
+    this.raycaster.setFromCamera(v, this.camera)
+    const hit = this.raycaster.ray.intersectPlane(this.groundPlane, this.aimPoint)
+    if (!hit) this.aimPoint.set(0, 0.6, -6)
+  }
+
+  private idleScene(dt: number): void {
+    this.moveInput.x = 0
+    this.moveInput.z = 0
+    const p = this.player
+    if (p) p.update(dt, 0, 0, this.rig.yaw, this.floor?.propColliders ?? [], (this.floor?.halfSize ?? 20) - 0.6)
+  }
+
+  private updateEnd(dt: number): void {
+    this.moveInput.x = 0
+    this.moveInput.z = 0
+    this.deathTimer += dt
+    const p = this.player
+    if (p) p.update(dt, 0, 0, this.rig.yaw, [], (this.floor?.halfSize ?? 20) - 0.6)
+    for (const g of this.goblins) g.update(dt, p?.x ?? 0, p?.z ?? 0, [], 0)
+  }
+
+  private updatePlaying(dt: number): void {
+    const p = this.player
+    if (!p || !this.floor) return
+    this.run.playTime += dt
+    this.timeLeft = Math.max(0, this.timeLeft - dt)
+    if (this.timeLeft <= 0) {
+      this.die('timeout')
+      return
+    }
+
+    const axis = this.input.moveAxis()
+    this.moveInput = axis
+    p.update(dt, axis.x, axis.z, this.rig.yaw, this.floor.propColliders, this.floor.halfSize - 0.6)
+    const clamped = this.floor.clampToArena(p.x, p.z, 0.4)
+    p.x = clamped.x
+    p.z = clamped.z
+
+    if (this.input.justPressed('ShiftLeft') || this.input.justPressed('Space')) {
+      if (p.tryDash(axis.x, axis.z)) audio.dash()
+    }
+
+    const drag = this.input.consumeDrag()
+    this.rig.addYaw(drag.x * 0.005)
+    this.rig.zoom(this.input.consumeWheel() * 0.9)
+
+    this.updateSpawner(dt)
+    this.updateEnemies(dt)
+    this.updateBoss(dt)
+    this.combat?.update(dt, p.x, p.z, this.buildWorld())
+
+    if (this.autoPlay) {
+      const target = this.nearestEnemy(p.x, p.z)
+      if (target) {
+        this.aimPoint.set(target.x, 0.6, target.z)
+      }
+      // 调试自动驾驶：充能满了就放技能，方便截到 Mortis / 突进 / 召唤
+      if (this.combat?.skillReady) {
+        this.combat.trySkill(p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld())
+      }
+    }
+    const attackHeld = this.autoPlay || this.input.attackHeld
+    if (attackHeld && this.combat) {
+      this.combat.tryAttack(dt, p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld())
+    }
+    if (this.input.consumeSkill() && this.combat) {
+      if (this.combat.trySkill(p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld())) {
+        audio.click()
+      } else {
+        this.hud.toast('充能不足', 'bad')
+      }
+    }
+
+    if (this.combat) {
+      const mortis = !!this.combat.transformActive
+      if (mortis !== this.mortisVisual) {
+        this.mortisVisual = mortis
+        this.player?.setVisual(mortis ? 'mortis' : this.run.character)
+      }
+    }
+
+    this.pickups.update(dt, p.x, p.z, 2.0, (kind, value) => this.onCollect(kind, value))
+    this.run.hp = p.hp
+    if (p.hp <= 0) {
+      this.die('hp')
+      return
+    }
+    this.checkLayerClear()
+  }
+
+  // ---------- 刷怪 / 敌人 ----------
 
   private updateSpawner(dt: number): void {
-    const def = this.floorDef
-    if (def.boss && !this.bossSpawned) return
-    const diff = DIFFICULTY[this.difficulty]
+    if (!this.floor) return
+    if (this.layerSpawned >= this.layerTotal) return
+    const alive = this.goblins.length + (this.boss ? 1 : 0)
+    if (alive >= maxAliveFor(this.run.layer)) return
     this.spawnTimer -= dt
     if (this.spawnTimer > 0) return
-
-    const alive = this.goblins.reduce((n, g) => n + (g.alive ? 1 : 0), 0)
-    const cap = Math.min(def.maxAlive, CONFIG.spawn.maxAliveHardCap)
-    const interval = Math.max(
-      CONFIG.spawn.minInterval,
-      def.spawnInterval * Math.pow(CONFIG.spawn.intervalDecay, this.floorTime / 4),
-    ) / diff.spawn
+    const interval = spawnIntervalFor(this.run.difficulty, this.run.layer)
     this.spawnTimer = interval
-    if (alive >= cap) return
-
-    const batch = Math.max(1, Math.min(def.spawnBatch, cap - alive))
-    const bruteChance = clamp(0.04 + (def.index - 1) * 0.07, 0, 0.38)
-    for (let i = 0; i < batch; i++) {
-      const def2: EnemyDef = Math.random() < bruteChance ? GOBLIN_BRUTE : GOBLIN_SMALL
-      this.spawnEnemy(def2, this.pickSpawnPoint())
-    }
-
-    this.eliteTimer -= dt
-    if (this.eliteTimer <= 0) {
-      this.eliteTimer = CONFIG.spawn.eliteEvery
-      this.spawnEnemy(GOBLIN_ELITE, this.pickSpawnPoint())
-      this.hud.toast('一只哥布林勇士出现了！', 'bad')
-    }
+    this.spawnOne()
   }
 
-  private pickSpawnPoint(): { x: number; z: number } {
-    const points = this.floor.spawnPoints
-    if (!points.length) return { x: this.floor.halfSize * 0.9, z: 0 }
-    let best = points[0]
-    let bestDist = -1
-    for (let i = 0; i < 6; i++) {
-      const p = points[Math.floor(Math.random() * points.length)]
-      const d = Math.hypot(p.x - this.player.x, p.z - this.player.z)
-      if (d > bestDist) {
-        bestDist = d
-        best = p
-      }
-    }
-    const jitterX = (Math.random() - 0.5) * 3
-    const jitterZ = (Math.random() - 0.5) * 3
-    const p = this.floor.clampToArena(best.x + jitterX, best.z + jitterZ, 0.6)
-    return p
+  private spawnOne(): void {
+    const layer = this.run.layer
+    let kind: 'small' | 'brute' | 'elite' = 'small'
+    const bruteChance = Math.min(0.38, 0.04 + (layer - 1) * 0.06)
+    const eliteChance = layer >= 4 ? 0.08 : 0
+    const r = this.rng.next()
+    if (r < eliteChance) kind = 'elite'
+    else if (r < eliteChance + bruteChance) kind = 'brute'
+    if (this.layerSpawned + 1 >= this.layerTotal && layer >= 3) kind = 'elite'
+    const point = this.randomSpawnPoint()
+    this.spawnGoblin(kind, point.x, point.z)
+    this.layerSpawned += 1
   }
 
-  private spawnEnemy(def: EnemyDef, at: { x: number; z: number }, elite = false): void {
-    const diff = DIFFICULTY[this.difficulty]
-    const mul = {
-      hp: this.floorDef.hpScale * diff.hp,
-      damage: this.floorDef.damageScale * diff.damage,
-      speed: this.floorDef.speedScale * diff.speed,
-      scale: 1,
-    }
-    const g = new Goblin(this.scene, def, at.x, at.z, mul, elite)
+  private randomSpawnPoint(): { x: number; z: number } {
+    const pts = this.floor?.spawnPoints ?? []
+    if (pts.length === 0) return { x: 0, z: -8 }
+    const base = pts[this.rng.int(0, pts.length - 1)]
+    return { x: base.x + (this.rng.next() - 0.5) * 3, z: base.z + (this.rng.next() - 0.5) * 3 }
+  }
+
+  private spawnGoblin(kind: 'small' | 'brute' | 'elite', x: number, z: number): void {
+    const def = kind === 'small' ? GOBLIN_SMALL : kind === 'brute' ? GOBLIN_BRUTE : GOBLIN_ELITE
+    const hpMul = mobHpFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.hp
+    const dmgMul = mobDamageFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.damage
+    const g = new Goblin(this.scene, def, x, z, { hp: hpMul, damage: dmgMul, speed: 1, scale: 1 }, kind === 'elite')
     this.goblins.push(g)
-    this.vfx.burst(at.x, at.z, { color: 0xff8adf, count: 5, speed: 2.2, life: 0.35, size: 0.26, y: 0.5 })
+    this.goblinKinds.set(g, kind)
   }
-
-  // ───────────────────────────── 敌人 / 战斗 ─────────────────────────────
 
   private updateEnemies(dt: number): void {
-    const colliders = this.floor.propColliders
-    const bounds = this.floor.halfSize - 0.55
-    for (const g of this.goblins) {
-      if (!g.alive && !g.canRemove) continue
-      g.update(dt, this.player.x, this.player.z, colliders, bounds)
-      if (g.alive) this.checkContact(g, dt)
+    const p = this.player
+    if (!p) return
+    const colliders = this.floor?.propColliders ?? []
+    const bounds = (this.floor?.halfSize ?? 20) - 0.5
+    for (let i = this.goblins.length - 1; i >= 0; i -= 1) {
+      const g = this.goblins[i]
+      g.update(dt, p.x, p.z, colliders, bounds)
+      if (!g.alive) {
+        if (g.canRemove) {
+          g.dispose()
+          this.goblins.splice(i, 1)
+          this.goblinKinds.delete(g)
+          this.contactCd.delete(g)
+        }
+        continue
+      }
+      const cd = (this.contactCd.get(g) ?? 0) - dt
+      if (cd <= 0) {
+        const dx = p.x - g.x
+        const dz = p.z - g.z
+        if (dx * dx + dz * dz < (g.radius + p.radius) * (g.radius + p.radius)) {
+          this.damagePlayer(g.damage)
+          this.contactCd.set(g, 0.7)
+        } else {
+          this.contactCd.set(g, 0)
+        }
+      } else {
+        this.contactCd.set(g, cd)
+      }
     }
-
-    // 互相推挤，避免叠成一个点
-    const sep = CONFIG.combat.separation
-    for (let i = 0; i < this.goblins.length; i++) {
+    // 分离推挤，避免完全重叠
+    for (let i = 0; i < this.goblins.length; i += 1) {
       const a = this.goblins[i]
-      if (!a.alive) continue
-      for (let j = i + 1; j < this.goblins.length; j++) {
+      for (let j = i + 1; j < this.goblins.length; j += 1) {
         const b = this.goblins[j]
-        if (!b.alive) continue
         const dx = b.x - a.x
         const dz = b.z - a.z
-        const minDist = a.radius + b.radius
+        const rr = a.radius + b.radius
         const d2 = dx * dx + dz * dz
-        if (d2 >= minDist * minDist || d2 < 1e-6) continue
+        if (d2 > rr * rr || d2 < 1e-6) continue
         const d = Math.sqrt(d2)
-        const overlap = (minDist - d) / d
-        const push = Math.min(0.5, overlap * 0.5 * sep * 0.1 + overlap * 0.4)
-        a.x -= dx * push * 0.5
-        a.z -= dz * push * 0.5
-        b.x += dx * push * 0.5
-        b.z += dz * push * 0.5
-      }
-      const c = this.floor.clampToArena(a.x, a.z, a.radius)
-      a.x = c.x
-      a.z = c.z
-      a.group.position.x = a.x
-      a.group.position.z = a.z
-    }
-
-    // 清理死亡动画结束的怪
-    for (let i = this.goblins.length - 1; i >= 0; i--) {
-      const g = this.goblins[i]
-      if (g.canRemove) {
-        g.dispose()
-        this.goblins.splice(i, 1)
+        const push = Math.min((rr - d) * 0.5, 0.2)
+        const nx = dx / d
+        const nz = dz / d
+        a.x -= nx * push
+        a.z -= nz * push
+        b.x += nx * push
+        b.z += nz * push
       }
     }
-  }
-
-  private checkContact(g: Goblin, dt: number): void {
-    let cd = (this.contactCooldowns.get(g) ?? 0) - dt
-    this.contactCooldowns.set(g, cd)
-    if (cd > 0) return
-    if (this.player.invuln > 0) return
-    const dx = g.x - this.player.x
-    const dz = g.z - this.player.z
-    const rr = g.radius + this.player.radius + 0.08
-    if (dx * dx + dz * dz > rr * rr) return
-    this.contactCooldowns.set(g, CONFIG.combat.contactCooldown)
-    this.damagePlayer(g.damage)
-  }
-
-  private updateCombat(dt: number): void {
-    if (!this.player.alive) return
-    const targets: BladeTarget[] = []
-    for (const g of this.goblins) {
-      if (g.alive) targets.push(g)
-    }
-    if (this.boss && this.boss.alive) targets.push(this.boss)
-
-    this.blades.setCount(Math.round(this.stats.blades))
-    this.blades.update(dt, this.player.x, this.player.z, this.stats, targets, this.onBladeHit)
-  }
-
-  private onBladeHit = (target: BladeTarget, amount: number, crit: boolean, killed: boolean): void => {
-    const isBoss = target === this.boss
-    const y = isBoss ? 2.6 : 1.25
-    this.scratch.set(target.x, y + Math.random() * 0.25, target.z)
-    this.hud.damageNumber(this.scratch, Math.round(amount), crit ? 'crit' : 'normal')
-    this.vfx.burst(target.x, target.z, {
-      color: crit ? 0xffd76a : 0x9fffe6,
-      count: crit ? 12 : 5,
-      speed: 4.2,
-      life: 0.28,
-      size: crit ? 0.32 : 0.24,
-      y: isBoss ? 1.8 : 0.9,
-    })
-    if (crit) {
-      audio.crit()
-      this.rig.shake(0.12)
-    } else {
-      audio.hit()
-    }
-    if (killed) {
-      if (isBoss) this.onBossDeath()
-      else this.handleGoblinKill(target as Goblin)
-    }
-  }
-
-  private handleGoblinKill(g: Goblin): void {
-    this.kills += 1
-    this.quotaKills += 1
-    const diff = DIFFICULTY[this.difficulty]
-    const xpValue = Math.max(1, Math.round(g.xpValue * diff.xp))
-    this.pickups.spawn('xp', g.x, g.z, xpValue)
-    if (Math.random() < g.goldChance) {
-      this.pickups.spawn('gold', g.x, g.z, 1 + Math.floor(Math.random() * 3))
-    }
-    if (g.elite) {
-      for (let i = 0; i < 4; i++) {
-        this.pickups.spawn('gold', g.x + (Math.random() - 0.5) * 2.4, g.z + (Math.random() - 0.5) * 2.4, 2)
-      }
-      if (Math.random() < 0.4) this.pickups.spawn('heart', g.x, g.z, 25)
-      this.hud.toast('精英哥布林被击破！', 'good')
-      this.vfx.ring(g.x, g.z, { color: 0xffd76a, radius: 4, life: 0.4 })
-    }
-    this.vfx.burst(g.x, g.z, {
-      color: 0x8cff9e,
-      count: g.elite ? 22 : 10,
-      speed: 4.4,
-      life: 0.45,
-      size: 0.3,
-      y: 0.85,
-    })
-    audio.enemyDie()
-  }
-
-  private damagePlayer(rawDamage: number): void {
-    if (this.phase !== 'playing' || !this.player.alive) return
-    const dealt = this.player.takeDamage(rawDamage)
-    if (dealt <= 0) return
-    audio.hurt()
-    this.fx.hurt(dealt > this.stats.maxHp * 0.15 ? 1.2 : 0.8)
-    this.rig.shake(0.4)
-    this.vfx.burst(this.player.x, this.player.z, { color: 0xff5c6a, count: 10, speed: 3.4, life: 0.35, size: 0.28, y: 1 })
-    if (this.player.hp <= 0) this.die()
-  }
-
-  // ───────────────────────────── Boss ─────────────────────────────
-
-  private updateBossSpawnTimer(dt: number): void {
-    if (!this.floorDef.boss || this.bossSpawned || this.bossSpawnTimer < 0) return
-    this.bossSpawnTimer -= dt
-    if (this.bossSpawnTimer > 0) return
-    this.spawnBoss()
-  }
-
-  private spawnBoss(): void {
-    const h = this.floor.halfSize
-    const callbacks = {
-      onSlam: (x: number, z: number, radius: number, damage: number) => {
-        this.vfx.ring(x, z, { color: 0xff3b3b, radius, life: 0.5, grow: 1.2 })
-        this.vfx.burst(x, z, { color: 0xffb0a0, count: 16, speed: 7, life: 0.4, size: 0.32, y: 0.6 })
-        this.rig.shake(0.55)
-        const d = Math.hypot(this.player.x - x, this.player.z - z)
-        if (d < radius + this.player.radius) this.damagePlayer(damage)
-      },
-      onSummon: (count: number) => {
-        if (!this.boss) return
-        for (let i = 0; i < count; i++) {
-          const a = (i / count) * Math.PI * 2
-          const p = this.floor.clampToArena(this.boss.x + Math.cos(a) * 4.2, this.boss.z + Math.sin(a) * 4.2, 0.8)
-          this.spawnEnemy(GOBLIN_SMALL, p)
-        }
-        this.vfx.ring(this.boss.x, this.boss.z, { color: 0xff3b6b, radius: 6, life: 0.6 })
-        this.hud.toast('哥布林之王撕开了裂隙，召唤援军！', 'bad')
-      },
-      onRoar: () => {
-        audio.bossRoar()
-        this.rig.shake(0.7)
-        this.hud.toast('哥布林之王发出震耳欲聋的怒吼！', 'bad')
-      },
-    }
-
-    this.boss = new GoblinKing(this.scene, 0, h * 0.66, callbacks)
-    this.boss.hp = this.boss.maxHp = Math.round(CONFIG.boss.hp * DIFFICULTY[this.difficulty].hp)
-    this.bossSpawned = true
-    this.hud.showBoss(BOSS_NAME, this.boss.hp, this.boss.maxHp)
-    this.fx.setBossMode(true)
-    this.rig.shake(0.8)
-    audio.bossRoar()
-    this.hud.toast('哥布林之王现身！击败它夺取传送卷轴！', 'bad')
-    this.vfx.ring(this.boss.x, this.boss.z, { color: 0xffcc55, radius: 9, life: 0.8 })
   }
 
   private updateBoss(dt: number): void {
+    const p = this.player
     const boss = this.boss
-    if (!boss) return
-    if (boss.alive) {
-      boss.update(dt, this.player.x, this.player.z)
-      const d = Math.hypot(this.player.x - boss.x, this.player.z - boss.z)
-      if (d < boss.radius + this.player.radius && this.player.invuln <= 0) {
-        this.damagePlayer(CONFIG.boss.damage * DIFFICULTY[this.difficulty].damage)
+    if (!p || !boss) return
+    boss.update(dt, p.x, p.z)
+    // boss.update 不接收道具碰撞，这里补推挤，避免王钻进祭坛/木桶里看不见
+    if (this.floor) {
+      for (const c of this.floor.propColliders) {
+        const ox = boss.x - c.x
+        const oz = boss.z - c.z
+        const rr = c.r + boss.radius * 0.8
+        const d2 = ox * ox + oz * oz
+        if (d2 >= rr * rr || d2 < 1e-6) continue
+        const d = Math.sqrt(d2)
+        boss.x = c.x + (ox / d) * rr
+        boss.z = c.z + (oz / d) * rr
       }
-      this.hud.updateBoss(boss.hp)
+      const lim = this.floor.halfSize - boss.radius
+      boss.x = Math.max(-lim, Math.min(lim, boss.x))
+      boss.z = Math.max(-lim, Math.min(lim, boss.z))
+    }
+    this.hud.updateBoss(boss.hp)
+    if (!boss.alive) {
+      this.onBossDefeated()
+      return
+    }
+    const dx = p.x - boss.x
+    const dz = p.z - boss.z
+    const rr = boss.radius + p.radius
+    if (dx * dx + dz * dz < rr * rr) this.damagePlayer(mobDamageFor(this.run.difficulty, this.run.layer) * 2.2)
+  }
+
+  private damagePlayer(raw: number): void {
+    const p = this.player
+    if (!p || !p.alive) return
+    const stats = p.stats
+    if (Math.random() < Math.min(0.24, stats.dodge)) {
+      this.hud.damageNumber(new THREE.Vector3(p.x, 1.6, p.z), 0, 'heal')
+      return
+    }
+    const dmg = raw * charTakeDamageMul(this.run.character) * (1 - Math.min(0.6, stats.armorRate))
+    const dealt = p.takeDamage(dmg)
+    if (dealt > 0) {
+      this.fx.hurt(Math.min(1, dealt / Math.max(20, p.stats.maxHp * 0.2)))
+      audio.hurt()
+      this.rig.shake(0.18)
     }
   }
 
-  private onBossDeath(): void {
+  // ---------- 战斗钩子 ----------
+
+  private onCombatHit(t: Hittable, amount: number, crit: boolean, killed: boolean): void {
+    const y = t === this.boss ? 3.2 : 1.35
+    this.hud.damageNumber(new THREE.Vector3(t.x, y, t.z), Math.round(amount), crit ? 'crit' : 'normal')
+    this.vfx.burst(t.x, t.z, {
+      color: crit ? 0xffd166 : 0xffffff,
+      count: crit ? 10 : 5,
+      speed: 4,
+      life: 0.3,
+      size: 0.22,
+    })
+    if (crit) audio.crit()
+    else audio.hit()
+    if (!killed) return
+    if (t === this.boss) return
+    const goblin = t as unknown as Goblin
+    const kind = this.goblinKinds.get(goblin) ?? 'small'
+    this.onGoblinKilled(goblin, kind)
+  }
+
+  private onGoblinKilled(g: Goblin, kind: 'small' | 'brute' | 'elite'): void {
+    this.run.kills += 1
+    this.layerKilled += 1
+    this.combat?.onKill(g)
+    const gold = killGold(this.run.layer, kind)
+    this.pickups.spawn('gold', g.x, g.z, gold)
+    if (kind === 'elite') {
+      this.pickups.spawn('gold', g.x + 1, g.z, gold)
+      this.pickups.spawn('gold', g.x - 1, g.z, gold)
+      this.hud.toast('精英哥布林被击杀！', 'good')
+      this.vfx.ring(g.x, g.z, { color: 0xffd166, radius: 1.2, life: 0.5, grow: 2 })
+    } else if (this.rng.chance(0.05)) {
+      this.pickups.spawn('heart', g.x, g.z, 20)
+    }
+    this.vfx.burst(g.x, g.z, { color: 0x6fbf73, count: 14, speed: 5, life: 0.45, size: 0.28 })
+    audio.enemyDie()
+  }
+
+  private onCollect(kind: 'gold' | 'heart' | 'rice' | 'card', value: number): void {
+    if (kind === 'gold') {
+      this.run.gold += value
+      this.hud.damageNumber(new THREE.Vector3(this.player?.x ?? 0, 2, this.player?.z ?? 0), value, 'gold')
+      audio.coin()
+    } else if (kind === 'heart') {
+      this.player?.heal(value)
+      audio.heal()
+    } else if (kind === 'rice') {
+      this.combat?.grantCharge(0.2)
+      audio.pickup()
+      this.hud.toast('白米饭：充能 +20%', 'good')
+    } else {
+      const stat = this.rng.pick(['magic', 'stamina', 'intelligence', 'hp', 'moveSpeed', 'armor']) as CardStat
+      const item = makeCardItem(stat, 1)
+      if (this.inventory.add(item)) {
+        this.syncCards()
+        this.hud.toast(`拾取增益卡：${item.name}`, 'good')
+      }
+    }
+  }
+
+  // ---------- 通关 / 失败 ----------
+
+  private checkLayerClear(): void {
+    if (this.roomActive) {
+      if (this.goblins.length === 0) this.finishRoomBattle()
+      return
+    }
+    if (isBossLayer(this.run.difficulty, this.run.layer)) return
+    if (this.layerKilled >= this.layerTotal && this.goblins.length === 0) this.onLayerCleared()
+  }
+
+  private onLayerCleared(): void {
+    const gold = clearGoldFor(this.run.difficulty, this.run.layer, )
+    this.run.gold += gold
+    this.hud.toast(`第 ${this.run.layer} 层清空！+${gold} 金币`, 'good')
+    audio.stairs()
+    this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
+    this.openTunnels()
+  }
+
+  private onBossDefeated(): void {
+    if (!this.boss) return
     const boss = this.boss
-    if (!boss || this.bossDeathTimer > 0) return
-    this.bossDeathTimer = 1.6
     boss.alive = false
     this.hud.hideBoss()
     this.fx.setBossMode(false)
-    this.rig.shake(1)
-    this.fx.flash(0.35, 380)
+    this.rig.shake(0.9)
+    this.fx.flash(0.6, 220)
     audio.win()
     this.vfx.levelUpBurst(boss.x, boss.z)
-    this.vfx.ring(boss.x, boss.z, { color: 0xffd76a, radius: 10, life: 0.9 })
-    this.vfx.burst(boss.x, boss.z, { color: 0xffe9a8, count: 40, speed: 8, life: 1.0, size: 0.4, y: 1.8, gravity: -3 })
-
-    // 卷轴 + 金币雨
-    this.pickups.spawn('scroll', boss.x, boss.z, 1)
-    this.scrollDropped = true
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * Math.PI * 2
-      this.pickups.spawn('gold', boss.x + Math.cos(a) * 1.8, boss.z + Math.sin(a) * 1.8, 3)
-    }
-    this.hud.toast('哥布林之王倒下了！拾取「传送卷轴」离开这座塔！', 'good')
-    gameEventsDelayToast(this, '卷轴就在王座中央……')
-  }
-
-  private updateAmbientBossDeath(dt: number): void {
-    if (!this.boss || this.bossDeathTimer <= 0) return
-    this.bossDeathTimer -= dt
-    this.boss.group.rotation.y += dt * 0.6
-    if (this.bossDeathTimer <= 0) {
-      this.boss.dispose()
-      this.boss = null
+    this.vfx.ring(boss.x, boss.z, { color: 0xffd166, radius: 3, life: 1.2, grow: 4 })
+    this.vfx.burst(boss.x, boss.z, { color: 0xffd166, count: 40, speed: 9, life: 0.9, size: 0.4 })
+    this.run.gold += Math.round(killGold(this.run.layer, 'boss'))
+    this.hud.toast('哥布林之王倒下了！', 'good')
+    boss.dispose()
+    this.boss = null
+    if (this.run.layer >= layerCount(this.run.difficulty)) this.win()
+    else {
+      this.run.gold += clearGoldFor(this.run.difficulty, this.run.layer)
+      this.openTunnels()
     }
   }
 
-  private updateBossPhaseHint(): void {
-    if (!this.boss) return
-    if (this.boss.phase2) this.hud.toast('哥布林之王进入狂暴状态！', 'bad')
-  }
-
-  // ───────────────────────────── 拾取 / 升级 ─────────────────────────────
-
-  private updatePickups(dt: number): void {
-    const magnet = this.stats.pickupRadius * CONFIG.economy.magnetFactor
-    this.pickups.update(dt, this.player.x, this.player.z, magnet, this.onCollect)
-  }
-
-  private onCollect = (kind: PickupKind, value: number): void => {
-    const diff = DIFFICULTY[this.difficulty]
-    if (kind === 'xp') {
-      this.gainXp(Math.max(1, Math.round(value * this.stats.xpGain * diff.xp)))
-      audio.pickup()
-      this.vfx.burst(this.player.x, this.player.z, { color: 0x7fffe0, count: 3, speed: 1.8, life: 0.25, size: 0.2, y: 0.6 })
-    } else if (kind === 'gold') {
-      const gained = Math.max(1, Math.round(value * this.stats.goldGain * diff.gold))
-      this.gold += gained
-      audio.coin()
-      this.scratch.set(this.player.x, 1.6, this.player.z)
-      this.hud.damageNumber(this.scratch, gained, 'gold')
-    } else if (kind === 'heart') {
-      this.player.heal(value)
-      audio.heal()
-      this.scratch.set(this.player.x, 1.7, this.player.z)
-      this.hud.damageNumber(this.scratch, value, 'heal')
-      this.vfx.burst(this.player.x, this.player.z, { color: 0xff8aa0, count: 8, speed: 2.4, life: 0.4, size: 0.3, y: 1 })
-    } else if (kind === 'scroll') {
-      this.win()
-    }
-  }
-
-  private gainXp(amount: number): void {
-    if (this.phase !== 'playing' && this.phase !== 'levelup') return
-    this.xp += amount
-    let need = xpToNext(this.level)
-    while (this.xp >= need) {
-      this.xp -= need
-      this.level += 1
-      this.pendingLevelUps += 1
-      need = xpToNext(this.level)
-    }
-    if (this.pendingLevelUps > 0 && this.phase === 'playing') this.openLevelUp()
-  }
-
-  private openLevelUp(): void {
-    if (this.phase !== 'playing') return
-    this.currentChoices = rollUpgradeChoices(this.stacks, 3, Math.random)
-    if (this.currentChoices.length === 0) {
-      this.pendingLevelUps = 0
-      return
-    }
-    this.phase = 'levelup'
-    audio.levelUp()
-    this.vfx.levelUpBurst(this.player.x, this.player.z)
-    this.rig.shake(0.22)
-    this.hud.showLevelUp(this.level, this.currentChoices)
-    if (CONFIG.economy.levelUpVacuum) this.pickups.vacuumAll()
-  }
-
-  /** HUD 三选一回调 */
-  chooseUpgrade(id: string): void {
-    if (this.phase !== 'levelup') return
-    const choice = this.currentChoices.find((c) => c.id === id)
-    if (!choice) return
-    const prevMax = this.stats.maxHp
-    this.stacks.set(id, (this.stacks.get(id) ?? 0) + 1)
-    this.stats = computeStats(this.baseStats, this.stacks)
-    this.player.setStats(this.stats)
-    const deltaHp = this.stats.maxHp - prevMax
-    if (deltaHp > 0) this.player.hp = Math.min(this.stats.maxHp, this.player.hp + deltaHp)
-    this.blades.setCount(Math.round(this.stats.blades))
-    audio.click()
-    this.hud.hideLevelUp()
-    this.pendingLevelUps = Math.max(0, this.pendingLevelUps - 1)
-    if (this.pendingLevelUps > 0) {
-      this.phase = 'playing'
-      this.openLevelUp()
-    } else {
-      this.phase = 'playing'
-      this.hud.toast(`获得「${choice.name}」`, 'good')
-    }
-  }
-
-  // ───────────────────────────── 楼梯 / 结算 ─────────────────────────────
-
-  private unlockStairs(): void {
-    if (this.stairsUnlocked) return
-    this.stairsUnlocked = true
-    this.floor.stairs.setUnlocked(true)
-    const pos = this.floor.stairs
-    this.vfx.levelUpBurst(pos.x, pos.z)
-    audio.stairs()
-    this.hud.toast('楼梯已开启！前往下一层', 'good')
-    this.hud.showPrompt(null)
-  }
-
-  private updateStairs(): void {
-    if (this.floorDef.boss) {
-      this.setPrompt(null)
-      return
-    }
-    if (!this.stairsUnlocked && (this.quotaKills >= this.floorDef.quota || this.floorTime >= this.floorDef.timeLimit)) {
-      this.unlockStairs()
-    }
-    const s = this.floor.stairs
-    const d = Math.hypot(this.player.x - s.x, this.player.z - s.z)
-    const near = this.stairsUnlocked && d < 2.6
-    if (near) {
-      this.setPrompt(`按 E 前往第 ${this.floorIndex + 1} 层`)
-      if (this.input.justPressed('KeyE')) this.advanceFloor()
-    } else if (this.stairsUnlocked) {
-      this.setPrompt('楼梯已开启，前往北侧的阶梯')
-    } else {
-      const left = Math.max(0, this.floorDef.quota - this.quotaKills)
-      this.setPrompt(left > 0 && this.floorTime > 6 ? `再击杀 ${left} 只哥布林开启楼梯` : null)
-    }
-  }
-
-  private setPrompt(text: string | null): void {
-    if (this.promptsVisible === (text !== null) && text === null) return
-    this.promptsVisible = text !== null
-    this.hud.showPrompt(text)
-  }
-
-  private pushSnapshot(): void {
-    if (!this.floor) return
-    const boss = this.boss
-    if (boss && boss.phase2 && !this.bossPhase2Notified) {
-      this.bossPhase2Notified = true
-      this.updateBossPhaseHint()
-    }
-    const snapshot: HudSnapshot = {
-      hp: Math.max(0, this.player.hp),
-      maxHp: this.stats.maxHp,
-      xp: this.xp,
-      xpToNext: xpToNext(this.level),
-      level: this.level,
-      gold: this.gold,
-      kills: this.kills,
-      floor: this.floorIndex,
-      floorName: this.floorDef.name,
-      quota: this.floorDef.boss ? 0 : Math.min(this.quotaKills, this.floorDef.quota),
-      quotaMax: this.floorDef.boss ? 0 : this.floorDef.quota,
-      stairsUnlocked: this.stairsUnlocked,
-      enemiesAlive: this.goblins.reduce((n, g) => n + (g.alive ? 1 : 0), 0) + (boss && boss.alive ? 1 : 0),
-      time: this.runTime,
-      boss: boss && boss.alive ? { name: BOSS_NAME, hp: boss.hp, maxHp: boss.maxHp } : null,
-    }
-    this.snapshot = snapshot
-    this.hud.update(snapshot)
-  }
-
-  private bossPhase2Notified = false
-
-  private runStats(): RunStats {
-    return {
-      floor: this.floorIndex,
-      level: this.level,
-      kills: this.kills,
-      gold: this.gold,
-      time: this.runTime,
-      difficulty: this.difficulty,
-    }
-  }
-
-  private die(): void {
-    if (this.phase === 'dead') return
+  private die(reason: 'hp' | 'timeout'): void {
+    if (this.phase === 'dead' || this.phase === 'victory') return
     this.phase = 'dead'
-    this.player.alive = false
-    this.paused = false
-    this.hud.setPaused(false)
+    if (this.player) this.player.alive = false
+    this.fx.hurt(1)
+    this.fx.flash(0.5, 160)
+    audio.lose()
     this.hud.hideBoss()
     this.fx.setBossMode(false)
-    this.fx.flash(0.5, 500)
-    this.rig.shake(0.9)
-    audio.lose()
-    this.vfx.burst(this.player.x, this.player.z, { color: 0xff6478, count: 30, speed: 6, life: 0.9, size: 0.36, y: 1 })
-    this.hud.showGameOver(this.runStats())
+    this.hud.showDefeat(reason, this.runStats())
   }
 
   private win(): void {
-    if (this.phase === 'victory') return
     this.phase = 'victory'
-    this.paused = false
-    this.hud.setPaused(false)
-    this.hud.hideBoss()
-    this.fx.setBossMode(false)
-    this.fx.flash(0.75, 700)
     audio.win()
-    this.vfx.levelUpBurst(this.player.x, this.player.z)
     this.hud.showVictory(this.runStats())
   }
 
-  // 暴露给调试 / 文档
-  get currentPhase(): GamePhase {
-    return this.phase
+  private runStats(reason?: 'hp' | 'timeout'): RunStatsV3 {
+    return {
+      difficulty: this.run.difficulty,
+      character: this.run.character,
+      layer: this.run.layer,
+      totalLayers: layerCount(this.run.difficulty),
+      kills: this.run.kills,
+      gold: this.run.gold,
+      time: this.run.playTime,
+      weaponLv: this.run.weaponLv,
+      cardCount: this.inventory.count,
+      reason,
+    }
   }
 
-  get currentStats(): PlayerStats {
-    return this.stats
+  // ---------- 隧道 / 商店 ----------
+
+  private openTunnels(): void {
+    this.phase = 'tunnel'
+    const boss = isBossLayer(this.run.difficulty, this.run.layer)
+    this.tunnelOffers = rollTunnels(
+      this.run.layer,
+      layerCount(this.run.difficulty),
+      boss,
+      this.run.character,
+      this.rng,
+      this.run.weaponLv,
+    )
+    this.hud.showTunnelOffers(this.tunnelOffers, this.run.layer)
+  }
+
+  pickTunnel(id: string): void {
+    if (this.phase !== 'tunnel') return
+    const offer = this.tunnelOffers.find((o) => o.id === id)
+    if (!offer) return
+    this.hud.hideTunnels()
+    audio.click()
+    const res = resolveRoom(offer, this.run.layer, this.run.character, this.rng)
+    if (res.gold) {
+      this.run.gold += res.gold
+      this.hud.toast(`+${res.gold} 金币`, 'good')
+    }
+    if (res.card) {
+      if (this.inventory.add(res.card)) {
+        this.syncCards()
+        this.hud.toast(`${res.card.icon} ${res.card.name} 已放入背包`, 'good')
+      } else {
+        this.hud.toast('背包已满，卡牌丢失', 'bad')
+      }
+    }
+    if (res.shopOffers && res.shopOffers.length > 0) {
+      this.shopOffers = res.shopOffers
+      this.shopMode = 'room'
+      this.phase = 'shop'
+      this.hud.showShop(this.shopOffers, this.run.gold, REFRESH_COST)
+      return
+    }
+    if (res.altarCost !== undefined && res.altarReward) {
+      if (this.run.gold >= res.altarCost) {
+        this.run.gold -= res.altarCost
+        const qv = res.altarReward.value ?? 1
+        const tier = qv >= 2.6 ? 3 : qv >= 1.5 ? 2 : 1
+        const item = makeCardItem(res.altarReward.stat, tier)
+        if (this.inventory.add(item)) this.syncCards()
+        this.hud.toast(`祭坛献金 ${res.altarCost}：${item.name}`, 'good')
+      } else {
+        this.hud.toast('金币不足，祭坛不理你', 'bad')
+      }
+    }
+    if (res.enemies) {
+      this.startRoomBattle(res.enemies.count, res.enemies.elite)
+      return
+    }
+    this.proceedToShop()
+  }
+
+  private startRoomBattle(count: number, elite: number): void {
+    this.phase = 'playing'
+    this.roomActive = true
+    this.timeLeft = Math.max(this.timeLeft, 45)
+    this.layerTotal = count
+    this.layerKilled = 0
+    for (let i = 0; i < count; i += 1) {
+      const pt = this.randomSpawnPoint()
+      const kind = i < elite ? 'elite' : i % 5 === 0 ? 'brute' : 'small'
+      this.spawnGoblin(kind, pt.x, pt.z)
+    }
+    this.hud.toast(elite > 0 ? '精英战：击败所有敌人！' : '战斗房：清空敌人！', 'bad')
+    audio.bossRoar()
+  }
+
+  private finishRoomBattle(): void {
+    this.roomActive = false
+    this.hud.toast('房间清空！', 'good')
+    this.run.gold += clearGoldFor(this.run.difficulty, this.run.layer)
+    this.proceedToShop()
+  }
+
+  private proceedToShop(): void {
+    this.shopOffers = generateOffers(this.run.layer, this.run.character, this.run.gold, this.rng, 4, this.run.weaponLv)
+    this.shopMode = 'standard'
+    this.phase = 'shop'
+    this.hud.showShop(this.shopOffers, this.run.gold, REFRESH_COST)
+  }
+
+  buyOffer(id: string): void {
+    if (this.phase !== 'shop') return
+    const idx = this.shopOffers.findIndex((o) => o.id === id)
+    if (idx < 0) return
+    const offer = this.shopOffers[idx]
+    if (this.run.gold < offer.price) {
+      this.hud.toast('金币不足', 'bad')
+      return
+    }
+    if (offer.kind === 'weapon') {
+      if (offer.weaponLevel !== this.run.weaponLv + 1) {
+        this.hud.toast('只能购买下一级专武', 'bad')
+        return
+      }
+      this.run.gold -= offer.price
+      this.run.weaponLv += 1
+      this.combat?.setWeaponLv(this.run.weaponLv)
+      this.recalcStats()
+      this.shopOffers.splice(idx, 1)
+      this.hud.toast(`专武升级到 Lv${this.run.weaponLv}`, 'good')
+    } else if (offer.kind === 'buff-card') {
+      if (this.inventory.isFull) {
+        this.hud.toast('背包已满', 'bad')
+        return
+      }
+      this.run.gold -= offer.price
+      const item = makeCardItem(offer.stat as CardStat, offer.tier)
+      this.inventory.add(item)
+      this.syncCards()
+      this.shopOffers.splice(idx, 1)
+      this.hud.toast(`获得 ${item.name}`, 'good')
+    } else {
+      if (this.inventory.isFull) {
+        this.hud.toast('背包已满', 'bad')
+        return
+      }
+      this.run.gold -= offer.price
+      const item: InventoryItem = {
+        uid: `u${Date.now()}${this.rng.int(0, 999)}`,
+        kind: 'consumable',
+        name: offer.name,
+        desc: offer.desc,
+        icon: offer.icon,
+        tier: 1,
+        stat: undefined,
+        value: 1,
+      }
+      this.inventory.add(item)
+      this.hud.toast(`${offer.name} 放入背包`, 'good')
+    }
+    audio.coin()
+    this.hud.updateShop(this.shopOffers, this.run.gold, REFRESH_COST)
+    if (this.inventoryOpen()) this.hud.updateInventory(this.inventory.items, this.run.gold)
+  }
+
+  refreshShop(): void {
+    if (this.phase !== 'shop') return
+    if (this.run.gold < REFRESH_COST) {
+      this.hud.toast('金币不足，无法重掷', 'bad')
+      return
+    }
+    this.run.gold -= REFRESH_COST
+    this.shopOffers = generateOffers(this.run.layer, this.run.character, this.run.gold, this.rng, 4, this.run.weaponLv)
+    audio.coin()
+    this.hud.updateShop(this.shopOffers, this.run.gold, REFRESH_COST)
+  }
+
+  leaveShop(): void {
+    if (this.phase !== 'shop') return
+    this.hud.hideShop()
+    this.hud.hideInventory()
+    this.saveRun(AUTOSAVE_SLOT)
+    const next = this.run.layer + 1
+    if (next > layerCount(this.run.difficulty)) {
+      this.win()
+      return
+    }
+    this.enterLayer(next)
+  }
+
+  // ---------- 背包 ----------
+
+  private inventoryOpen(): boolean {
+    return this.hud.isInventoryOpen?.() ?? false
+  }
+
+  openInventory(): void {
+    this.hud.showInventory(this.inventory.items, this.run.gold, this.inventory.maxSlots)
+  }
+
+  closeInventory(): void {
+    this.hud.hideInventory()
+  }
+
+  mergeItems(a: string, b: string): void {
+    const merged = this.inventory.merge(a, b)
+    if (!merged) {
+      this.hud.toast('只有同级同种才能合成', 'bad')
+      return
+    }
+    this.syncCards()
+    this.hud.updateInventory(this.inventory.items, this.run.gold)
+    this.hud.toast(`合成 ${merged.name}`, 'good')
+    audio.click()
+  }
+
+  useItem(uid: string): void {
+    const item = this.inventory.get(uid)
+    if (!item) return
+    const used = this.inventory.use(uid)
+    if (!used) return
+    if (used.icon === '🧪' || used.name.includes('药水')) {
+      this.player?.heal(this.player.stats.maxHp * 0.35)
+      this.hud.toast('喝下治疗药水', 'good')
+    } else if (used.icon === '🔋' || used.name.includes('电池')) {
+      this.combat?.grantCharge(1)
+      this.hud.toast('技能充能已满', 'good')
+    } else {
+      this.inventory.add(used)
+      this.hud.toast('这个道具现在还不能用', 'bad')
+      return
+    }
+    this.syncCards()
+    this.hud.updateInventory(this.inventory.items, this.run.gold)
+    audio.heal()
+  }
+
+  // ---------- 存档 ----------
+
+  saveRun(slot: number): void {
+    this.run.hp = this.player?.hp ?? this.run.hp
+    this.run.maxHp = this.player?.stats.maxHp ?? this.run.maxHp
+    this.run.inventory = this.inventory.items.map((i) => ({ ...i }))
+    this.run.cards = { ...this.cards }
+    this.run.savedAt = Date.now()
+    saveToSlot(slot, this.run)
+  }
+
+  manualSave(slot: number): void {
+    this.saveRun(slot)
+    this.hud.toast(`已存入档位 ${slot}`, 'good')
+    this.hud.showSaveSlots('save', listSlots())
+  }
+
+  manualLoad(slot: number): void {
+    this.paused = false
+    this.hud.hidePause()
+    this.continueRun(slot)
+  }
+
+  // ---------- 数值 ----------
+
+  private syncCards(): void {
+    const cards = emptyCards()
+    for (const item of this.inventory.items) {
+      if (item.kind === 'buff-card') applyItemToCards(cards, item, 1)
+    }
+    this.cards = cards
+    this.recalcStats()
+  }
+
+  private recalcStats(): void {
+    const p = this.player
+    if (!p) return
+    const def = CHARACTERS[this.run.character]
+    const tier = getWeaponTier(this.run.character, this.run.weaponLv) as Record<string, number>
+    const allStat = tier.allStatMul ?? 1
+    const mods = this.combat?.modifiers ?? NEUTRAL_MODS
+    const c = this.cards
+    const maxHp = Math.round((def.base.hp + (c.hp ?? 0)) * allStat)
+    const stats: PlayerStats = {
+      ...p.stats,
+      maxHp,
+      moveSpeed: (def.base.moveSpeed + (c.moveSpeed ?? 0)) * mods.moveSpeedMul,
+      damage: (tier.damage ?? 10) * allStat,
+      magic: (def.base.magic + (c.magic ?? 0)) * allStat * mods.magicMul,
+      stamina: (def.base.stamina + (c.stamina ?? 0)) * allStat * mods.staminaMul,
+      intelligence: (def.base.intelligence + (c.intelligence ?? 0)) * allStat * mods.intelligenceMul,
+      chargeMax: Math.max(30, (def.base.chargeMax + (c.chargeMax ?? 0)) * allStat),
+      chargeGain: c.chargeGain ?? 0,
+      armor: 0,
+      armorRate: Math.min(0.6, c.armor ?? 0),
+      dodge: Math.min(0.24, (c.dodge ?? 0) + ((tier.dodgeChance as number) ?? 0)),
+      critChance: 0.08,
+      critMultiplier: 1.8,
+      pickupRadius: 2.0,
+      goldGain: 1,
+      xpGain: 1,
+      dashCooldown: 1.2,
+      attackSpeed: 1,
+      attackRadius: 0,
+      blades: 0,
+    }
+    const gain = maxHp - this.prevMaxHp
+    this.prevMaxHp = maxHp
+    p.setStats(stats)
+    if (gain > 0) p.heal(gain)
+    this.run.maxHp = maxHp
+    this.run.hp = p.hp
+    this.combat?.setStats(stats)
+  }
+
+  private buildWorld(): GameWorld {
+    const p = this.player
+    const enemies: Hittable[] = []
+    for (const g of this.goblins) if (g.alive) enemies.push(g as unknown as Hittable)
+    if (this.boss && this.boss.alive) enemies.push(this.boss as unknown as Hittable)
+    return {
+      spawnPickup: (x, z, kind) => this.pickups.spawn(kind, x, z, kind === 'gold' ? 1 : 20),
+      enemies,
+      halfSize: this.floor?.halfSize ?? 20,
+      clamp: (x, z) => this.floor?.clampToArena(x, z, 0.4) ?? { x, z },
+      heal: (n) => this.player?.heal(n),
+      grantInvuln: (s) => this.player?.grantInvuln(s),
+      dashPlayer: (dx, dz, dist, dur) => this.player?.dashToward(dx, dz, dist, dur),
+      burst: (x, z, color, count) => this.vfx.burst(x, z, { color, count: count ?? 8, speed: 4, life: 0.35, size: 0.25 }),
+    }
+  }
+
+  // ---------- HUD ----------
+
+  private pushSnapshot(): void {
+    const p = this.player
+    const snap: HudSnapshot = {
+      hp: Math.max(0, Math.round(p?.hp ?? 0)),
+      maxHp: Math.round(p?.stats.maxHp ?? 100),
+      gold: this.run.gold,
+      floor: this.run.layer,
+      floorName: this.sceneName,
+      stage: this.run.stage,
+      stageName: STAGE_NAMES[this.run.stage - 1] ?? '',
+      quota: this.layerKilled,
+      quotaMax: this.layerTotal,
+      stairsUnlocked: false,
+      monsterKilled: this.layerKilled,
+      monsterTotal: this.layerTotal,
+      timeLeft: this.timeLeft,
+      timeLimit: this.timeLimit,
+      enemiesAlive: this.goblins.length + (this.boss ? 1 : 0),
+      kills: this.run.kills,
+      time: this.run.playTime,
+      charge: this.combat?.charge ?? 0,
+      chargeMax: this.combat?.chargeMax ?? 100,
+      skillName: this.combat?.skillName ?? '',
+      skillReady: this.combat?.skillReady ?? false,
+      weaponLv: this.run.weaponLv,
+      cardCount: this.inventory.count,
+      difficulty: this.run.difficulty,
+      difficultyName: DIFFICULTIES[this.run.difficulty].name,
+      character: this.run.character,
+      characterName: CHARACTERS[this.run.character].name,
+      boss: this.boss ? { name: '哥布林之王', hp: this.boss.hp, maxHp: this.boss.maxHp } : null,
+    }
+    this.hud.update(snap)
+  }
+
+  // ---------- 调试（截图/自测用） ----------
+
+  debugJump(layer: number, difficulty: DifficultyId = 'normal', character: CharacterId = 'mutsumi'): void {
+    this.startRun(character, difficulty)
+    for (let i = 0; i < 8; i += 1) {
+      const gold = 400
+      this.run.gold += gold
+      this.run.weaponLv = Math.min(5, this.run.weaponLv + 1)
+      this.combat?.setWeaponLv(this.run.weaponLv)
+      if (i < 5) {
+        const stat = (['magic', 'stamina', 'intelligence', 'hp', 'moveSpeed'] as CardStat[])[i % 5]
+        const item = makeCardItem(stat, 1)
+        this.inventory.add(item)
+      }
+      this.syncCards()
+    }
+    const target = Math.max(1, Math.min(layer, layerCount(difficulty)))
+    while (this.run.layer < target) this.enterLayer(this.run.layer + 1)
+  }
+
+  /** 以固定步长快进模拟，用于无头截图验证战斗流程 */
+  debugAdvance(seconds: number): void {
+    const step = 1 / 30
+    const n = Math.min(Math.round(seconds / step), 600 * 30)
+    for (let i = 0; i < n; i += 1) {
+      this.clock.getDelta()
+      this.elapsed += step
+      this.update(step)
+      this.input.endFrame()
+      if (this.phase !== 'playing' && this.phase !== 'title') break
+    }
+    this.renderer.render(this.scene, this.camera)
+  }
+
+  /** 无头/联调：自动朝最近敌人普攻，方便跑流程截图 */
+  debugAutoAttack(on: boolean): void {
+    this.autoPlay = on
+  }
+
+  private nearestEnemy(x: number, z: number): { x: number; z: number } | null {
+    let best: { x: number; z: number } | null = null
+    let bestD = Infinity
+    for (const g of this.goblins) {
+      if (!g.alive) continue
+      const d = (g.x - x) * (g.x - x) + (g.z - z) * (g.z - z)
+      if (d < bestD) {
+        bestD = d
+        best = g
+      }
+    }
+    if (!best && this.boss && this.boss.alive) best = this.boss
+    return best
+  }
+
+  /** 无头/联调：直接打开某个界面（title 之外的调试入口） */
+  debugScreen(name: string): void {
+    if (name === 'tunnel') {
+      this.openTunnels()
+    } else if (name === 'shop') {
+      this.proceedToShop()
+    } else if (name === 'inventory') {
+      if (this.inventory.add(makeCardItem('magic', 2))) this.syncCards()
+      if (this.inventory.add(makeCardItem('stamina', 1))) this.syncCards()
+      this.openInventory()
+    } else if (name === 'pause') {
+      this.togglePause()
+    } else if (name === 'victory') {
+      this.win()
+    } else if (name === 'defeat') {
+      this.die('timeout')
+    } else if (name === 'skill') {
+      if (this.combat && this.player) {
+        this.combat.grantCharge(1)
+        this.combat.trySkill(this.player.x, this.player.z, this.player.x, this.player.z - 3, this.buildWorld())
+      }
+    } else if (name === 'save') {
+      this.hud.showSaveSlots('save', listSlots())
+    }
+  }
+
+  onResize = (): void => {
+    const w = window.innerWidth
+    const h = window.innerHeight
+    this.camera.aspect = w / h
+    this.camera.updateProjectionMatrix()
+    this.renderer.setSize(w, h)
   }
 
   dispose(): void {
     this.disposed = true
-    cancelAnimationFrame(this.raf)
+    this.renderer.setAnimationLoop(null)
     window.removeEventListener('resize', this.onResize)
-    this.disposeFloorEntities()
-    this.floor.dispose()
-    this.player.dispose()
+    this.cleanupFloor()
+    this.player?.dispose()
+    this.combat?.dispose()
     this.pickups.dispose()
-    this.blades.dispose()
     this.vfx.dispose()
     this.fx.dispose()
     this.input.dispose()
+    this.hud.destroy()
     this.renderer.dispose()
   }
-}
-
-/** 延迟一帧的提示（避免同帧 toast 被覆盖） */
-function gameEventsDelayToast(game: Game, text: string): void {
-  setTimeout(() => {
-    void game
-    void text
-  }, 0)
 }

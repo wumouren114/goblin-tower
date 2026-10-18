@@ -5,3 +5,5 @@ shots/
 recovery/
 *.log
 .DS_Store
+art-smoke.out
+art-smoke.err

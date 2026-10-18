@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import type { ThemeDef } from '../types'
+import type { ThemeLike } from './themes'
+import { familyOf } from './themes'
 import { Rng } from '../core/rng'
 
 /**
@@ -93,8 +94,8 @@ function drawCrack(ctx: CanvasRenderingContext2D, x: number, y: number, len: num
 }
 
 /** 主题地面细节（苔藓/烛蜡/熔岩缝/冰霜/紫纹） */
-function floorDetail(ctx: CanvasRenderingContext2D, theme: ThemeDef, rng: Rng): void {
-  switch (theme.id) {
+function floorDetail(ctx: CanvasRenderingContext2D, theme: ThemeLike, rng: Rng): void {
+  switch (familyOf(theme)) {
     case 'moss': {
       // 苔藓：沿缝隙生长的绿色斑块
       const moss = mixHex(theme.accentColor, 0x2f4a2c, 0.55)
@@ -182,7 +183,7 @@ function floorDetail(ctx: CanvasRenderingContext2D, theme: ThemeDef, rng: Rng): 
 }
 
 /** 64×64 石厅地砖（2×2 块大石砖 + 缝隙 + 裂纹） */
-function makeFloorTexture(theme: ThemeDef, seed: number): THREE.CanvasTexture {
+function makeFloorTexture(theme: ThemeLike, seed: number): THREE.CanvasTexture {
   const rng = new Rng(seed)
   const { canvas, ctx } = makeCanvas(64, 64)
   ctx.imageSmoothingEnabled = false
@@ -240,7 +241,7 @@ function makeFloorTexture(theme: ThemeDef, seed: number): THREE.CanvasTexture {
 /* ------------------------------------------------------------------ */
 
 /** 64×64 墙砖（4 层砖，交错排布） */
-function makeWallTexture(theme: ThemeDef, seed: number): THREE.CanvasTexture {
+function makeWallTexture(theme: ThemeLike, seed: number): THREE.CanvasTexture {
   const rng = new Rng(seed)
   const { canvas, ctx } = makeCanvas(64, 64)
   ctx.imageSmoothingEnabled = false
@@ -271,14 +272,15 @@ function makeWallTexture(theme: ThemeDef, seed: number): THREE.CanvasTexture {
     }
   }
 
-  // 主题墙面细节
-  if (theme.id === 'moss') {
+  // 主题墙面细节（9 套主题按视觉家族复用 5 种细节）
+  const family = familyOf(theme)
+  if (family === 'moss') {
     const moss = mixHex(theme.accentColor, 0x2f4a2c, 0.6)
     for (let i = 0; i < 34; i++) {
       ctx.fillStyle = hexCss(moss, rng.range(0.35, 0.8))
       ctx.fillRect(rng.int(0, 63), rng.int(24, 63), rng.int(1, 3), rng.int(1, 2))
     }
-  } else if (theme.id === 'candle') {
+  } else if (family === 'candle') {
     const wax = mixHex(theme.accentColor, 0xf2e6c8, 0.6)
     for (let i = 0; i < 12; i++) {
       const x = rng.int(2, 60)
@@ -294,7 +296,7 @@ function makeWallTexture(theme: ThemeDef, seed: number): THREE.CanvasTexture {
       ctx.ellipse(rng.int(0, 63), rng.int(0, 20), rng.range(4, 12), rng.range(3, 8), 0, 0, Math.PI * 2)
       ctx.fill()
     }
-  } else if (theme.id === 'forge') {
+  } else if (family === 'forge') {
     const lava = mixHex(theme.accentColor, 0xffd28a, 0.35)
     ctx.save()
     ctx.shadowColor = hexCss(lava)
@@ -303,7 +305,7 @@ function makeWallTexture(theme: ThemeDef, seed: number): THREE.CanvasTexture {
       drawCrack(ctx, rng.int(4, 34), rng.int(4, 30), rng.range(16, 30), hexCss(lava), rng)
     }
     ctx.restore()
-  } else if (theme.id === 'frost') {
+  } else if (family === 'frost') {
     const ice = mixHex(theme.accentColor, 0xffffff, 0.5)
     for (let i = 0; i < 16; i++) {
       ctx.strokeStyle = hexCss(ice, rng.range(0.2, 0.45))
@@ -315,7 +317,7 @@ function makeWallTexture(theme: ThemeDef, seed: number): THREE.CanvasTexture {
       ctx.lineTo(x + rng.range(-8, 8), y + rng.range(-8, 8))
       ctx.stroke()
     }
-  } else if (theme.id === 'throne') {
+  } else if (family === 'throne') {
     const g = mixHex(theme.accentColor, 0xfff0b0, 0.35)
     // 墙面金色嵌线
     ctx.strokeStyle = hexCss(g, 0.5)
@@ -338,7 +340,7 @@ function makeWallTexture(theme: ThemeDef, seed: number): THREE.CanvasTexture {
 /* ------------------------------------------------------------------ */
 
 /** 祭坛/楼梯用符文圈（透明底，additive 叠加） */
-function makeRuneTexture(theme: ThemeDef, seed: number): THREE.CanvasTexture {
+function makeRuneTexture(theme: ThemeLike, seed: number): THREE.CanvasTexture {
   const rng = new Rng(seed)
   const { canvas, ctx } = makeCanvas(256, 256)
   const cx = 128
@@ -428,7 +430,7 @@ function makeRuneTexture(theme: ThemeDef, seed: number): THREE.CanvasTexture {
 /* ------------------------------------------------------------------ */
 
 /** 楼梯石门（locked=暗色 + 红色警戒符文；open=亮起 + 主题色符文） */
-function makeDoorTexture(theme: ThemeDef, open: boolean): THREE.CanvasTexture {
+function makeDoorTexture(theme: ThemeLike, open: boolean): THREE.CanvasTexture {
   const { canvas, ctx } = makeCanvas(128, 176)
   ctx.imageSmoothingEnabled = false
 
@@ -618,7 +620,7 @@ export class TextureBook {
   readonly mote: THREE.CanvasTexture
   private readonly owned: THREE.Texture[] = []
 
-  constructor(readonly theme: ThemeDef) {
+  constructor(readonly theme: ThemeLike) {
     const seed = 0x1b873593 ^ (theme.name.length * 7919) ^ (theme.floorColor & 0xffff)
     this.floor = this.reg(makeFloorTexture(theme, seed))
     this.wall = this.reg(makeWallTexture(theme, seed ^ 0x9e3779b9))

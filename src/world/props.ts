@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import type { ThemeDef } from '../types'
+import type { ThemeLike } from './themes'
+import { familyOf } from './themes'
 
 /**
  * ============================================================
@@ -83,7 +84,7 @@ export class PropSet {
   private readonly geos: THREE.BufferGeometry[] = []
   private readonly ownedMats: THREE.Material[] = []
 
-  constructor(theme: ThemeDef) {
+  constructor(theme: ThemeLike) {
     // ---- 共享单位几何体（缩放放在零件里） ----
     this.box = this.trackGeo(new THREE.BoxGeometry(1, 1, 1))
     this.cyl = this.trackGeo(new THREE.CylinderGeometry(1, 1, 1, 10, 1))
@@ -115,7 +116,7 @@ export class PropSet {
     )
     const fire = this.trackMat(new THREE.MeshBasicMaterial({ color: mixHex(theme.torchColor, 0xfff2c0, 0.35), toneMapped: false }))
 
-    this.pulse = theme.id === 'forge' ? (lava as THREE.MeshStandardMaterial) : null
+    this.pulse = familyOf(theme) === 'forge' ? (lava as THREE.MeshStandardMaterial) : null
 
     const M: Record<string, THREE.Material> = {
       stone,
@@ -170,7 +171,7 @@ function P(
   return { geo, mat, pos, scale, rot }
 }
 
-function buildKinds(theme: ThemeDef, lib: PropSet): PropKind[] {
+function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
   const { box, cyl, cone, rock, oct, sphere } = lib
   const m = lib.mats
 
@@ -214,7 +215,7 @@ function buildKinds(theme: ThemeDef, lib: PropSet): PropKind[] {
     ],
   }
 
-  switch (theme.id) {
+  switch (familyOf(theme)) {
     case 'moss': {
       // 断柱（苔石柱）
       const pillar: PropKind = {

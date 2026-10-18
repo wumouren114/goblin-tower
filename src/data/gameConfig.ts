@@ -118,42 +118,7 @@ export function xpToNext(level: number): number {
   return Math.round(CONFIG.economy.xpBase * Math.pow(CONFIG.economy.xpGrowth, level - 1) + CONFIG.economy.xpLinear * (level - 1))
 }
 
-export const DIFFICULTY: Record<
-  DifficultyId,
-  { name: string; desc: string; hp: number; damage: number; speed: number; spawn: number; xp: number; gold: number }
-> = {
-  casual: {
-    name: '休闲',
-    desc: '怪物更脆，经验更足。适合先体验割草爽感。',
-    hp: 0.78,
-    damage: 0.7,
-    speed: 0.94,
-    spawn: 0.85,
-    xp: 1.2,
-    gold: 1.15,
-  },
-  normal: {
-    name: '标准',
-    desc: '推荐难度。张弛有度，需要一点走位。',
-    hp: 1,
-    damage: 1,
-    speed: 1,
-    spawn: 1,
-    xp: 1,
-    gold: 1,
-  },
-  nightmare: {
-    name: '噩梦',
-    desc: '怪物更硬更痛、刷新更凶。适合追求挑战的玩家。',
-    hp: 1.5,
-    damage: 1.4,
-    speed: 1.08,
-    spawn: 1.3,
-    xp: 0.92,
-    gold: 1.25,
-  },
-}
-
+// v3：难度表迁到 balance.json（DIFFICULTY 常量已删除，用 balance.ts 的 DIFFICULTIES）
 export const BASE_STATS: PlayerStats = {
   maxHp: CONFIG.player.maxHp,
   moveSpeed: CONFIG.player.moveSpeed,
@@ -168,7 +133,15 @@ export const BASE_STATS: PlayerStats = {
   armor: CONFIG.player.armor,
   dashCooldown: CONFIG.player.dashCooldown,
   blades: CONFIG.player.blades,
+  magic: 100,
+  stamina: 100,
+  intelligence: 100,
+  armorRate: 0,
+  dodge: 0,
+  chargeMax: 100,
+  chargeGain: 0,
 }
+
 
 /** 五层塔的视觉主题 */
 export const THEMES: Record<string, ThemeDef> = {

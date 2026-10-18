@@ -1,78 +1,99 @@
-# 哥布林之塔 · GOBLIN TOWER
+# 哥布林之塔 · Tower of the Goblin King（v3）
 
-> 像素二次元风格的 3D 第三人称俯视角割草 Roguelike 爬塔 Demo。
-> 在五层塔里割哥布林、吃经验豆升级、三选一强化，最终击杀哥布林之王，抢走它身上的传送卷轴逃出这个世界。
+像素二次元 × 3D 俯视角 × 割草 Roguelike 爬塔。三角色任选，每层限时清空固定数量的哥布林，穿过「时空隧道」三选一，用金币升级专武与增益卡，最终登上塔顶击杀**哥布林之王**。
 
-当前版本：**v0.1 底层框架 + 第三人称场景**（角色形象 / 前端包装 / 正式战斗与经济系统按你的需求继续迭代）。
+> 技术栈：Vite + TypeScript(strict) + three.js。所有像素图、场景贴图、粒子、音效均由代码程序化生成，无外部素材、无 CDN、无新增依赖。
 
-## 快速开始
-
-```bash
-npm install        # 首次
-npm run dev        # 打开 http://127.0.0.1:5173
-```
-
-> 推荐 Chrome / Edge 最新版并开启硬件加速。首次点击画面或按键后才会启用音效（浏览器策略）。
-
-生产构建与本地预览：
+## 运行
 
 ```bash
-npm run build      # 类型检查 + 打包到 dist/
-npm run preview    # 打开 http://127.0.0.1:4173
+npm install
+npm run dev        # http://127.0.0.1:5173
+npm run build      # tsc --noEmit + vite build
 ```
+
+首次进入是标题页：左侧选角色（若叶睦 / 丛雨 / 蓝色大肥鱼），右侧选难度（简单 7 层 / 普通 5+7 层 / 困难 5+5+5 层），点「开始爬塔」。有存档时标题页会出现「继续游戏」。
+
+## 玩法循环
+
+1. **每层限时 60 秒**（Boss 层 90 秒），在倒计时内击杀本层固定数量的哥布林（HUD 左上角 `击杀 x / 总数`）。
+2. 清空后开启**时空隧道三选一**：奖励房（宝箱金币 / 随机增益卡）、交易房（流浪商人 / 祭坛献金）、对战房（怪潮 / 精英战）。类型可重复，权重 40 / 35 / 25。
+3. 之后进入**商店**：4 格货架 + 25 金重掷，卖专武券、增益卡、消耗品；价格随层数上涨（每层 +14%），第 4 层起出现「精制」、第 9 层起「臻品」。
+4. 阶段末层固定 **Boss 层**，击杀哥布林之王即过关；最后一层 Boss 倒下 = 通关。
+5. 每层开始、离开商店自动存档（1 号槽），暂停菜单里可手动存/读 3 个槽位；血量归零或倒计时归零 = 本局失败。
+
+## 三角色
+
+| 角色 | 定位 | 左键普攻 | 右键技能（消耗充能） |
+| --- | --- | --- | --- |
+| **若叶睦** | 中距投掷 | 扔小黄瓜，单体（专武多弹幕） | 变身 **Mortis** 8 秒：耐力/魔力↑、智力↓、减伤 15%，周围音波脉冲 + 变身瞬间爆发 |
+| **丛雨** | 近战突进 | 拔刀扇形 110°，攻速高、范围低 | 远距突进，路径伤害、把怪聚到落点、回血 |
+| **蓝色大肥鱼** | 远程召唤 | 水枪泡泡，攻速高、伤害低 | 召唤小肥鱼协同攻击 10 秒（专武 5 级最多 5 只） |
+
+五维面板：生命值 / 技能所需充能 / 耐力（攻速）/ 魔力（伤害）/ 智力（范围）。伤害 = `武器基础伤害 × 魔力/100`，暴击 8% ×1.8；充能靠击杀获得，每层开局 50%。专武 5 级，各级效果见 `src/data/balance.json` 的 `weapons`。
 
 ## 操作
 
-| 按键 | 功能 |
+| 输入 | 行为 |
 | --- | --- |
-| `W A S D` / 方向键 | 移动（屏幕方向） |
-| `Shift` / `空格` | 冲刺（短暂无敌） |
-| `E` | 楼梯处进入下一层 |
-| 鼠标拖拽 | 环绕镜头 |
-| 滚轮 | 拉近 / 拉远 |
-| `V` | 割草俯视 / 探索第三人称视角切换 |
-| `P` / `Esc` | 暂停 |
-| `M` | 静音 |
+| WASD / 方向键 | 移动（屏幕系，自动按镜头朝向转世界） |
+| 鼠标左键（按住连发） | 普攻，朝鼠标指向 |
+| 鼠标右键 | 技能（充能满可用） |
+| Shift / 空格 | 冲刺（短无敌） |
+| 中键拖拽 / 滚轮 | 转视角 / 缩放 |
+| V / P / M / I | 切视角 / 暂停 / 静音 / 背包（商店中） |
+| E / 空格 | UI 弹窗确认 |
+| R | 失败/通关界面立即重开 |
 
-## 一局的流程
+## 数值与平衡
 
-1. 标题页选难度（休闲 / 标准 / 噩梦）→ 进入第 1 层「苔石前厅」。
-2. 哥布林从四面刷新，击杀数达到配额（或拖到兜底时间）后，北侧楼梯门开启，按 `E` 下一层。
-3. 升级时弹出**三选一**强化卡（伤害 / 攻速 / 刃数 / 生命 / 暴击 / 拾取 / 冲刺……）。
-4. 第 5 层「王座之巅」迎战哥布林之王（砸地预警、召唤援军、二阶段狂暴）。
-5. 击杀 Boss → 拾取**传送卷轴** → 通关结算；中途阵亡 → 死亡结算，可原地重开。
+- 唯一数值源：`src/data/balance.json`（v3），代码通过 `src/data/balance.ts` 访问器读取。
+- 整局蒙特卡洛模拟：`node sim/simulate.mjs --runs 500 --difficulty hard --verbose`。
+  当前 500 局结果：简单 100%、普通 ~99–100%、困难 64.6%（丛雨）/ 79.0%（若叶睦）/ 80.4%（肥鱼），困难平均清层 22–25 秒。
+- 关卡/经济设计：`docs/04-关卡与经济系统设计.md`（v2 存档）+ `docs/06-v3规则与实现.md`（v3 权威规则）。
 
-## 设计文档
-
-- [docs/01-游戏设计框架.md](docs/01-游戏设计框架.md)：同类游戏拆解、玩法框架、战斗设置、经济系统、数值表、技术框架与后续路线。
-- [docs/INTERFACES.md](docs/INTERFACES.md)：模块接口契约（实体 / 世界 / 系统 / UI）。
-
-## 代码结构
+## 工程结构
 
 ```
 src/
-  main.ts          启动入口（含全屏错误兜底）
-  game.ts          总控：相位机、波次、楼层、Boss、升级、结算
-  types.ts         共享类型
-  core/            输入 / 音频（WebAudio 合成）/ 事件 / 随机 / 数学
-  data/            数值配置 gameConfig.ts、楼层 floors.ts、升级卡池 upgrades.ts
-  art/             程序化像素图（主角 / 哥布林 / 王 / 粒子 / 地砖）
-  entities/        玩家、哥布林、哥布林之王、拾取物
-  world/           楼层场景：地面、墙体、祭坛、障碍、火把、楼梯门、灯光与雾
-  systems/         相机、回旋刃、粒子、屏幕特效、属性计算
-  ui/              HUD / 标题页 / 升级三选一 / Boss 血条 / 飘字 / 结算
+  game.ts            总控：相位机、层流程、刷怪、Boss、隧道/商店/背包接线、存档
+  main.ts            入口 + URL 调试参数 + 全局报错兜底
+  types.ts           全局契约（HudV3 / WorldV3 / RunState / HUD 快照…）
+  core/              input / audio / rng / math / events
+  data/              balance.json(+ts) / characters.ts / characterRuntime.ts / stages.ts / gameConfig.ts
+  art/               pixels.ts（像素画布）/ characters.ts（4 套角色图集）/ sprites.ts / projectiles.ts / minions.ts
+  entities/          player / goblin / boss / pickups
+  systems/           combat / attack / projectiles / minions / charge / economy / inventory / shop / tunnels / saveLoad / cameraRig / vfx / screenFx
+  world/             floor.ts（WorldV3 实现）/ themes.ts（9 主题）/ props.ts / textures.ts / util.ts
+  ui/                hud.ts（标题/选角/隧道/商店/背包/存档/结算 + HUD）/ dom.ts / styles.css
+sim/                 simulate.mjs（整局平衡）/ world-smoke / combat-smoke / economy-smoke / art-smoke
+docs/                01 框架 / 02 角色数值 / 03 角色美术规格 / 04 关卡经济 / 05 实现契约 / 06 v3 规则
 ```
 
-**零外部素材**：所有像素图由 Canvas2D 程序化生成，音效由 WebAudio 实时合成，无网络依赖。
+## 自检
 
-## 调试入口
+```bash
+npx tsc --noEmit
+node sim/world-smoke.mjs      # 488 断言：9 场景构建/碰撞/撒点/drawcall/dispose
+node sim/combat-smoke.mjs     # 50 断言：普攻/暴击/技能/变身/召唤物/专武
+node sim/economy-smoke.mjs    # 37 断言：金币曲线/商店/隧道权重/背包合成/三槽存档
+node sim/art-smoke.mjs        # 16 断言：4 套图集 50 格/描边/色相区分/缓存
+node sim/simulate.mjs --runs 500 --difficulty hard
+```
 
-- 控制台 `__goblinTower` 可访问游戏实例。
-- URL 参数直接跳到指定层：`?autostart=normal&floor=3`（难度 casual / normal / nightmare，楼层 1–5）。
-- 数值调参：`src/data/gameConfig.ts`、`src/data/floors.ts`、`src/data/upgrades.ts`。
+无头截图验证：先 `npm run dev`，再
+`node scripts/shot.mjs "http://127.0.0.1:5173/?autostart=easy&char=mutsumi&warmup=8&autoattack=1" shots/a.png 7000 1600 900`。
 
-## 已知占位
+## 调试参数
 
-- 战斗：当前只有「回旋刃」一种自动武器，等战斗系统需求再替换。
-- 经济：金币目前只计分，尚未接商店 / 重铸 / 遗物。
-- 角色：像素小人形象为占位，等你的角色设定后替换 `src/art/characters.ts`。
+- `?autostart=easy|normal|hard` 直接开局；`&char=mutsumi|murasame|fish`；`&floor=N` 跳层。
+- `&warmup=秒` 以固定步长快进（不依赖真实时间）；`&autoattack=1` 自动驾驶（自动瞄准普攻、满充能放技能）。
+- `&screen=tunnel|shop|inventory|pause|victory|defeat|save|skill` 直接打开对应界面。
+- `&debug=1` 左下角打印运行期状态叠层（相位/Boss/怪物/血条 DOM 等）。
+
+## 已知限制
+
+- 音效为 WebAudio 程序合成，没有 BGM；画面为低多边形 + 像素 billboard，非全 3D 模型。
+- 难度平衡来自模拟模型（非真人操作数据），超时失败在模拟中几乎不触发。
+- 本机沙箱内 `vite dev` 可能因 `spawn EPERM` 失败，这是沙箱限制，真实环境正常。
+- `scripts/recover-game.mjs`、`scripts/recover-hud.mjs` 是 PowerShell 以 GBK 覆写 UTF-8 源码后，从 DSH 会话日志回放恢复文件的急救脚本，保留作工具。
