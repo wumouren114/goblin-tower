@@ -281,7 +281,7 @@ try {
     check('命中≥3 回血 27.6+5', near(world.heals - healBefore, 32.6, 1e-6), `heal=${world.heals - healBefore}`)
     check('突进后 0.3s 无敌', world.invulns.includes(0.3), JSON.stringify(world.invulns))
     check('终点 2.4m 聚怪', Math.hypot(e3.x, e3.z + 7.5) <= 1.0, `d=${Math.hypot(e3.x, e3.z + 7.5).toFixed(2)}`)
-    check('突进消耗 70 充能', combat.charge === 20, `charge=${combat.charge}`)
+    check('突进消耗 80 充能', combat.charge === 10, `charge=${combat.charge}`)
     check('突进后 0.2s 硬直内不能普攻', !combat.tryAttack(DT, 0, 0, 0, -1, world))
 
     run(combat, world, 0.3, { px: 0, pz: 0 })
@@ -317,7 +317,7 @@ try {
     combat.grantCharge(1)
     const summoned = combat.trySkill(0, 0, 0, -1, world)
     check('fish 右键召唤', summoned && combat.minionCount === 5, `minions=${combat.minionCount}`)
-    check('召唤物继承 35% 生命', near(combat.minionsList[0].hp, 95 * 0.35, 1e-6), `hp=${combat.minionsList[0].hp}`)
+    check('召唤物继承 35% 生命', near(combat.minionsList[0].hp, 110 * 0.35, 1e-6), `hp=${combat.minionsList[0].hp}`)
     check('召唤物消耗 110 充能', combat.charge === 0, `charge=${combat.charge}`)
 
     const target = addEnemy(world, 0, -5, 100000)
@@ -356,13 +356,13 @@ try {
       alive: false,
       hit: () => false,
     })
-    check('小怪击杀 +6*(1+0.5)=9', near(combat.charge - beforeKill, 9, 1e-6), `+${(combat.charge - beforeKill).toFixed(2)}`)
+    check('小怪击杀 +8*(1+0.5)=12', near(combat.charge - beforeKill, 12, 1e-6), `+${(combat.charge - beforeKill).toFixed(2)}`)
     combat.resetLayer(0)
     combat.onKill({ x: 0, z: 0, radius: 0.6, alive: false, hit: () => false, kind: 'elite', elite: true })
-    check('精英击杀 +25*(1.5)=37.5', near(combat.charge, 37.5, 1e-6), `charge=${combat.charge}`)
+    check('精英击杀 +28*(1.5)=42', near(combat.charge, 42, 1e-6), `charge=${combat.charge}`)
     combat.resetLayer(0)
     combat.onKill({ x: 0, z: 0, radius: 1.5, alive: false, hit: () => false, kind: 'boss' })
-    check('boss 击杀 +60*(1.5)=90', near(combat.charge, 90, 1e-6), `charge=${combat.charge}`)
+    check('boss 击杀 +70*(1.5)=105', near(combat.charge, 105, 1e-6), `charge=${combat.charge}`)
     combat.resetLayer(0)
     combat.grantCharge(0.25)
     check('grantCharge(0.25)=27.5', near(combat.charge, 27.5, 1e-6), `charge=${combat.charge}`)

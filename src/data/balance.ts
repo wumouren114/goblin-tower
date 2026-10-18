@@ -41,12 +41,23 @@ interface LayerCurve {
   timeoutSkipsReward: boolean
 }
 
+export interface BuffCardDef {
+  id: string
+  name: string
+  stat: string
+  value: number
+  basePrice: number
+  maxStacks: number
+  desc: string
+}
+
 interface BalanceShape {
   meta: { version: number; layerTimerSeconds: number; bossTimerSeconds: number }
   difficulties: Record<DifficultyId, DifficultyDef>
   layerCurve: LayerCurve
   portals: Record<string, unknown>
   shop: Record<string, unknown>
+  buffCards: BuffCardDef[]
 }
 
 export const BALANCE = raw as unknown as BalanceShape

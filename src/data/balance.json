@@ -2,8 +2,8 @@
   "_comment": "哥布林之塔 · 关卡与经济数值唯一数据源（docs/04 的实现口径）。v3：无经验系统，怪物数量固定，超时判负。修改后跑 node sim/simulate.mjs 复验。",
   "meta": {
     "version": 3,
-    "layerTimerSeconds": 60,
-    "bossTimerSeconds": 90,
+    "layerTimerSeconds": 70,
+    "bossTimerSeconds": 100,
     "timeoutIsDefeat": true,
     "monsterCountIsFixed": true,
     "note": "每层怪物总数固定（= quota 字段），刷完即止；限时内清完才通关，超时判负"
@@ -14,8 +14,8 @@
       "stages": [
         7
       ],
-      "hpMul": 0.85,
-      "damageMul": 0.7,
+      "hpMul": 0.7,
+      "damageMul": 0.55,
       "spawnMul": 0.9,
       "goldMul": 1.2,
       "xpMul": 1.2,
@@ -28,8 +28,8 @@
         5,
         7
       ],
-      "hpMul": 1.05,
-      "damageMul": 1,
+      "hpMul": 0.95,
+      "damageMul": 0.85,
       "spawnMul": 1,
       "goldMul": 1,
       "xpMul": 1,
@@ -43,8 +43,8 @@
         5,
         5
       ],
-      "hpMul": 1.35,
-      "damageMul": 1.35,
+      "hpMul": 1.3,
+      "damageMul": 1.25,
       "spawnMul": 1.2,
       "goldMul": 1.05,
       "xpMul": 0.95,
@@ -53,10 +53,10 @@
     }
   },
   "layerCurve": {
-    "mobHpBase": 30,
-    "mobHpPerLayer": 0.55,
-    "mobDamageBase": 6,
-    "mobDamagePerLayer": 0.2,
+    "mobHpBase": 26,
+    "mobHpPerLayer": 0.5,
+    "mobDamageBase": 5,
+    "mobDamagePerLayer": 0.16,
     "quotaBase": 30,
     "quotaPerLayer": 5,
     "spawnIntervalBase": 0.9,
@@ -72,8 +72,8 @@
     "goldPerKillEveryLayers": 4,
     "xpPerKillBase": 3,
     "xpPerKillPerLayer": 0.5,
-    "bossHpBase": 520,
-    "bossHpPerLayer": 0.55,
+    "bossHpBase": 480,
+    "bossHpPerLayer": 0.45,
     "timeoutHpPenaltyRatio": 0.25,
     "timeoutSkipsReward": true,
     "quotaNote": "quota = 本层固定怪物总数，不再随时间无限刷新"

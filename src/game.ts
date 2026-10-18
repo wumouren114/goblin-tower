@@ -13,7 +13,7 @@ import { audio } from './core/audio'
 import { Rng } from './core/rng'
 import { TowerFloor } from './world/floor'
 import { pickScene, STAGE_NAMES } from './data/stages'
-import { CHARACTERS } from './data/characters'
+import { CHARACTERS, CHARGE_FLOOR_START_RATIO } from './data/characters'
 import { getWeaponTier, charTakeDamageMul } from './data/characterRuntime'
 import {
   DIFFICULTIES,
@@ -28,6 +28,7 @@ import {
   clearGoldFor,
   layerTimerFor,
   bossHpFor,
+  BALANCE,
 } from './data/balance'
 import { Inventory } from './systems/inventory'
 import { generateOffers, REFRESH_COST } from './systems/shop'
@@ -136,6 +137,9 @@ export class Game {
   private sceneName = ''
   private statDirty = false
   private mortisVisual = false
+  private bonusOffers: TunnelOffer[] = []
+  private wallFade = 0
+  private bonusActive = false
   private autoPlay = false
   private disposed = false
 
@@ -281,6 +285,7 @@ export class Game {
       this.player.x = 0
       this.player.z = half * 0.22
     }
+    this.rig.setArenaHalf(half)
     this.rig.fitForArena(half)
     this.sceneName = sceneDef.name
     this.player?.grantInvuln(1.0)
@@ -292,7 +297,7 @@ export class Game {
     this.timeLimit = layerTimerFor(diff, bossLayer)
     this.timeLeft = this.timeLimit
     this.spawnTimer = bossLayer ? 2.0 : 0.4
-    this.combat?.resetLayer(0.5)
+    this.combat?.resetLayer(CHARGE_FLOOR_START_RATIO)
 
     if (bossLayer) {
       this.layerTotal = Math.round(quotaFor(layer) * 0.6)
@@ -385,6 +390,7 @@ export class Game {
     const p = this.player
     if (p) {
       this.rig.update(dt, p.x, p.z, this.moveInput.x, this.moveInput.z, this.phase === 'title')
+      this.updateWallFade(dt)
       this.pickups.update(dt, p.x, p.z, 0, () => {})
     } else {
       this.rig.update(dt, 0, 0, 0, 0, this.phase === 'title')
@@ -428,6 +434,19 @@ export class Game {
       this.hud.setPaused(true)
       audio.click()
     }
+  }
+
+  /** 相机贴到墙外时把墙淡出，保证永远能看到角色和怪物 */
+  private updateWallFade(dt: number): void {
+    if (!this.floor) return
+    const half = this.floor.halfSize
+    const cp = this.camera.position
+    const outside =
+      Math.abs(cp.x) > half - 0.4 || Math.abs(cp.z) > half - 0.4 || this.camera.position.y > 26
+    const target = outside ? 1 : 0
+    this.wallFade += (target - this.wallFade) * Math.min(1, dt * 8)
+    if (Math.abs(this.wallFade - target) < 0.01) this.wallFade = target
+    this.floor.fadeWalls(this.wallFade)
   }
 
   private updateAim(): void {
@@ -493,11 +512,17 @@ export class Game {
         this.combat.trySkill(p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld())
       }
     }
+    // 自动索敌：攻击与技能自动朝向最近的敌人（移动方向不受影响）
+    const lockOn = this.nearestEnemy(p.x, p.z, 16)
+    if (lockOn) this.aimPoint.set(lockOn.x, 0.6, lockOn.z)
+
     const attackHeld = this.autoPlay || this.input.attackHeld
     if (attackHeld && this.combat) {
+      p.faceToward(this.aimPoint.x, this.aimPoint.z)
       this.combat.tryAttack(dt, p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld())
     }
     if (this.input.consumeSkill() && this.combat) {
+      p.faceToward(this.aimPoint.x, this.aimPoint.z)
       if (this.combat.trySkill(p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld())) {
         audio.click()
       } else {
@@ -746,7 +771,7 @@ export class Game {
     this.hud.toast(`第 ${this.run.layer} 层清空！+${gold} 金币`, 'good')
     audio.stairs()
     this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
-    this.openTunnels()
+    this.openBonusCards()
   }
 
   private onBossDefeated(): void {
@@ -768,7 +793,7 @@ export class Game {
     if (this.run.layer >= layerCount(this.run.difficulty)) this.win()
     else {
       this.run.gold += clearGoldFor(this.run.difficulty, this.run.layer)
-      this.openTunnels()
+      this.openBonusCards()
     }
   }
 
@@ -807,6 +832,50 @@ export class Game {
 
   // ---------- 隧道 / 商店 ----------
 
+  private cardIcon(stat: string): string {
+    const table: Record<string, string> = {
+      magic: '✨',
+      stamina: '⚡',
+      intelligence: '🔮',
+      hp: '❤️',
+      moveSpeed: '👟',
+      chargeMax: '🔋',
+      armor: '🛡️',
+      dodge: '💨',
+      chargeGain: '🎯',
+    }
+    return table[stat] ?? '🎴'
+  }
+
+  /** 每层清空后：先三选一拿一张增益卡，再开时空隧道 */
+  private openBonusCards(): void {
+    const pool = [...BALANCE.buffCards]
+    this.bonusOffers = []
+    for (let i = 0; i < 3 && pool.length > 0; i += 1) {
+      const idx = this.rng.int(0, pool.length - 1)
+      const card = pool.splice(idx, 1)[0]
+      this.bonusOffers.push({
+        id: `bonus-${i}`,
+        kind: 'reward',
+        room: 'skill-card',
+        title: card.name,
+        desc: card.desc,
+        icon: this.cardIcon(card.stat),
+        payload: {
+          skillCard: { id: card.id, name: card.name, desc: card.desc, stat: card.stat as CardStat, value: card.value },
+        },
+      })
+    }
+    if (this.bonusOffers.length === 0) {
+      this.openTunnels()
+      return
+    }
+    this.bonusActive = true
+    this.phase = 'tunnel'
+    this.hud.showTunnelOffers(this.bonusOffers, this.run.layer)
+    audio.levelUp()
+  }
+
   private openTunnels(): void {
     this.phase = 'tunnel'
     const boss = isBossLayer(this.run.difficulty, this.run.layer)
@@ -823,6 +892,27 @@ export class Game {
 
   pickTunnel(id: string): void {
     if (this.phase !== 'tunnel') return
+    if (this.bonusActive) {
+      const pick = this.bonusOffers.find((o) => o.id === id)
+      if (!pick) return
+      this.bonusActive = false
+      this.bonusOffers = []
+      this.hud.hideTunnels()
+      audio.click()
+      const card = pick.payload.skillCard
+      if (card) {
+        const item = makeCardItem(card.stat as CardStat, 1)
+        item.value = card.value
+        if (this.inventory.add(item)) {
+          this.syncCards()
+          this.hud.toast(`清层奖励：${item.name}`, 'good')
+        } else {
+          this.hud.toast('背包已满，奖励卡丢失', 'bad')
+        }
+      }
+      this.openTunnels()
+      return
+    }
     const offer = this.tunnelOffers.find((o) => o.id === id)
     if (!offer) return
     this.hud.hideTunnels()
@@ -1190,9 +1280,9 @@ export class Game {
     this.autoPlay = on
   }
 
-  private nearestEnemy(x: number, z: number): { x: number; z: number } | null {
+  private nearestEnemy(x: number, z: number, maxDist = 999): { x: number; z: number } | null {
     let best: { x: number; z: number } | null = null
-    let bestD = Infinity
+    let bestD = maxDist * maxDist
     for (const g of this.goblins) {
       if (!g.alive) continue
       const d = (g.x - x) * (g.x - x) + (g.z - z) * (g.z - z)
@@ -1207,6 +1297,11 @@ export class Game {
 
   debugSaveSlots(): unknown[] {
     return listSlots()
+  }
+
+  /** 无头/联调：自动领取清层奖励卡（验证「先三选一，再传送门」） */
+  debugPickFirstBonus(): void {
+    if (this.bonusActive && this.bonusOffers[0]) this.pickTunnel(this.bonusOffers[0].id)
   }
 
   /** 无头/联调：存档 → 回标题 → 读档，验证 continue 流程 */

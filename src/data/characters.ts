@@ -64,14 +64,14 @@ export interface CharacterDef {
 
 /** 击杀充能表：充能只能靠击杀获得 */
 export const CHARGE_PER_KILL = {
-  small: 6,
-  brute: 9,
-  elite: 25,
-  boss: 60,
+  small: 8,
+  brute: 12,
+  elite: 28,
+  boss: 70,
 } as const
 
 /** 每层开局赠送当前角色充能上限的 50% */
-export const CHARGE_FLOOR_START_RATIO = 0.5
+export const CHARGE_FLOOR_START_RATIO = 0.6
 
 /** 金币掉落表 */
 export const GOLD_PER_KILL = {
@@ -87,13 +87,13 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     name: '若叶睦',
     title: '双形态 · 远近切换',
     role: '远程单体起手，按右键变身 Mortis 打范围音波爆发',
-    base: { hp: 110, chargeMax: 100, stamina: 100, magic: 100, intelligence: 100, moveSpeed: 6.2 },
+    base: { hp: 110, chargeMax: 100, stamina: 135, magic: 100, intelligence: 100, moveSpeed: 6.2 },
     attack: {
       name: '小黄瓜',
       baseDamage: 16,
       baseRange: 8,
       shape: 'single',
-      projectileSpeed: 18,
+      projectileSpeed: 22,
       minInterval: 0.24,
     },
     skill: {
@@ -124,7 +124,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     name: '丛雨',
     title: '近战 · 突进',
     role: '贴脸扇形拔刀清群，右键远距离突进聚怪并回血',
-    base: { hp: 135, chargeMax: 90, stamina: 130, magic: 95, intelligence: 70, moveSpeed: 7.0 },
+    base: { hp: 175, chargeMax: 80, stamina: 130, magic: 95, intelligence: 70, moveSpeed: 7.3 },
     attack: {
       name: '拔刀斩',
       baseDamage: 17,
@@ -135,7 +135,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     },
     skill: {
       name: '居合突进',
-      chargeCost: 90,
+      chargeCost: 80,
       kind: 'dash',
       params: {
         distance: 7.5,
@@ -143,7 +143,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
         pathWidth: 1.8,
         damage: 45,
         gatherRadius: 2.4,
-        heal: 15,
+        heal: 22,
         invulnerable: 0.3,
         recovery: 0.2,
       },
@@ -156,18 +156,18 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     name: '蓝色大肥鱼',
     title: '远程 · 召唤',
     role: '高频泡泡风筝，右键召唤 3 只小肥鱼一起打',
-    base: { hp: 95, chargeMax: 110, stamina: 140, magic: 80, intelligence: 110, moveSpeed: 6.6 },
+    base: { hp: 110, chargeMax: 90, stamina: 180, magic: 80, intelligence: 110, moveSpeed: 6.6 },
     attack: {
       name: '泡泡水枪',
       baseDamage: 10,
       baseRange: 9,
       shape: 'single',
-      projectileSpeed: 13,
+      projectileSpeed: 17,
       minInterval: 0.2,
     },
     skill: {
       name: '召唤小肥鱼',
-      chargeCost: 110,
+      chargeCost: 90,
       kind: 'summon',
       duration: 10,
       params: {

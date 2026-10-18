@@ -242,6 +242,7 @@ export class Player {
   update(dt: number, moveX: number, moveZ: number, cameraYaw: number, colliders: Circle[], bounds: number): void {
     // 相机 yaw 提供给所有 billboard 实体
     setBillboardYaw(cameraYaw)
+    this.cameraYawCache = cameraYaw
     this.cameraYaw = cameraYaw
 
     this.invuln = Math.max(0, this.invuln - dt)
@@ -343,6 +344,17 @@ export class Player {
     this.ghosts.length = 0
   }
 
+  /** 攻击/技能时朝世界坐标转向（自动索敌用） */
+  faceToward(wx: number, wz: number): void {
+    const dx = wx - this.x
+    const dz = wz - this.z
+    if (dx * dx + dz * dz < 0.0001) return
+    const c = Math.cos(this.cameraYawCache)
+    const s = Math.sin(this.cameraYawCache)
+    this.faceFromInput(dx * c - dz * s, -dx * s - dz * c)
+  }
+
+  private cameraYawCache = 0
   private lastInputX = 0
   private lastInputZ = 0
 

@@ -21,6 +21,8 @@ export class CameraRig {
   private shakeAmt = 0
   private titleAngle = 0
   private initialised = false
+  /** 场地半边长：相机不许退到墙外 */
+  private arenaHalf = 0
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera
@@ -50,6 +52,10 @@ export class CameraRig {
     this.distanceMul = THREE.MathUtils.clamp(this.distanceMul * (1 + wheel * 0.07), 0.72, 1.45)
   }
 
+  setArenaHalf(halfSize: number): void {
+    this.arenaHalf = halfSize
+  }
+
   /** 按场地半边长收紧镜头距离，避免相机退到墙外被遮挡 */
   fitForArena(halfSize: number): void {
     const base = CONFIG.camera.modes[this.mode].distance
@@ -76,6 +82,7 @@ export class CameraRig {
     const yaw = this.yaw + (title ? this.titleAngle : 0)
 
     this.desired.set(x + Math.sin(yaw) * dist, height, z + Math.cos(yaw) * dist)
+
     const k = this.initialised ? 1 - Math.exp(-CONFIG.camera.follow * dt) : 1
     this.follow.lerp(this.desired, k)
 

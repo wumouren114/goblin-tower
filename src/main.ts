@@ -62,8 +62,16 @@ try {
   const warmup = Number(params.get('warmup') ?? '0')
   if (diff) {
     game.debugJump(Number.isFinite(floor) ? floor : 1, diff, char)
+    if (params.get('px') || params.get('pz')) {
+      const g = (window as any).__goblinTower
+      if (g?.player) {
+        g.player.x = Number(params.get('px') ?? 0)
+        g.player.z = Number(params.get('pz') ?? 0)
+      }
+    }
     if (params.get('autoattack') === '1') game.debugAutoAttack(true)
     if (warmup > 0) game.debugAdvance(warmup)
+    if (params.get('pickbonus') === '1') game.debugPickFirstBonus()
     if (params.get('saveloop') === '1') {
       game.debugSaveLoadLoop()
       game.debugAdvance(1)

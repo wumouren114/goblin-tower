@@ -19,26 +19,26 @@ const SLOPPY = process.env.SLOPPY === '1'
 // ── 角色基础值（镜像 src/data/characters.ts）──
 const CHARS = {
   mutsumi: {
-    hp: 110, chargeMax: 100, stamina: 100, magic: 100, intelligence: 100, moveSpeed: 6.2,
+    hp: 110, chargeMax: 100, stamina: 135, magic: 100, intelligence: 100, moveSpeed: 6.2,
     attack: { damage: 16, intervalBase: 0.55, minInterval: 0.24, shape: 'single' },
     skill: { cost: 100, kind: 'transform', duration: 8, aoe: 0.4 },
     exposure: 1.0,
   },
   murasame: {
-    hp: 135, chargeMax: 90, stamina: 130, magic: 95, intelligence: 70, moveSpeed: 7.0,
+    hp: 175, chargeMax: 80, stamina: 130, magic: 95, intelligence: 70, moveSpeed: 7.3,
     attack: { damage: 17, intervalBase: 0.55, minInterval: 0.22, shape: 'cone', coneTargets: 2.05 },
-    skill: { cost: 90, kind: 'dash', heal: 15, aoe: 0.3 },
+    skill: { cost: 80, kind: 'dash', heal: 22, aoe: 0.3 },
     exposure: 1.7,
   },
   fish: {
-    hp: 130, chargeMax: 110, stamina: 140, magic: 80, intelligence: 110, moveSpeed: 6.6,
+    hp: 110, chargeMax: 90, stamina: 180, magic: 80, intelligence: 110, moveSpeed: 6.6,
     attack: { damage: 10, intervalBase: 0.55, minInterval: 0.2, shape: 'single' },
-    skill: { cost: 110, kind: 'summon', duration: 10, count: 3, minionDpsRatio: 0.45, aoe: 0.25 },
+    skill: { cost: 90, kind: 'summon', duration: 10, count: 3, minionDpsRatio: 0.45, aoe: 0.25 },
     exposure: 0.85,
   },
 }
 
-const CHARGE_PER_KILL = 6
+const CHARGE_PER_KILL = 8
 const CRIT = 1.08
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v))

@@ -64,6 +64,8 @@ export class TowerFloor implements WorldV3 {
   private props: PropSet | null = null
 
   private torches: TorchEntry[] = []
+  /** 墙体材质：相机退到墙外时淡出，避免挡住角色 */
+  private wallMat: THREE.MeshStandardMaterial | null = null
 
   private altarRune: THREE.Mesh | null = null
   private crystal: THREE.Mesh | null = null
@@ -170,6 +172,7 @@ export class TowerFloor implements WorldV3 {
     tex.wall.repeat.set(Math.max(2, Math.round(size / 3.4)), Math.max(1, Math.round(wallH / 3)))
     tex.wall.anisotropy = 8
     const wallMat = new THREE.MeshStandardMaterial({ map: tex.wall, roughness: 0.97, metalness: 0.02 })
+    this.wallMat = wallMat
 
     const addWall = (w: number, d: number, x: number, z: number): void => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), wallMat)
@@ -787,6 +790,17 @@ export class TowerFloor implements WorldV3 {
     this.propColliders.length = 0
     this.spawnPoints = []
     this.scene.fog = null
+  }
+
+  /** 0 = 实体墙，1 = 完全透明（相机退到墙外时调用） */
+  fadeWalls(t: number): void {
+    const m = this.wallMat
+    if (!m) return
+    const k = Math.max(0, Math.min(1, t))
+    m.transparent = k > 0.01
+    m.opacity = 1 - k
+    m.depthWrite = k < 0.5
+    m.needsUpdate = true
   }
 
   dispose(): void {
