@@ -123,17 +123,21 @@ export class TowerFloor implements WorldV3 {
     this.props = props
 
     /* ---------------- 场景光照与雾 ---------------- */
-    this.scene.fog = new THREE.FogExp2(theme.fogColor, theme.fogDensity)
+    const airColor = mixHex(theme.fogColor, 0xd9f3ef, 0.38)
+    this.scene.fog = new THREE.FogExp2(airColor, theme.fogDensity * 0.68)
+    const sky = mixHex(mixHex(theme.fogColor, theme.accentColor, 0.35), 0xe6fbf7, 0.32)
+    this.scene.background = new THREE.Color(sky)
 
+    // 清新化：环境光更亮、地面反光不再压黑
     const hemi = new THREE.HemisphereLight(
-      theme.ambientColor,
-      mixHex(theme.fogColor, 0x000000, 0.45),
-      theme.ambientIntensity,
+      mixHex(theme.ambientColor, 0xeafbff, 0.45),
+      mixHex(theme.fogColor, theme.floorColor, 0.5),
+      theme.ambientIntensity * 1.32,
     )
     this.root.add(hemi)
 
     // 主光：唯一投影光源（2048 阴影贴图）
-    const key = new THREE.DirectionalLight(theme.keyColor, theme.keyIntensity)
+    const key = new THREE.DirectionalLight(mixHex(theme.keyColor, 0xfff6e8, 0.18), theme.keyIntensity)
     key.position.set(-half * 0.46, wallH * 4.6 + 7, half * 0.58)
     key.castShadow = true
     key.shadow.mapSize.set(2048, 2048)
@@ -153,7 +157,7 @@ export class TowerFloor implements WorldV3 {
     this.keyLight = key
 
     // 冷色补光（不投影），拉开体积感
-    const fill = new THREE.DirectionalLight(mixHex(theme.fogColor, 0x8fb4e6, 0.55), 0.42)
+    const fill = new THREE.DirectionalLight(mixHex(theme.fogColor, 0xbfe9ff, 0.7), 0.55)
     fill.position.set(half * 0.7, wallH * 1.8, -half * 0.75)
     this.root.add(fill)
 
@@ -800,6 +804,7 @@ export class TowerFloor implements WorldV3 {
     this.propColliders.length = 0
     this.spawnPoints = []
     this.scene.fog = null
+    this.scene.background = null
   }
 
   /** 相机退到墙外时直接隐藏那一面墙 */
