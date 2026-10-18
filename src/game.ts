@@ -1205,6 +1205,17 @@ export class Game {
     return best
   }
 
+  debugSaveSlots(): unknown[] {
+    return listSlots()
+  }
+
+  /** 无头/联调：存档 → 回标题 → 读档，验证 continue 流程 */
+  debugSaveLoadLoop(): void {
+    this.saveRun(1)
+    this.quitToTitle()
+    this.continueRun(1)
+  }
+
   /** 无头/联调：直接打开某个界面（title 之外的调试入口） */
   debugScreen(name: string): void {
     if (name === 'tunnel') {

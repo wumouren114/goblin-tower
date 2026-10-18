@@ -64,6 +64,10 @@ try {
     game.debugJump(Number.isFinite(floor) ? floor : 1, diff, char)
     if (params.get('autoattack') === '1') game.debugAutoAttack(true)
     if (warmup > 0) game.debugAdvance(warmup)
+    if (params.get('saveloop') === '1') {
+      game.debugSaveLoadLoop()
+      game.debugAdvance(1)
+    }
   }
   if (params.get('debug') === '1') {
     const box = document.createElement('pre')
@@ -86,6 +90,7 @@ try {
         gold: g.run?.gold,
         hp: Math.round(g.player?.hp ?? 0),
         transform: g.combat?.transformActive,
+        slots: g.debugSaveSlots ? g.debugSaveSlots() : null,
         bossGroup: g.boss?.group ? { visible: g.boss.group.visible, children: g.boss.group.children.length, y: g.boss.group.position.y } : null,
         bossSprite: g.boss?.sprite
           ? {
