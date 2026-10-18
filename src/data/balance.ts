@@ -41,6 +41,14 @@ interface LayerCurve {
   timeoutSkipsReward: boolean
 }
 
+export interface WarmupStep {
+  hpMul: number
+  damageMul: number
+  spawnMul: number
+  timerBonus: number
+  maxAliveMul: number
+}
+
 export interface BuffCardDef {
   id: string
   name: string
@@ -58,6 +66,7 @@ interface BalanceShape {
   portals: Record<string, unknown>
   shop: Record<string, unknown>
   buffCards: BuffCardDef[]
+  warmup: { note: string; easyNormal: WarmupStep[]; hard: WarmupStep[] }
 }
 
 export const BALANCE = raw as unknown as BalanceShape
@@ -102,14 +111,21 @@ export function isStageFirstLayer(id: DifficultyId, layer: number): boolean {
   return false
 }
 
+export function warmupFor(id: DifficultyId, layer: number): WarmupStep | null {
+  const table = id === 'hard' ? BALANCE.warmup.hard : BALANCE.warmup.easyNormal
+  return table[layer - 1] ?? null
+}
+
 export function mobHpFor(id: DifficultyId, layer: number): number {
   const c = LAYER_CURVE
-  return Math.round(c.mobHpBase * (1 + c.mobHpPerLayer * (layer - 1)) * DIFFICULTIES[id].hpMul)
+  const w = warmupFor(id, layer)
+  return Math.round(c.mobHpBase * (1 + c.mobHpPerLayer * (layer - 1)) * DIFFICULTIES[id].hpMul * (w?.hpMul ?? 1))
 }
 
 export function mobDamageFor(id: DifficultyId, layer: number): number {
   const c = LAYER_CURVE
-  return c.mobDamageBase * (1 + c.mobDamagePerLayer * (layer - 1)) * DIFFICULTIES[id].damageMul
+  const w = warmupFor(id, layer)
+  return c.mobDamageBase * (1 + c.mobDamagePerLayer * (layer - 1)) * DIFFICULTIES[id].damageMul * (w?.damageMul ?? 1)
 }
 
 export function quotaFor(layer: number): number {
@@ -118,12 +134,14 @@ export function quotaFor(layer: number): number {
 
 export function spawnIntervalFor(id: DifficultyId, layer: number): number {
   const c = LAYER_CURVE
-  return Math.max(c.spawnIntervalMin, c.spawnIntervalBase - c.spawnIntervalDecay * (layer - 1)) / DIFFICULTIES[id].spawnMul
+  const w = warmupFor(id, layer)
+  return (Math.max(c.spawnIntervalMin, c.spawnIntervalBase - c.spawnIntervalDecay * (layer - 1)) / DIFFICULTIES[id].spawnMul) * (w?.spawnMul ?? 1)
 }
 
-export function maxAliveFor(layer: number): number {
+export function maxAliveFor(id: DifficultyId, layer: number): number {
   const c = LAYER_CURVE
-  return Math.min(c.maxAliveCap, Math.round(c.maxAliveBase + c.maxAlivePerLayer * (layer - 1)))
+  const w = warmupFor(id, layer)
+  return Math.min(c.maxAliveCap, Math.round((c.maxAliveBase + c.maxAlivePerLayer * (layer - 1)) * (w?.maxAliveMul ?? 1)))
 }
 
 export function clearGoldFor(id: DifficultyId, layer: number): number {
@@ -145,9 +163,10 @@ export function bossHpFor(id: DifficultyId, layer: number): number {
   return Math.round(c.bossHpBase * (1 + c.bossHpPerLayer * (layer - 1)) * DIFFICULTIES[id].hpMul)
 }
 
-export function layerTimerFor(id: DifficultyId, boss: boolean): number {
+export function layerTimerFor(id: DifficultyId, boss: boolean, layer = 1): number {
   const base = boss ? BALANCE.meta.bossTimerSeconds : BALANCE.meta.layerTimerSeconds
-  return base * DIFFICULTIES[id].timerMul
+  const w = boss ? null : warmupFor(id, layer)
+  return base * DIFFICULTIES[id].timerMul + (w?.timerBonus ?? 0)
 }
 
 /** 商店实际价格：基准价 × (1 + 每层涨幅 × (层 - 1)) × 品质倍率 */

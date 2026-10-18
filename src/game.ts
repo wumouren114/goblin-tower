@@ -294,7 +294,7 @@ export class Game {
     this.layerTotal = bossLayer ? quotaFor(layer) : quotaFor(layer)
     this.layerSpawned = 0
     this.layerKilled = 0
-    this.timeLimit = layerTimerFor(diff, bossLayer)
+    this.timeLimit = layerTimerFor(diff, bossLayer, layer)
     this.timeLeft = this.timeLimit
     this.spawnTimer = bossLayer ? 2.0 : 0.4
     this.combat?.resetLayer(CHARGE_FLOOR_START_RATIO)
@@ -553,7 +553,7 @@ export class Game {
     if (!this.floor) return
     if (this.layerSpawned >= this.layerTotal) return
     const alive = this.goblins.length + (this.boss ? 1 : 0)
-    if (alive >= maxAliveFor(this.run.layer)) return
+    if (alive >= maxAliveFor(this.run.difficulty, this.run.layer)) return
     this.spawnTimer -= dt
     if (this.spawnTimer > 0) return
     const interval = spawnIntervalFor(this.run.difficulty, this.run.layer)

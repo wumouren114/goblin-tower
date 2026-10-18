@@ -51,7 +51,8 @@ npm run build      # tsc --noEmit + vite build
 
 - 唯一数值源：`src/data/balance.json`（v3），代码通过 `src/data/balance.ts` 访问器读取。
 - 整局蒙特卡洛模拟：`node sim/simulate.mjs --runs 500 --difficulty hard --verbose`。
-  v3.1 手感调整（按试玩反馈）：整体下调约 30% 难度、攻速与充能加快、道具数量 -45%、单体角色弹速提高；详见 `docs/06-v3规则与实现.md` §8。
+  v3.1 手感调整（按试玩反馈）：整体下调约 30% 难度、攻速与充能加快、道具数量 -45%、单体角色弹速提高。
+- 前期发育保护：简单/普通前 3 层小怪更脆更少、倒计时 +12/8/4s；困难只保第 1 层。详见 `docs/06-v3规则与实现.md` §8。
 - 关卡/经济设计：`docs/04-关卡与经济系统设计.md`（v2 存档）+ `docs/06-v3规则与实现.md`（v3 权威规则）。
 
 ## 工程结构

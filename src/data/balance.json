@@ -43,14 +43,23 @@
         5,
         5
       ],
-      "hpMul": 1.3,
-      "damageMul": 1.25,
+      "hpMul": 1.45,
+      "damageMul": 1.4,
       "spawnMul": 1.2,
       "goldMul": 1.05,
       "xpMul": 0.95,
       "timerMul": 1,
       "note": "三阶段 5+5+5，节奏更快"
     }
+  },
+  "warmup": {
+    "note": "前几层给玩家发育时间：小怪更脆、伤害更低、刷新更慢、倒计时更长；困难模式只保第 1 层",
+    "easyNormal": [
+      { "hpMul": 0.7, "damageMul": 0.5, "spawnMul": 1.2, "timerBonus": 12, "maxAliveMul": 0.6 },
+      { "hpMul": 0.8, "damageMul": 0.65, "spawnMul": 1.12, "timerBonus": 8, "maxAliveMul": 0.72 },
+      { "hpMul": 0.9, "damageMul": 0.8, "spawnMul": 1.05, "timerBonus": 4, "maxAliveMul": 0.85 }
+    ],
+    "hard": [{ "hpMul": 0.88, "damageMul": 0.72, "spawnMul": 1.1, "timerBonus": 6, "maxAliveMul": 0.85 }]
   },
   "layerCurve": {
     "mobHpBase": 26,

@@ -219,11 +219,13 @@ function simulateRun(charId, diff, seed) {
   for (let layer = 1; layer <= layers; layer += 1) {
     const boss = isBossLayer(diff, layer)
     const out = playerOutput(charId, st)
-    const mobHp = C.mobHpBase * (1 + C.mobHpPerLayer * (layer - 1)) * diff.hpMul
+    const warmTable = diff.id === 'hard' ? balance.warmup.hard : balance.warmup.easyNormal
+    const W = warmTable[layer - 1] ?? null
+    const mobHp = C.mobHpBase * (1 + C.mobHpPerLayer * (layer - 1)) * diff.hpMul * (W?.hpMul ?? 1)
     const monsterCount = Math.round((C.quotaBase + C.quotaPerLayer * (layer - 1)) * (boss ? 0.6 : 1))
-    const timer = (boss ? balance.meta.bossTimerSeconds : balance.meta.layerTimerSeconds) * diff.timerMul
+    const timer = (boss ? balance.meta.bossTimerSeconds : balance.meta.layerTimerSeconds) * diff.timerMul + (boss ? 0 : (W?.timerBonus ?? 0))
 
-    const spawnRate = (C.spawnBatchBase / Math.max(C.spawnIntervalMin, C.spawnIntervalBase - C.spawnIntervalDecay * (layer - 1))) * diff.spawnMul
+    const spawnRate = (C.spawnBatchBase / (Math.max(C.spawnIntervalMin, C.spawnIntervalBase - C.spawnIntervalDecay * (layer - 1)) * (W?.spawnMul ?? 1))) * diff.spawnMul
     let clearTime
     if (boss) {
       const bossHp = C.bossHpBase * (1 + C.bossHpPerLayer * (layer - 1)) * diff.hpMul
@@ -243,7 +245,7 @@ function simulateRun(charId, diff, seed) {
     }
 
     const clearDur = clearTime
-    const mobDmg = C.mobDamageBase * (1 + C.mobDamagePerLayer * (layer - 1)) * diff.damageMul
+    const mobDmg = C.mobDamageBase * (1 + C.mobDamagePerLayer * (layer - 1)) * diff.damageMul * (W?.damageMul ?? 1)
     const hitsPerSecond = boss ? 0.12 : 0.075
     const crowdFactor = boss ? 1 : 1 + Math.min(0.4, spawnRate / 8)
     const dodge = Math.min(0.24, st.cards.dodge ?? 0)
