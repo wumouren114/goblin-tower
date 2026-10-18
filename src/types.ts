@@ -332,6 +332,8 @@ export interface HudV3 {
   updateBoss(hp: number): void
   hideBoss(): void
   damageNumber(worldPos: import('three').Vector3, amount: number, kind: 'normal' | 'crit' | 'heal' | 'gold'): void
+  /** 文字飘字（闪避、免疫等） */
+  floatText(worldPos: import('three').Vector3, text: string, kind?: 'normal' | 'crit' | 'heal' | 'gold' | 'dodge'): void
   toast(text: string, kind?: 'info' | 'good' | 'bad'): void
   setPaused(paused: boolean): void
   setMuted(muted: boolean): void

@@ -3552,3 +3552,10 @@ button:focus-visible {
 .tunnel-confirm:not(:disabled):hover {
   filter: brightness(1.08);
 }
+
+.dmg.kind-dodge {
+  color: #8fd8ff;
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 10px rgba(120, 210, 255, 0.85), 2px 2px 0 rgba(0, 0, 0, 0.7);
+}

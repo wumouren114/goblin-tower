@@ -55,7 +55,7 @@ const PICK_DELAY_MS = 150
 const FLOATER_RISE_PX = 52
 const FLOATER_LIFE = 0.86
 
-type DmgKind = 'normal' | 'crit' | 'heal' | 'gold'
+type DmgKind = 'normal' | 'crit' | 'heal' | 'gold' | 'dodge'
 
 interface Floater {
   el: HTMLDivElement
@@ -857,6 +857,19 @@ class HudImpl implements HudV3 {
     this.bossRatio = -1
   }
 
+  floatText(worldPos: THREE.Vector3, text: string, kind: DmgKind = 'normal'): void {
+    if (this.destroyed || this.floaters.length === 0) return
+    const floater = this.acquireFloater()
+    floater.world.copy(worldPos)
+    floater.age = 0
+    floater.life = FLOATER_LIFE + Math.random() * 0.18
+    floater.kind = kind
+    floater.drift = (Math.random() - 0.5) * 26
+    floater.active = true
+    floater.el.className = `dmg kind-${kind}`
+    floater.el.textContent = text
+    this.renderFloater(floater)
+  }
   damageNumber(worldPos: THREE.Vector3, amount: number, kind: 'normal' | 'crit' | 'heal' | 'gold'): void {
     if (this.destroyed || this.floaters.length === 0) return
     const floater = this.acquireFloater()

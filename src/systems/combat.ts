@@ -365,11 +365,15 @@ export class Combat {
     const amount = crit ? damage * this.stats.critMultiplier : damage
     if (crit) this.hooks.onSfx('crit')
     const gather = tierNum(tier, 'gatherOnHit', 0)
+    const lifesteal = tierNum(tier, 'lifesteal', 0)
+    let leeched = 0
     for (const t of targets) {
       const killed = t.hit(amount, dir.x * 2.2, dir.z * 2.2)
       if (gather > 0) pullToward(t, px, pz, gather)
       this.hooks.onHit(t, amount, crit, killed)
+      if (lifesteal > 0) leeched += amount * lifesteal
     }
+    if (lifesteal > 0 && leeched > 0) world.heal(leeched)
     this.spawnEffect(
       'slash',
       px + dir.x * range * 0.55,
@@ -417,7 +421,7 @@ export class Combat {
 
   // ───────────────────────── 技能 ─────────────────────────
 
-  trySkill(px: number, pz: number, aimX: number, aimZ: number, world: CombatWorld): boolean {
+  trySkill(px: number, pz: number, aimX: number, aimZ: number, world: CombatWorld, dashDir?: { x: number; z: number }): boolean {
     if (this.transformActive) return false
     const def = CHARACTERS[this.charId]
     const tier = getWeaponTier(this.charId, this.lv)
@@ -425,7 +429,7 @@ export class Combat {
     // 兜底：任何专武档位的消耗都不能超过当前充能上限，否则会出现「满了却放不出」
     const cost = Math.min(this.meter.max, Math.max(20, rawCost))
     if (this.charge < cost) return false
-    const dir = this.dirFromAim(px, pz, aimX, aimZ)
+    const dir = dashDir ?? this.dirFromAim(px, pz, aimX, aimZ)
     if (this.charId === 'mutsumi') {
       if (!this.meter.spend(cost)) return false
       this.startTransform(px, pz, tier, world)

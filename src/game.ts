@@ -12,6 +12,7 @@ import { Combat, type CombatWorld, type Hittable } from './systems/combat'
 import { Input } from './core/input'
 import { audio } from './core/audio'
 import { Rng } from './core/rng'
+import { rotateInput } from './core/math'
 import { TowerFloor } from './world/floor'
 import { pickScene, STAGE_NAMES } from './data/stages'
 import { CHARACTERS, CHARGE_FLOOR_START_RATIO } from './data/characters'
@@ -532,6 +533,7 @@ export class Game {
     }
 
     const axis = this.input.moveAxis()
+    const worldMove = axis.x === 0 && axis.z === 0 ? null : rotateInput(axis.x, axis.z, this.rig.yaw)
     this.moveInput = axis
     p.update(dt, axis.x, axis.z, this.rig.yaw, this.floor.propColliders, this.floor.halfSize - 0.6)
     const clamped = this.floor.clampToArena(p.x, p.z, 0.4)
@@ -559,7 +561,7 @@ export class Game {
       }
       // 调试自动驾驶：充能满了就放技能，方便截到 Mortis / 突进 / 召唤
       if (this.combat?.skillReady) {
-        this.combat.trySkill(p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld())
+        this.combat.trySkill(p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld(), worldMove ?? undefined)
       }
     }
     // 自动索敌：攻击与技能自动朝向最近的敌人（移动方向不受影响）
@@ -577,7 +579,7 @@ export class Game {
     const skillPressed = this.input.consumeSkill() || this.input.justPressed('KeyQ')
     if (skillPressed && this.combat) {
       p.faceToward(this.aimPoint.x, this.aimPoint.z)
-      if (this.combat.trySkill(p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld())) {
+      if (this.combat.trySkill(p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld(), worldMove ?? undefined)) {
         audio.click()
       } else {
         this.hud.toast('充能不足', 'bad')
@@ -833,7 +835,8 @@ export class Game {
     if (!p || !p.alive) return
     const stats = p.stats
     if (Math.random() < Math.min(0.24, stats.dodge)) {
-      this.hud.damageNumber(new THREE.Vector3(p.x, 1.6, p.z), 0, 'heal')
+      this.hud.floatText(new THREE.Vector3(p.x, 1.8, p.z), '闪避', 'dodge')
+      this.vfx.ring(p.x, p.z, { color: 0x8fd8ff, radius: 0.9, life: 0.3, grow: 1.6 })
       return
     }
     const dmg = raw * charTakeDamageMul(this.run.character) * (1 - Math.min(0.6, stats.armorRate))
