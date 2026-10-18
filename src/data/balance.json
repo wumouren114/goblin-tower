@@ -16,6 +16,7 @@
       ],
       "hpMul": 0.7,
       "damageMul": 0.55,
+      "countMul": 0.9,
       "spawnMul": 0.9,
       "goldMul": 1.2,
       "xpMul": 1.2,
@@ -30,6 +31,7 @@
       ],
       "hpMul": 0.95,
       "damageMul": 0.85,
+      "countMul": 1.2,
       "spawnMul": 1,
       "goldMul": 1,
       "xpMul": 1,
@@ -45,6 +47,7 @@
       ],
       "hpMul": 1.45,
       "damageMul": 1.4,
+      "countMul": 1.2,
       "spawnMul": 1.2,
       "goldMul": 1.05,
       "xpMul": 0.95,
@@ -157,10 +160,10 @@
   "weaponCoupons": {
     "name": "武器强化券",
     "prices": [
-      60,
-      120,
-      200,
-      320
+      140,
+      260,
+      430,
+      650
     ],
     "mergePairsToNext": 2,
     "desc": "同等级两张合成下一级；用于提升角色专武 1→5 级"
@@ -311,7 +314,7 @@
           "mortisLifesteal": 0,
           "mortisWave": 0,
           "sizeMul": 1,
-          "price": 90
+          "price": 140
         },
         {
           "lv": 3,
@@ -326,7 +329,7 @@
           "mortisLifesteal": 0.06,
           "mortisWave": 0,
           "sizeMul": 1,
-          "price": 180
+          "price": 260
         },
         {
           "lv": 4,
@@ -341,7 +344,7 @@
           "mortisLifesteal": 0.06,
           "mortisWave": 1.2,
           "sizeMul": 1,
-          "price": 320
+          "price": 430
         },
         {
           "lv": 5,
@@ -358,7 +361,7 @@
           "waveBounce": 1,
           "sizeMul": 1.4,
           "hitRadiusMul": 1.5,
-          "price": 520
+          "price": 650
         }
       ]
     },
@@ -388,7 +391,7 @@
           "skillCharge": 80,
           "stepOnAttack": 0,
           "allStatMul": 1,
-          "price": 90
+          "price": 140
         },
         {
           "lv": 3,
@@ -401,7 +404,7 @@
           "skillCharge": 80,
           "stepOnAttack": 0,
           "allStatMul": 1,
-          "price": 180
+          "price": 260
         },
         {
           "lv": 4,
@@ -415,7 +418,7 @@
           "stepOnAttack": 0.8,
           "skillDamageMul": 1.25,
           "allStatMul": 1,
-          "price": 320
+          "price": 430
         },
         {
           "lv": 5,
@@ -429,7 +432,7 @@
           "stepOnAttack": 0.8,
           "skillDamageMul": 1.25,
           "allStatMul": 1.15,
-          "price": 520
+          "price": 650
         }
       ]
     },
@@ -456,7 +459,7 @@
           "minionTaunt": 1,
           "minionSlow": 0,
           "riceInterval": 0,
-          "price": 90
+          "price": 140
         },
         {
           "lv": 3,
@@ -469,7 +472,7 @@
           "riceInterval": 10,
           "riceBuff": 0.06,
           "riceMax": 8,
-          "price": 180
+          "price": 260
         },
         {
           "lv": 4,
@@ -482,7 +485,7 @@
           "riceInterval": 10,
           "riceBuff": 0.06,
           "riceMax": 8,
-          "price": 320
+          "price": 430
         },
         {
           "lv": 5,
@@ -495,7 +498,7 @@
           "riceInterval": 10,
           "riceBuff": 0.06,
           "riceMax": 8,
-          "price": 520
+          "price": 650
         }
       ]
     }

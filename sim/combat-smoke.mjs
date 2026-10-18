@@ -356,13 +356,13 @@ try {
       alive: false,
       hit: () => false,
     })
-    check('小怪击杀 +8*(1+0.5)=12', near(combat.charge - beforeKill, 12, 1e-6), `+${(combat.charge - beforeKill).toFixed(2)}`)
+    check('小怪击杀 8*1.5*1.25=15', near(combat.charge - beforeKill, 15, 1e-6), `+${(combat.charge - beforeKill).toFixed(2)}`)
     combat.resetLayer(0)
     combat.onKill({ x: 0, z: 0, radius: 0.6, alive: false, hit: () => false, kind: 'elite', elite: true })
-    check('精英击杀 +28*(1.5)=42', near(combat.charge, 42, 1e-6), `charge=${combat.charge}`)
+    check('精英击杀 28*1.5*1.25=52.5', near(combat.charge, 52.5, 1e-6), `charge=${combat.charge}`)
     combat.resetLayer(0)
     combat.onKill({ x: 0, z: 0, radius: 1.5, alive: false, hit: () => false, kind: 'boss' })
-    check('boss 击杀 +70*(1.5)=105', near(combat.charge, 105, 1e-6), `charge=${combat.charge}`)
+    check('boss 击杀 70*1.5*1.25=131 → 上限 110', near(combat.charge, 110, 1e-6), `charge=${combat.charge}`)
     combat.resetLayer(0)
     combat.grantCharge(0.25)
     check('grantCharge(0.25)=27.5', near(combat.charge, 27.5, 1e-6), `charge=${combat.charge}`)

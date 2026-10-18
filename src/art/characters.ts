@@ -2152,10 +2152,10 @@ export function buildCharacterAtlas(id: CharacterId | 'mortis'): AtlasData {
 }
 
 /* ============================================================
- * 哥布林：small / brute / elite
+ * 哥布林：small / brute / elite / caster
  * 28×32 逻辑像素 / 世界高度 1.0m（实体再乘 def.scale × mul.scale）
  * ============================================================ */
-export type GoblinKind = 'small' | 'brute' | 'elite'
+export type GoblinKind = 'small' | 'brute' | 'elite' | 'caster'
 
 const GOBLIN = {
   outline: 0x0f130c,
@@ -2520,6 +2520,275 @@ function drawGoblinSide(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose): voi
   drawPauldrons(cell, kind, 'near')
 }
 
+/* ---------- 兜帽法袍哥布林（远程 caster） ---------- */
+
+const CASTER = {
+  outline: GOBLIN.outline,
+  hood: 0x5a3a78,
+  hoodDark: 0x3a2450,
+  hoodHi: 0x7d559e,
+  robe: 0x4a2c5e,
+  robeDark: 0x332040,
+  robeHi: 0x6b4788,
+  rope: 0x8a5a2e,
+  ropeDark: 0x5c3a1c,
+  crystal: 0xb46bff,
+  crystalHi: 0xd9b3ff,
+  crystalDark: 0x7a3cff,
+  wood: 0x6e4a2a,
+  woodDark: 0x4a2f1a,
+}
+
+/** [起始行, x, 宽] 阶梯表，逐行铺到下一项之前（像素风块状轮廓） */
+const CASTER_ROBE: [number, number, number][] = [
+  [15, 8, 12],
+  [16, 7, 14],
+  [17, 7, 14],
+  [18, 6, 16],
+  [19, 6, 16],
+  [20, 6, 16],
+  [21, 5, 18],
+  [22, 5, 18],
+  [23, 5, 18],
+  [24, 6, 16],
+  [25, 7, 14],
+  [26, 9, 10],
+]
+
+/** 2px 宽木杖 + 顶端紫水晶（x = 杖身最左列，固定在地上不随呼吸起伏） */
+function casterStaff(cell: PixelCanvas, x: number): void {
+  const k = CASTER
+  const cx = x + 1
+  cell.fillRect(x, 8, 2, 21, k.woodDark)
+  cell.fillRect(x + 1, 8, 1, 21, k.wood)
+  cell.set(x, 14, k.wood)
+  cell.set(x + 1, 20, k.woodDark)
+  // 托住晶体的枯枝
+  cell.set(x - 1, 7, k.woodDark)
+  cell.set(x + 2, 7, k.woodDark)
+  // 紫水晶 + 光晕
+  cell.ellipse(cx, 5, 3, 3, k.crystalDark)
+  cell.ellipse(cx, 5, 2, 2, k.crystal)
+  cell.ellipse(cx, 4, 1, 1, k.crystalHi)
+  cell.set(cx, 2, 0xffffff)
+  cell.set(cx - 3, 4, k.crystal)
+  cell.set(cx + 3, 6, k.crystal)
+  cell.set(cx - 2, 7, k.crystalHi)
+}
+
+function casterBody(cell: PixelCanvas, oy: number, raisedLeg: number): void {
+  const c = GOBLIN
+  const k = CASTER
+  // 腿（绿皮细腿 + 大脚）
+  drawGoblinLeg(cell, 10, 3, raisedLeg === 1, oy)
+  drawGoblinLeg(cell, 15, 3, raisedLeg === 2, oy)
+  // 破布长袍
+  for (const [y, x, w] of CASTER_ROBE) cell.fillRect(x, y + oy, w, 1, k.robe)
+  for (let y = 17 + oy; y <= 25 + oy; y++) {
+    cell.set(9, y, k.robeDark)
+    cell.set(13, y, k.robeDark)
+    cell.set(17, y, k.robeDark)
+  }
+  cell.fillRect(8, 17 + oy, 1, 6, k.robeHi)
+  cell.fillRect(18, 18 + oy, 1, 6, k.robeHi)
+  // 破布下摆
+  for (const x of [6, 9, 12, 15, 18, 21]) cell.set(x, 27 + oy, k.robeDark)
+  cell.set(7, 26 + oy, k.robeDark)
+  cell.set(20, 26 + oy, k.robeDark)
+  // 麻绳腰带
+  cell.hLine(6, 21, 20 + oy, k.rope)
+  cell.set(9, 20 + oy, k.ropeDark)
+  cell.set(13, 20 + oy, k.ropeDark)
+  cell.set(17, 20 + oy, k.ropeDark)
+  cell.set(21, 21 + oy, k.ropeDark)
+  // 肩上的兜帽披布
+  cell.fillRect(8, 14 + oy, 12, 3, k.hood)
+  cell.fillRect(8, 16 + oy, 2, 2, k.hoodDark)
+  cell.fillRect(18, 16 + oy, 2, 2, k.hoodDark)
+  // 绿皮手
+  cell.fillRect(5, 18 + oy, 3, 2, c.skin)
+  cell.set(5, 19 + oy, c.skinDark)
+  cell.fillRect(20, 18 + oy, 3, 2, c.skin)
+  cell.set(22, 19 + oy, c.skinDark)
+}
+
+function casterHoodRows(): [number, number, number][] {
+  return [
+    [2, 12, 4],
+    [3, 10, 8],
+    [4, 9, 10],
+    [5, 8, 12],
+    [6, 7, 14],
+    [7, 7, 14],
+    [8, 7, 14],
+    [9, 7, 14],
+    [10, 7, 14],
+    [11, 7, 14],
+    [12, 7, 14],
+    [13, 8, 12],
+    [14, 9, 10],
+    [15, 10, 8],
+  ]
+}
+
+function casterHeadDown(cell: PixelCanvas, oy: number): void {
+  const c = GOBLIN
+  const k = CASTER
+  // 尖耳从兜帽下探出
+  cell.triangle(8, 11 + oy, 3, 12 + oy, 8, 15 + oy, c.skin)
+  cell.triangle(19, 11 + oy, 24, 12 + oy, 19, 15 + oy, c.skin)
+  cell.triangle(8, 12 + oy, 5, 13 + oy, 8, 14 + oy, c.skinDark)
+  cell.triangle(19, 12 + oy, 22, 13 + oy, 19, 14 + oy, c.skinDark)
+  // 尖顶兜帽
+  for (const [y, x, w] of casterHoodRows()) cell.fillRect(x, y + oy, w, 1, k.hood)
+  cell.set(14, 1 + oy, k.hood)
+  cell.set(15, 1 + oy, k.hood)
+  cell.set(14, 2 + oy, k.hoodHi)
+  cell.hLine(9, 18, 5 + oy, k.hoodHi)
+  cell.hLine(10, 17, 6 + oy, k.hoodDark)
+  cell.vLine(13, 5 + oy, 12 + oy, k.hoodDark)
+  cell.set(8, 9 + oy, k.hoodHi)
+  cell.set(19, 10 + oy, k.hoodHi)
+  // 帽檐投在脸上的阴影
+  cell.fillRect(10, 9 + oy, 8, 1, k.hoodDark)
+  // 脸
+  cell.fillRect(10, 10 + oy, 8, 6, c.skin)
+  cell.fillRect(9, 12 + oy, 1, 3, c.skinDark)
+  cell.set(18, 12 + oy, c.skinDark)
+  cell.hLine(10, 17, 10 + oy, c.skinDark)
+  // 黄眼 + 黑瞳
+  cell.fillRect(11, 11 + oy, 2, 2, c.eye)
+  cell.fillRect(15, 11 + oy, 2, 2, c.eye)
+  cell.set(12, 12 + oy, c.eyeDark)
+  cell.set(16, 12 + oy, c.eyeDark)
+  cell.set(11, 11 + oy, c.tooth)
+  cell.set(15, 11 + oy, c.tooth)
+  // 鼻子、咧嘴与獠牙
+  cell.set(13, 13 + oy, c.skinDark)
+  cell.hLine(12, 16, 15 + oy, c.eyeDark)
+  cell.set(13, 15 + oy, c.tooth)
+  cell.set(15, 15 + oy, c.tooth)
+}
+
+function casterHeadUp(cell: PixelCanvas, oy: number): void {
+  const k = CASTER
+  for (const [y, x, w] of casterHoodRows()) cell.fillRect(x, y + oy, w, 1, k.hood)
+  cell.set(14, 1 + oy, k.hood)
+  cell.set(15, 1 + oy, k.hood)
+  cell.hLine(9, 18, 5 + oy, k.hoodHi)
+  // 背面中缝与褶皱
+  cell.vLine(14, 6 + oy, 14 + oy, k.hoodDark)
+  cell.vLine(11, 8 + oy, 13 + oy, k.hoodDark)
+  cell.vLine(17, 8 + oy, 13 + oy, k.hoodDark)
+  cell.fillRect(9, 15 + oy, 10, 2, k.hoodDark)
+  cell.set(12, 16 + oy, k.hood)
+  cell.set(17, 16 + oy, k.hood)
+}
+
+function casterHeadSide(cell: PixelCanvas, oy: number): void {
+  const c = GOBLIN
+  const k = CASTER
+  // 兜帽（帽尖朝后）
+  const rows: [number, number, number][] = [
+    [2, 12, 5],
+    [3, 10, 8],
+    [4, 9, 10],
+    [5, 8, 11],
+    [6, 7, 13],
+    [7, 7, 13],
+    [8, 7, 13],
+    [9, 7, 13],
+    [10, 7, 13],
+    [11, 8, 12],
+    [12, 9, 11],
+    [13, 10, 9],
+    [14, 11, 7],
+  ]
+  for (const [y, x, w] of rows) cell.fillRect(x, y + oy, w, 1, k.hood)
+  cell.triangle(12, 3 + oy, 3, 6 + oy, 11, 9 + oy, k.hood)
+  cell.triangle(10, 5 + oy, 5, 6 + oy, 9, 8 + oy, k.hoodDark)
+  cell.hLine(9, 17, 5 + oy, k.hoodHi)
+  cell.fillRect(8, 14 + oy, 8, 2, k.hoodDark)
+  // 向后探出的绿耳
+  cell.triangle(10, 10 + oy, 6, 11 + oy, 10, 13 + oy, c.skin)
+  cell.triangle(10, 11 + oy, 8, 11 + oy, 10, 12 + oy, c.skinDark)
+  // 口鼻与脸
+  cell.fillRect(13, 10 + oy, 6, 5, c.skin)
+  cell.fillRect(17, 10 + oy, 4, 5, c.skin)
+  cell.triangle(20, 10 + oy, 22, 12 + oy, 20, 14 + oy, c.skin)
+  cell.set(21, 12 + oy, c.skinDark)
+  cell.fillRect(13, 15 + oy, 5, 1, c.skin)
+  cell.set(13, 16 + oy, c.skinDark)
+  // 脸侧阴影 / 眼 / 咧嘴
+  cell.hLine(13, 19, 9 + oy, k.hoodDark)
+  cell.fillRect(16, 11 + oy, 2, 2, c.eye)
+  cell.set(17, 12 + oy, c.eyeDark)
+  cell.set(16, 11 + oy, c.tooth)
+  cell.hLine(18, 21, 14 + oy, c.eyeDark)
+  cell.set(19, 14 + oy, c.tooth)
+  cell.set(21, 15 + oy, c.tooth)
+}
+
+function drawCasterDown(cell: PixelCanvas, p: GoblinPose): void {
+  const oy = p.bob
+  casterBody(cell, oy, p.legPhase)
+  casterHeadDown(cell, oy)
+  casterStaff(cell, 4)
+}
+
+function drawCasterUp(cell: PixelCanvas, p: GoblinPose): void {
+  const oy = p.bob
+  casterBody(cell, oy, p.legPhase)
+  casterHeadUp(cell, oy)
+  casterStaff(cell, 21)
+}
+
+function drawCasterSide(cell: PixelCanvas, p: GoblinPose): void {
+  const c = GOBLIN
+  const k = CASTER
+  const oy = p.bob
+  // 腿
+  drawGoblinLeg(cell, 9, 3, p.legPhase === 1, oy)
+  drawGoblinLeg(cell, 13, 3, p.legPhase === 2, oy)
+  // 侧身长袍
+  const robe: [number, number, number][] = [
+    [15, 11, 9],
+    [16, 10, 11],
+    [17, 9, 12],
+    [18, 9, 12],
+    [19, 9, 12],
+    [20, 9, 12],
+    [21, 9, 12],
+    [22, 9, 12],
+    [23, 10, 11],
+    [24, 11, 10],
+    [25, 12, 8],
+    [26, 13, 7],
+  ]
+  for (const [y, x, w] of robe) cell.fillRect(x, y + oy, w, 1, k.robe)
+  for (let y = 17 + oy; y <= 25 + oy; y++) {
+    cell.set(11, y, k.robeDark)
+    cell.set(15, y, k.robeDark)
+  }
+  cell.fillRect(10, 17 + oy, 1, 6, k.robeHi)
+  for (const x of [13, 16, 19]) cell.set(x, 27 + oy, k.robeDark)
+  cell.set(12, 26 + oy, k.robeDark)
+  // 麻绳腰带
+  cell.hLine(9, 20, 20 + oy, k.rope)
+  cell.set(12, 20 + oy, k.ropeDark)
+  cell.set(16, 20 + oy, k.ropeDark)
+  // 兜帽披布
+  cell.fillRect(9, 14 + oy, 11, 3, k.hood)
+  cell.fillRect(10, 16 + oy, 2, 2, k.hoodDark)
+  // 后手 / 前手
+  cell.fillRect(10, 18 + oy, 3, 2, c.skin)
+  cell.set(10, 19 + oy, c.skinDark)
+  cell.fillRect(19, 18 + oy, 3, 2, c.skin)
+  cell.set(21, 19 + oy, c.skinDark)
+  casterHeadSide(cell, oy)
+  casterStaff(cell, 20)
+}
+
 export function buildGoblinAtlas(kind: GoblinKind): AtlasData {
   const cellW = 28
   const cellH = 32
@@ -2530,7 +2799,16 @@ export function buildGoblinAtlas(kind: GoblinKind): AtlasData {
     for (let frame = 0; frame < FRAME_COLS; frame++) {
       const pose = goblinPose(frame)
       let cell: PixelCanvas
-      if (dir === 'up') {
+      if (kind === 'caster') {
+        // 兜帽法袍哥布林：独立的绘制分支，不改动 small / brute / elite 的视觉
+        cell = new PixelCanvas(cellW, cellH)
+        if (dir === 'up') drawCasterUp(cell, pose)
+        else if (dir === 'down') drawCasterDown(cell, pose)
+        else {
+          drawCasterSide(cell, pose)
+          if (dir === 'left') cell = cell.mirrored()
+        }
+      } else if (dir === 'up') {
         cell = new PixelCanvas(cellW, cellH)
         drawGoblinUp(cell, kind, pose)
       } else if (dir === 'down') {
@@ -2546,6 +2824,49 @@ export function buildGoblinAtlas(kind: GoblinKind): AtlasData {
     }
   }
   return { canvas, cols: FRAME_COLS, rows: FRAME_ROWS, cellW, cellH, worldW: 0.9, worldH: 1.0 }
+}
+
+/* ============================================================
+ * 敌方弹幕：紫色能量球 / 16×16 逻辑像素 / 4 帧脉冲
+ * ============================================================ */
+export function buildEnemyBulletAtlas(): AtlasData {
+  const cellW = 16
+  const cellH = 16
+  const cols = 4
+  const rows = 1
+  const canvas = new PixelCanvas(cellW * cols, cellH * rows)
+  const pulse = [4, 5, 6, 5]
+  const center = 8
+  for (let frame = 0; frame < cols; frame++) {
+    const cell = new PixelCanvas(cellW, cellH)
+    const r = pulse[frame]
+    // 外圈光晕（四向 + 斜角），越亮的帧光晕越远
+    cell.set(center, center - r - 1, 0x5a2a99)
+    cell.set(center - r - 1, center, 0x5a2a99)
+    cell.set(center, center + r + 1, 0x5a2a99)
+    cell.set(center + r + 1, center, 0x5a2a99)
+    if (r >= 6) {
+      cell.set(center - r, center - r, 0xb46bff)
+      cell.set(center + r, center - r, 0xb46bff)
+      cell.set(center - r, center + r, 0xb46bff)
+      cell.set(center + r, center + r, 0xb46bff)
+    }
+    // 球体：外紫 → 内亮紫 → 白热核心
+    cell.ellipse(center, center, r, r, 0x7a3cff)
+    cell.ellipse(center, center, r - 1, r - 1, 0x9d5cff)
+    cell.ellipse(center, center, r - 2, r - 2, 0xd9b3ff)
+    cell.ellipse(center, center, 1, 1, 0xfff4ff)
+    // 左上高光
+    cell.set(center - 2, center - 2, 0xffffff)
+    cell.set(center - 3, center - 2, 0xffffff)
+    cell.set(center - 2, center - 3, 0xffffff)
+    // 能量火花
+    cell.set(center + 3, center - 1, 0xb46bff)
+    cell.set(center - 4, center + 2, 0xb46bff)
+    cell.set(center + 1, center + 4, 0x7a3cff)
+    canvas.blit(cell, frame * cellW, 0)
+  }
+  return { canvas, cols, rows, cellW, cellH, worldW: 0.55, worldH: 0.55 }
 }
 
 /* ============================================================

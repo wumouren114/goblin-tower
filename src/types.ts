@@ -260,7 +260,7 @@ export interface EnemyDef {
   xp: number
   goldChance: number
   scale: number
-  model: 'goblin' | 'goblin-big' | 'king'
+  model: 'goblin' | 'goblin-big' | 'king' | 'caster'
 }
 
 export interface HudSnapshot {

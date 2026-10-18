@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { Player } from './entities/player'
+import { enemyBulletSprite, getBillboardYaw, setSpriteFrame, type SpriteAnim } from './art/sprites'
 import { Goblin } from './entities/goblin'
-import { GOBLIN_SMALL, GOBLIN_BRUTE, GOBLIN_ELITE } from './data/gameConfig'
+import { GOBLIN_SMALL, GOBLIN_BRUTE, GOBLIN_ELITE, GOBLIN_CASTER } from './data/gameConfig'
 import { GoblinKing } from './entities/boss'
 import { PickupManager } from './entities/pickups'
 import { CameraRig } from './systems/cameraRig'
@@ -101,8 +102,13 @@ export class Game {
   private pickups: PickupManager
   private goblins: Goblin[] = []
   private boss: GoblinKing | null = null
-  private goblinKinds = new Map<Goblin, 'small' | 'brute' | 'elite'>()
+  private goblinKinds = new Map<Goblin, 'small' | 'brute' | 'elite' | 'caster'>()
   private contactCd = new Map<Goblin, number>()
+  /** 远程怪开火冷却 */
+  private casterCd = new Map<Goblin, number>()
+  /** 敌方弹幕（紫球） */
+  private enemyShots: { mesh: THREE.Mesh; x: number; z: number; vx: number; vz: number; life: number; damage: number }[] = []
+  private bulletAnim: SpriteAnim | null = null
 
   private clock = new THREE.Clock()
   private raycaster = new THREE.Raycaster()
@@ -291,16 +297,18 @@ export class Game {
     this.player?.grantInvuln(1.0)
     this.rig.reset()
 
-    this.layerTotal = bossLayer ? quotaFor(layer) : quotaFor(layer)
+    this.layerTotal = quotaFor(this.run.difficulty, layer)
     this.layerSpawned = 0
     this.layerKilled = 0
+    this.clearEnemyShots()
+    this.casterCd.clear()
     this.timeLimit = layerTimerFor(diff, bossLayer, layer)
     this.timeLeft = this.timeLimit
     this.spawnTimer = bossLayer ? 2.0 : 0.4
     this.combat?.resetLayer(CHARGE_FLOOR_START_RATIO)
 
     if (bossLayer) {
-      this.layerTotal = Math.round(quotaFor(layer) * 0.6)
+      this.layerTotal = Math.round(quotaFor(this.run.difficulty, layer) * 0.6)
       this.spawnBoss()
     }
 
@@ -499,6 +507,7 @@ export class Game {
 
     this.updateSpawner(dt)
     this.updateEnemies(dt)
+    this.updateEnemyShots(dt)
     this.updateBoss(dt)
     this.combat?.update(dt, p.x, p.z, this.buildWorld())
 
@@ -513,7 +522,10 @@ export class Game {
       }
     }
     // 自动索敌：攻击与技能自动朝向最近的敌人（移动方向不受影响）
-    const lockOn = this.nearestEnemy(p.x, p.z, 16)
+    // 自动索敌半径跟武器射程走（射程越短越近才锁）
+    const baseRange = CHARACTERS[this.run.character].attack.baseRange
+    const lockRange = Math.max(3.5, Math.min(16, baseRange * ((p.stats.intelligence || 100) / 100) + 2))
+    const lockOn = this.nearestEnemy(p.x, p.z, lockRange)
     if (lockOn) this.aimPoint.set(lockOn.x, 0.6, lockOn.z)
 
     const attackHeld = this.autoPlay || this.input.attackHeld
@@ -521,7 +533,8 @@ export class Game {
       p.faceToward(this.aimPoint.x, this.aimPoint.z)
       this.combat.tryAttack(dt, p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld())
     }
-    if (this.input.consumeSkill() && this.combat) {
+    const skillPressed = this.input.consumeSkill() || this.input.justPressed('KeyQ')
+    if (skillPressed && this.combat) {
       p.faceToward(this.aimPoint.x, this.aimPoint.z)
       if (this.combat.trySkill(p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld())) {
         audio.click()
@@ -563,12 +576,14 @@ export class Game {
 
   private spawnOne(): void {
     const layer = this.run.layer
-    let kind: 'small' | 'brute' | 'elite' = 'small'
+    let kind: 'small' | 'brute' | 'elite' | 'caster' = 'small'
     const bruteChance = Math.min(0.38, 0.04 + (layer - 1) * 0.06)
     const eliteChance = layer >= 4 ? 0.08 : 0
+    const casterChance = layer >= 2 ? Math.min(0.24, 0.1 + (layer - 2) * 0.02) : 0
     const r = this.rng.next()
     if (r < eliteChance) kind = 'elite'
-    else if (r < eliteChance + bruteChance) kind = 'brute'
+    else if (r < eliteChance + casterChance) kind = 'caster'
+    else if (r < eliteChance + casterChance + bruteChance) kind = 'brute'
     if (this.layerSpawned + 1 >= this.layerTotal && layer >= 3) kind = 'elite'
     const point = this.randomSpawnPoint()
     this.spawnGoblin(kind, point.x, point.z)
@@ -582,13 +597,68 @@ export class Game {
     return { x: base.x + (this.rng.next() - 0.5) * 3, z: base.z + (this.rng.next() - 0.5) * 3 }
   }
 
-  private spawnGoblin(kind: 'small' | 'brute' | 'elite', x: number, z: number): void {
-    const def = kind === 'small' ? GOBLIN_SMALL : kind === 'brute' ? GOBLIN_BRUTE : GOBLIN_ELITE
+  private spawnGoblin(kind: 'small' | 'brute' | 'elite' | 'caster', x: number, z: number): void {
+    const def = kind === 'small' ? GOBLIN_SMALL : kind === 'brute' ? GOBLIN_BRUTE : kind === 'caster' ? GOBLIN_CASTER : GOBLIN_ELITE
     const hpMul = mobHpFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.hp
     const dmgMul = mobDamageFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.damage
     const g = new Goblin(this.scene, def, x, z, { hp: hpMul, damage: dmgMul, speed: 1, scale: 1 }, kind === 'elite')
     this.goblins.push(g)
     this.goblinKinds.set(g, kind)
+  }
+
+  private spawnEnemyShot(x: number, z: number, tx: number, tz: number, damage: number): void {
+    if (!this.bulletAnim) this.bulletAnim = enemyBulletSprite()
+    const dx = tx - x
+    const dz = tz - z
+    const d = Math.hypot(dx, dz) || 1
+    const speed = 7.2
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.55, 0.55),
+      new THREE.MeshBasicMaterial({ map: this.bulletAnim.texture, transparent: true, depthWrite: false, toneMapped: false }),
+    )
+    mesh.position.set(x, 0.8, z)
+    mesh.renderOrder = 3
+    setSpriteFrame(mesh, this.bulletAnim, 'down', 0)
+    this.scene.add(mesh)
+    this.enemyShots.push({ mesh, x, z, vx: (dx / d) * speed, vz: (dz / d) * speed, life: 4, damage })
+  }
+
+  private updateEnemyShots(dt: number): void {
+    const p = this.player
+    const yaw = getBillboardYaw()
+    for (let i = this.enemyShots.length - 1; i >= 0; i -= 1) {
+      const shot = this.enemyShots[i]
+      shot.life -= dt
+      shot.x += shot.vx * dt
+      shot.z += shot.vz * dt
+      shot.mesh.position.set(shot.x, 0.8 + Math.sin(shot.life * 12) * 0.05, shot.z)
+      shot.mesh.rotation.y = yaw
+      let dead = shot.life <= 0
+      if (p && p.alive) {
+        const dx = p.x - shot.x
+        const dz = p.z - shot.z
+        if (dx * dx + dz * dz < 0.55 * 0.55) {
+          this.damagePlayer(shot.damage)
+          this.vfx.burst(shot.x, shot.z, { color: 0x9a5cff, count: 8, speed: 3.5, life: 0.35, size: 0.3 })
+          dead = true
+        }
+      }
+      if (dead) {
+        this.scene.remove(shot.mesh)
+        shot.mesh.geometry.dispose()
+        ;(shot.mesh.material as THREE.Material).dispose()
+        this.enemyShots.splice(i, 1)
+      }
+    }
+  }
+
+  private clearEnemyShots(): void {
+    for (const shot of this.enemyShots) {
+      this.scene.remove(shot.mesh)
+      shot.mesh.geometry.dispose()
+      ;(shot.mesh.material as THREE.Material).dispose()
+    }
+    this.enemyShots.length = 0
   }
 
   private updateEnemies(dt: number): void {
@@ -598,13 +668,40 @@ export class Game {
     const bounds = (this.floor?.halfSize ?? 20) - 0.5
     for (let i = this.goblins.length - 1; i >= 0; i -= 1) {
       const g = this.goblins[i]
-      g.update(dt, p.x, p.z, colliders, bounds)
+      const kind = this.goblinKinds.get(g)
+      if (kind === 'caster') {
+        // 术士：保持 6~9m 距离，站定读条后向玩家丢紫球
+        const dx = g.x - p.x
+        const dz = g.z - p.z
+        const d = Math.hypot(dx, dz) || 1
+        let tx = g.x
+        let tz = g.z
+        if (d < 6) {
+          tx = p.x + (dx / d) * 9
+          tz = p.z + (dz / d) * 9
+        } else if (d > 10) {
+          tx = p.x
+          tz = p.z
+        }
+        g.update(dt, tx, tz, colliders, bounds)
+        const cd = (this.casterCd.get(g) ?? 0) - dt
+        if (cd <= 0 && d < 13) {
+          this.spawnEnemyShot(g.x, g.z, p.x, p.z, g.damage * 0.9)
+          this.casterCd.set(g, 2.6)
+          this.vfx.ring(g.x, g.z, { color: 0x9a5cff, radius: 0.7, life: 0.3, grow: 1.2 })
+        } else {
+          this.casterCd.set(g, cd)
+        }
+      } else {
+        g.update(dt, p.x, p.z, colliders, bounds)
+      }
       if (!g.alive) {
         if (g.canRemove) {
           g.dispose()
           this.goblins.splice(i, 1)
           this.goblinKinds.delete(g)
           this.contactCd.delete(g)
+          this.casterCd.delete(g)
         }
         continue
       }
@@ -714,11 +811,12 @@ export class Game {
     this.onGoblinKilled(goblin, kind)
   }
 
-  private onGoblinKilled(g: Goblin, kind: 'small' | 'brute' | 'elite'): void {
+  private onGoblinKilled(g: Goblin, kind: 'small' | 'brute' | 'elite' | 'caster'): void {
     this.run.kills += 1
     this.layerKilled += 1
     this.combat?.onKill(g)
-    const gold = killGold(this.run.layer, kind)
+    const rewardKind = kind === 'caster' ? 'small' : kind
+    const gold = killGold(this.run.layer, rewardKind)
     this.pickups.spawn('gold', g.x, g.z, gold)
     if (kind === 'elite') {
       this.pickups.spawn('gold', g.x + 1, g.z, gold)
@@ -1331,6 +1429,13 @@ export class Game {
       if (this.combat && this.player) {
         this.combat.grantCharge(1)
         this.combat.trySkill(this.player.x, this.player.z, this.player.x, this.player.z - 3, this.buildWorld())
+      }
+    } else if (name === 'caster') {
+      if (this.player) {
+        for (let i = 0; i < 5; i += 1) {
+          const a = (i / 5) * Math.PI * 2
+          this.spawnGoblin('caster', Math.cos(a) * 6, this.player.z + Math.sin(a) * 6)
+        }
       }
     } else if (name === 'save') {
       this.hud.showSaveSlots('save', listSlots())

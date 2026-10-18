@@ -53,6 +53,11 @@ export class Input {
       if (isUi(e.target)) return
       this.updatePointer(e)
       this.button = e.button
+      if (e.button === 3 || e.button === 4) {
+        // 鼠标侧键在 Edge/Chrome 里是前进/后退，会直接离开游戏页面
+        e.preventDefault()
+        return
+      }
       if (e.button === 0) {
         this.attackHeld = true
       } else if (e.button === 2) {
@@ -93,7 +98,12 @@ export class Input {
     window.addEventListener('pointerup', onPointerUp)
     window.addEventListener('pointermove', onPointerMove)
     el.addEventListener('wheel', onWheel, { passive: false })
+    const onAux = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) e.preventDefault()
+    }
     el.addEventListener('contextmenu', onContext)
+    window.addEventListener('auxclick', onAux)
+    window.addEventListener('mouseup', onAux)
 
     this.disposers.push(
       () => window.removeEventListener('keydown', onKeyDown),
@@ -104,6 +114,8 @@ export class Input {
       () => window.removeEventListener('pointermove', onPointerMove),
       () => el.removeEventListener('wheel', onWheel),
       () => el.removeEventListener('contextmenu', onContext),
+      () => window.removeEventListener('auxclick', onAux),
+      () => window.removeEventListener('mouseup', onAux),
     )
   }
 

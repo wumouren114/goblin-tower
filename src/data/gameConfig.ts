@@ -270,3 +270,16 @@ export const GOBLIN_ELITE: EnemyDef = {
   scale: CONFIG.spawn.eliteScale,
   model: 'goblin',
 }
+
+export const GOBLIN_CASTER: EnemyDef = {
+  id: 'goblin-caster',
+  name: '哥布林咒术师',
+  hp: 26,
+  speed: 2.3,
+  damage: 5,
+  radius: 0.44,
+  xp: 2,
+  goldChance: 0.7,
+  scale: 1.05,
+  model: 'caster',
+}

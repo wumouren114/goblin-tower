@@ -72,7 +72,7 @@ export class Goblin {
     this.scale = def.scale * mul.scale
     this.phase = Math.random() * Math.PI * 2
 
-    const kind = elite ? 'elite' : def.model === 'goblin-big' ? 'brute' : 'small'
+    const kind = elite ? 'elite' : def.model === 'goblin-big' ? 'brute' : def.model === 'caster' ? 'caster' : 'small'
     this.anim = goblinSprite(kind)
     this.group = new THREE.Group()
     this.group.position.set(x, 0, z)

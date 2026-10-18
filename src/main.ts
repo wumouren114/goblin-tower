@@ -18,6 +18,14 @@ function fatal(message: string): void {
 window.onerror = (_e, _src, _line, _col, err) => {
   fatal(err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err))
 }
+window.addEventListener('beforeunload', (ev) => {
+  const g = (window as any).__goblinTower as { phase?: string } | null
+  if (g && (g.phase === 'playing' || g.phase === 'tunnel' || g.phase === 'shop')) {
+    ev.preventDefault()
+    ev.returnValue = ''
+  }
+})
+
 window.addEventListener('unhandledrejection', (ev) => {
   const r = ev.reason as unknown
   fatal(r instanceof Error ? `${r.message}\n${r.stack ?? ''}` : String(r))
@@ -98,6 +106,7 @@ try {
         gold: g.run?.gold,
         hp: Math.round(g.player?.hp ?? 0),
         transform: g.combat?.transformActive,
+        shots: ((g.enemyShots ?? []) as { x: number; z: number }[]).map((s) => [Number(s.x.toFixed(1)), Number(s.z.toFixed(1))]),
         slots: g.debugSaveSlots ? g.debugSaveSlots() : null,
         bossGroup: g.boss?.group ? { visible: g.boss.group.visible, children: g.boss.group.children.length, y: g.boss.group.position.y } : null,
         bossSprite: g.boss?.sprite

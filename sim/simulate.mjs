@@ -20,19 +20,22 @@ const SLOPPY = process.env.SLOPPY === '1'
 const CHARS = {
   mutsumi: {
     hp: 110, chargeMax: 100, stamina: 135, magic: 100, intelligence: 100, moveSpeed: 6.2,
-    attack: { damage: 16, intervalBase: 0.55, minInterval: 0.24, shape: 'single' },
+    attack: { damage: 14, intervalBase: 0.55, minInterval: 0.24, shape: 'single' },
+    chargeGainMul: 0.55,
     skill: { cost: 100, kind: 'transform', duration: 8, aoe: 0.4 },
     exposure: 1.0,
   },
   murasame: {
     hp: 175, chargeMax: 80, stamina: 130, magic: 95, intelligence: 70, moveSpeed: 7.3,
     attack: { damage: 17, intervalBase: 0.55, minInterval: 0.22, shape: 'cone', coneTargets: 2.05 },
+    chargeGainMul: 1,
     skill: { cost: 80, kind: 'dash', heal: 22, aoe: 0.3 },
     exposure: 1.7,
   },
   fish: {
     hp: 110, chargeMax: 90, stamina: 180, magic: 80, intelligence: 110, moveSpeed: 6.6,
     attack: { damage: 10, intervalBase: 0.55, minInterval: 0.2, shape: 'single' },
+    chargeGainMul: 1.25,
     skill: { cost: 90, kind: 'summon', duration: 10, count: 3, minionDpsRatio: 0.45, aoe: 0.25 },
     exposure: 0.85,
   },
@@ -90,7 +93,7 @@ function playerOutput(charId, st) {
   let crowdDps = (hit * crowdHits) / interval
 
   const chargeCost = Math.max(20, (charId === 'murasame' ? w.skillCharge : c.chargeMax) + st.cards.chargeMax)
-  const chargePerKill = CHARGE_PER_KILL * (1 + st.cards.chargeGain)
+  const chargePerKill = CHARGE_PER_KILL * (c.chargeGainMul ?? 1) * (1 + st.cards.chargeGain)
   if (charId === 'mutsumi') {
     const castsPerLayerCost = chargeCost / (chargePerKill * 8) // 粗略：每 8 杀一次
     const uptime = clamp(castsPerLayerCost * c.skill.duration, 0, 0.6)
@@ -222,7 +225,7 @@ function simulateRun(charId, diff, seed) {
     const warmTable = diff.id === 'hard' ? balance.warmup.hard : balance.warmup.easyNormal
     const W = warmTable[layer - 1] ?? null
     const mobHp = C.mobHpBase * (1 + C.mobHpPerLayer * (layer - 1)) * diff.hpMul * (W?.hpMul ?? 1)
-    const monsterCount = Math.round((C.quotaBase + C.quotaPerLayer * (layer - 1)) * (boss ? 0.6 : 1))
+    const monsterCount = Math.round((C.quotaBase + C.quotaPerLayer * (layer - 1)) * (diff.countMul ?? 1) * (boss ? 0.6 : 1))
     const timer = (boss ? balance.meta.bossTimerSeconds : balance.meta.layerTimerSeconds) * diff.timerMul + (boss ? 0 : (W?.timerBonus ?? 0))
 
     const spawnRate = (C.spawnBatchBase / (Math.max(C.spawnIntervalMin, C.spawnIntervalBase - C.spawnIntervalDecay * (layer - 1)) * (W?.spawnMul ?? 1))) * diff.spawnMul

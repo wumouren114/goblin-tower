@@ -435,6 +435,69 @@ check('setSpriteFrame 使用 anim.cols 取模并正确换算 UV', async () => {
   mesh.geometry.dispose()
 })
 
+check('caster 图集：4×4 非空、紫色兜帽/水晶、比 small 高', () => {
+  const atlas = chars.buildGoblinAtlas('caster')
+  assert(atlas.cols === 4 && atlas.rows === 4, `caster 图集尺寸 ${atlas.cols}x${atlas.rows}`)
+  assert(atlas.cellW === 28 && atlas.cellH === 32, `caster 单元格 ${atlas.cellW}x${atlas.cellH}`)
+  assert(atlas.worldW === 0.9 && atlas.worldH === 1.0, `caster 世界尺寸 ${atlas.worldW}x${atlas.worldH}`)
+  for (let row = 0; row < atlas.rows; row++) {
+    for (let col = 0; col < atlas.cols; col++) {
+      const s = cellStats(atlas, col, row)
+      assert(s.opaque > 0, `caster row${row} col${col} 空格子`)
+    }
+  }
+  const hood = countColors(atlas, [0x5a3a78, 0x3a2450, 0x7d559e])
+  const crystal = countColors(atlas, [0xb46bff, 0xd9b3ff, 0x7a3cff])
+  assert(hood >= 80, `紫色兜帽像素仅 ${hood}`)
+  assert(crystal >= 20, `紫水晶像素仅 ${crystal}`)
+  const small = chars.buildGoblinAtlas('small')
+  const sameAsSmall =
+    Buffer.compare(
+      Buffer.from(atlas.canvas.data.buffer, atlas.canvas.data.byteOffset, atlas.canvas.data.byteLength),
+      Buffer.from(small.canvas.data.buffer, small.canvas.data.byteOffset, small.canvas.data.byteLength),
+    ) === 0
+  assert(!sameAsSmall, 'caster 与 small 的图集像素完全相同')
+  const topRow = (a) => {
+    for (let y = 0; y < a.cellH; y++) {
+      for (let x = 0; x < a.cellW; x++) if (alphaAt(a, x, y) !== 0) return y
+    }
+    return 999
+  }
+  const ct = topRow(atlas)
+  const st = topRow(small)
+  assert(ct < st, `caster 头顶 y=${ct} 没有比 small y=${st} 更高`)
+})
+
+check('敌方弹幕图集 + enemyBulletSprite 缓存', () => {
+  const atlas = chars.buildEnemyBulletAtlas()
+  assert(atlas.cols === 4 && atlas.rows === 1, `弹幕图集 ${atlas.cols}x${atlas.rows}`)
+  assert(atlas.cellW === 16 && atlas.cellH === 16, `弹幕单元格 ${atlas.cellW}x${atlas.cellH}`)
+  assert(atlas.canvas.width === 64 && atlas.canvas.height === 16, `弹幕画布 ${atlas.canvas.width}x${atlas.canvas.height}`)
+  assert(atlas.worldW === 0.55 && atlas.worldH === 0.55, `弹幕世界尺寸 ${atlas.worldW}x${atlas.worldH}`)
+  for (let col = 0; col < atlas.cols; col++) {
+    const s = cellStats(atlas, col, 0)
+    assert(s.opaque > 20, `弹幕第 ${col} 帧像素仅 ${s.opaque}`)
+    const ox = col * atlas.cellW
+    assert(alphaAt(atlas, ox, 0) === 0, `弹幕第 ${col} 帧左上角不透明`)
+    assert(alphaAt(atlas, ox + 8, 8) !== 0, `弹幕第 ${col} 帧中心没有实心像素`)
+  }
+  for (const color of [0x7a3cff, 0xd9b3ff, 0xffffff]) {
+    const n = countColors(atlas, [color])
+    assert(n >= 8, `弹幕颜色 #${color.toString(16)} 仅 ${n} 像素`)
+  }
+  const a = sprites.enemyBulletSprite()
+  const b = sprites.enemyBulletSprite()
+  assert(a === b, 'enemyBulletSprite 没有缓存')
+  assert(a.cols === 4 && a.rows === 1, `enemyBulletSprite 尺寸 ${a.cols}x${a.rows}`)
+  assert(a.worldW === 0.55 && a.worldH === 0.55, `enemyBulletSprite 世界尺寸 ${a.worldW}x${a.worldH}`)
+  assert(a.frames.down.length === 4 && a.frames.left.length === 4, 'enemyBulletSprite 帧数不对')
+  assert(a.texture.flipY === false, 'enemyBulletSprite flipY 不是 false')
+  assert(a.texture.magFilter === 1003, 'enemyBulletSprite 不是最近邻采样')
+  const caster = sprites.goblinSprite('caster')
+  assert(caster.cols === 4 && caster.rows === 4, 'goblinSprite(caster) 尺寸不对')
+  assert(sprites.goblinSprite('caster') === caster, 'goblinSprite(caster) 没有缓存')
+})
+
 /* ------------------------------------------------------------------ */
 /*  5. 预览 PNG（仅 --preview）                                        */
 /* ------------------------------------------------------------------ */
@@ -509,12 +572,20 @@ if (preview) {
     )
     console.log(`preview: ${file}`)
   }
+  const caster = chars.buildGoblinAtlas('caster')
+  const casterFile = path.join(dir, 'caster.png')
+  writeFileSync(casterFile, encodePng(caster.canvas.width, caster.canvas.height, caster.canvas.data, previewScale))
+  console.log(`preview: ${casterFile}`)
+  const bullet = chars.buildEnemyBulletAtlas()
+  const bulletFile = path.join(dir, 'enemy-bullet.png')
+  writeFileSync(bulletFile, encodePng(bullet.canvas.width, bullet.canvas.height, bullet.canvas.data, previewScale * 2))
+  console.log(`preview: ${bulletFile}`)
 }
 
 const cellArg = process.argv.find((a) => a.startsWith('--cell='))
 if (cellArg) {
   const [id, row, col] = cellArg.slice(7).split(',')
-  const atlas = atlases[id]
+  const atlas = id === 'caster' ? chars.buildGoblinAtlas('caster') : id === 'bullet' ? chars.buildEnemyBulletAtlas() : atlases[id]
   if (!atlas) throw new Error(`unknown --cell id ${id}`)
   const dir = path.join(ROOT, 'sim/.art-preview')
   mkdirSync(dir, { recursive: true })

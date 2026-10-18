@@ -230,7 +230,8 @@ export class Combat {
   onKill(t: Hittable): void {
     const kind = this.killKind(t)
     const base = CHARGE_PER_KILL[kind]
-    this.meter.add(base * (1 + Math.max(0, this.stats.chargeGain)))
+    const charMul = CHARACTERS[this.charId]?.chargeGainMul ?? 1
+    this.meter.add(base * charMul * (1 + Math.max(0, this.stats.chargeGain)))
   }
 
   /** 每层开始：清场 + 起手充能（层间 50%） */
@@ -629,7 +630,7 @@ export class Combat {
       this.hooks.onHit(t, amount, false, killed)
     }
     if (lifesteal > 0 && drained > 0) world.heal(drained * lifesteal)
-    this.spawnEffect('wave', px, pz, Math.max(1, radius / 1.4), 0.3, 0xd7b6ff)
+    this.spawnEffect('slash', px, pz, Math.max(0.8, radius / 3.2), 0.22, 0xd7b6ff)
     this.burstAt(px, pz, 0xbf8dff, 6)
   }
 

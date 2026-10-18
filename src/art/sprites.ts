@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { CharacterId, Facing } from '../types'
 import { PixelCanvas, type AtlasData } from './pixels'
-import { buildCharacterAtlas, buildGoblinAtlas, buildKingAtlas, type GoblinKind } from './characters'
+import { buildCharacterAtlas, buildEnemyBulletAtlas, buildGoblinAtlas, buildKingAtlas, type GoblinKind } from './characters'
 
 /**
  * 像素精灵的 three.js 包装层。
@@ -108,13 +108,23 @@ export function playerSprite(id: CharacterId | 'mortis' = 'mutsumi'): SpriteAnim
   return anim
 }
 
-/** 哥布林图集（small / brute / elite 各缓存一张） */
+/** 哥布林图集（small / brute / elite / caster 各缓存一张） */
 export function goblinSprite(kind: GoblinKind): SpriteAnim {
   const key = `goblin-${kind}`
   let anim = spriteCache.get(key)
   if (!anim) {
     anim = atlasToAnim(buildGoblinAtlas(kind))
     spriteCache.set(key, anim)
+  }
+  return anim
+}
+
+/** 敌方弹幕紫球（4 帧脉冲，缓存） */
+export function enemyBulletSprite(): SpriteAnim {
+  let anim = spriteCache.get('enemy-bullet')
+  if (!anim) {
+    anim = atlasToAnim(buildEnemyBulletAtlas())
+    spriteCache.set('enemy-bullet', anim)
   }
   return anim
 }

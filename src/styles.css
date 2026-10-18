@@ -3519,3 +3519,36 @@ button:focus-visible {
   }
 }
 
+
+/* ── 隧道三选一：选中态 + 确认按钮（防误触） ── */
+.tunnel-card.is-selected {
+  outline: 2px solid var(--amber, #f0b849);
+  outline-offset: 3px;
+  transform: translateY(-4px);
+}
+.tunnel-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 18px;
+}
+.tunnel-confirm {
+  min-width: 220px;
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #1a1207;
+  background: linear-gradient(180deg, #f6c964, #d99a33);
+  border: 1px solid #f7d99a;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.tunnel-confirm:disabled {
+  cursor: not-allowed;
+  color: #9a8b74;
+  background: rgba(60, 52, 40, 0.9);
+  border-color: rgba(120, 104, 82, 0.6);
+}
+.tunnel-confirm:not(:disabled):hover {
+  filter: brightness(1.08);
+}

@@ -253,8 +253,8 @@ const UI_TEMPLATE = /* html */ `
       <div class="key-hints">
         <span class="key-hint"><kbd>WASD</kbd>移动</span>
         <span class="key-hint"><kbd>左键</kbd>普攻</span>
-        <span class="key-hint"><kbd>右键</kbd>技能</span>
-        <span class="key-hint"><kbd>P</kbd>暂停</span>
+        <span class="key-hint"><kbd>右键/Q</kbd>技能</span>
+        <button class="key-hint js-hud-pause" type="button"><kbd>P</kbd>暂停</button>
       </div>
       <div class="objective js-objective">清空本层敌人</div>
     </div>
@@ -337,7 +337,10 @@ const UI_TEMPLATE = /* html */ `
       <h2 class="tunnel-title">时空隧道 · 三选一</h2>
       <p class="tunnel-sub js-tunnel-sub">选择前进的路线</p>
       <div class="tunnel-cards js-tunnel-cards"></div>
-      <p class="tunnel-hint">点击卡牌，或按 <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 选择</p>
+      <div class="tunnel-actions">
+        <button class="tunnel-confirm js-tunnel-confirm" type="button" disabled>请先选择一条路线</button>
+      </div>
+      <p class="tunnel-hint">先选一张卡，再点「确认选择」或按 <kbd>Enter</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）</p>
     </div>
   </section>
 
@@ -494,6 +497,8 @@ class HudImpl implements HudV3 {
   private readonly tunnelCardRefs: TunnelCardRef[] = []
   private tunnelOffers: TunnelOffer[] = []
   private tunnelLocked = false
+  private tunnelSelected = -1
+  private tunnelConfirmEl: HTMLButtonElement | null = null
 
   /* ---------- 商店 ---------- */
   private shopEl!: HTMLElement
@@ -715,6 +720,8 @@ class HudImpl implements HudV3 {
       ref.preview.replaceChildren(...lines.map((line) => span('tc-row', line)))
       setText(ref.key, String(i + 1))
     }
+    this.tunnelSelected = -1
+    this.applyTunnelSelection()
     this.tunnelEl.classList.add('is-open')
     this.refreshHud()
   }
@@ -931,6 +938,8 @@ class HudImpl implements HudV3 {
     this.killsEl = this.q('.js-kills')
     this.killsStatEl = this.q('.js-kills-stat')
     this.muteChipEl = this.q('.js-mute')
+    const hudPauseBtn = this.q('.js-hud-pause')
+    if (hudPauseBtn) hudPauseBtn.addEventListener('click', () => this.handlers.onPauseToggle())
     this.hpBlockEl = this.q('.js-hp-block')
     this.hpFillEl = this.q('.js-hp-fill')
     this.hpTextEl = this.q('.js-hp-text')
@@ -1027,10 +1036,35 @@ class HudImpl implements HudV3 {
       const desc = div('tc-desc', '')
       const preview = div('tc-preview')
       card.append(band, key, head, title, desc, preview)
-      card.addEventListener('click', () => this.pickTunnel(i))
+      card.addEventListener('click', () => this.selectTunnel(i))
       this.tunnelCardsEl.appendChild(card)
       this.tunnelCardRefs.push({ card, band, icon, room, title, desc, preview, key })
     }
+    this.tunnelConfirmEl = this.q('.js-tunnel-confirm') as HTMLButtonElement
+    this.tunnelConfirmEl.addEventListener('click', () => this.commitTunnel())
+  }
+
+  /** 选中一张隧道卡（不立即生效，防止战斗中狂点误选） */
+  private selectTunnel(index: number): void {
+    if (this.tunnelLocked || this.destroyed) return
+    if (!this.tunnelOffers[index]) return
+    this.tunnelSelected = index
+    this.applyTunnelSelection()
+  }
+
+  private applyTunnelSelection(): void {
+    for (let i = 0; i < this.tunnelCardRefs.length; i += 1) {
+      this.tunnelCardRefs[i].card.classList.toggle('is-selected', i === this.tunnelSelected)
+    }
+    if (this.tunnelConfirmEl) {
+      this.tunnelConfirmEl.disabled = this.tunnelSelected < 0
+      this.tunnelConfirmEl.textContent = this.tunnelSelected >= 0 ? '确认选择' : '请先选择一条路线'
+    }
+  }
+
+  private commitTunnel(): void {
+    if (this.tunnelSelected < 0) return
+    this.pickTunnel(this.tunnelSelected)
   }
 
   private wireShop(): void {
@@ -1635,7 +1669,10 @@ class HudImpl implements HudV3 {
       const index = digitFromEvent(event) - 1
       if (index >= 0 && index < this.tunnelOffers.length) {
         event.preventDefault()
-        this.pickTunnel(index)
+        this.selectTunnel(index)
+      } else if (event.code === 'Enter' || event.code === 'KeyE' || event.code === 'Space') {
+        event.preventDefault()
+        this.commitTunnel()
       }
       return
     }

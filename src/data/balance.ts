@@ -6,6 +6,7 @@ export type DifficultyId = 'easy' | 'normal' | 'hard'
 export interface DifficultyDef {
   name: string
   stages: number[]
+  countMul: number
   hpMul: number
   damageMul: number
   spawnMul: number
@@ -128,8 +129,14 @@ export function mobDamageFor(id: DifficultyId, layer: number): number {
   return c.mobDamageBase * (1 + c.mobDamagePerLayer * (layer - 1)) * DIFFICULTIES[id].damageMul * (w?.damageMul ?? 1)
 }
 
-export function quotaFor(layer: number): number {
-  return Math.round(LAYER_CURVE.quotaBase + LAYER_CURVE.quotaPerLayer * (layer - 1))
+export function quotaFor(id: DifficultyId, layer: number): number
+export function quotaFor(layer: number): number
+export function quotaFor(idOrLayer: DifficultyId | number, layer?: number): number {
+  const diffId = typeof idOrLayer === 'number' ? null : idOrLayer
+  const lv = typeof idOrLayer === 'number' ? idOrLayer : (layer ?? 1)
+  const base = LAYER_CURVE.quotaBase + LAYER_CURVE.quotaPerLayer * (lv - 1)
+  const mul = diffId ? (DIFFICULTIES[diffId].countMul ?? 1) : 1
+  return Math.round(base * mul)
 }
 
 export function spawnIntervalFor(id: DifficultyId, layer: number): number {
