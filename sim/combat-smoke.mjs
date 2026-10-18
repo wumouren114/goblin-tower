@@ -281,7 +281,8 @@ try {
     check('命中≥3 回血 27.6+5', near(world.heals - healBefore, 32.6, 1e-6), `heal=${world.heals - healBefore}`)
     check('突进后 0.3s 无敌', world.invulns.includes(0.3), JSON.stringify(world.invulns))
     check('终点 2.4m 聚怪', Math.hypot(e3.x, e3.z + 7.5) <= 1.0, `d=${Math.hypot(e3.x, e3.z + 7.5).toFixed(2)}`)
-    check('突进消耗 80 充能', combat.charge === 10, `charge=${combat.charge}`)
+    check('满充能必能释放（充能上限 >= 消耗）', combat.chargeMax >= 80, `max=${combat.chargeMax}`)
+    check('???? 64 ???lv5?', combat.charge === 16, `charge=${combat.charge}`)
     check('突进后 0.2s 硬直内不能普攻', !combat.tryAttack(DT, 0, 0, 0, -1, world))
 
     run(combat, world, 0.3, { px: 0, pz: 0 })
@@ -375,7 +376,7 @@ try {
     const t5 = runtime.getWeaponTier('mutsumi', 5)
     check('mutsumi lv1 单发 / lv5 三发', t1.projectiles === 1 && t5.projectiles === 3, `${t1.projectiles}/${t5.projectiles}`)
     check('mutsumi lv5 黄瓜变大', t5.sizeMul === 1.4 && t5.hitRadiusMul === 1.5, JSON.stringify({ s: t5.sizeMul, h: t5.hitRadiusMul }))
-    check('murasame lv5 突进消耗 70', runtime.getWeaponTier('murasame', 5).skillCharge === 70)
+    check('murasame lv5 突进消耗 70', runtime.getWeaponTier('murasame', 5).skillCharge === 64)
     check('fish lv5 召唤 5 只', runtime.getWeaponTier('fish', 5).minionCount === 5)
     check('武器等级夹到 1..5', runtime.getWeaponTier('fish', 99).lv === 5 && runtime.getWeaponTier('fish', -3).lv === 1)
   }

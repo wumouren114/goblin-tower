@@ -421,7 +421,9 @@ export class Combat {
     if (this.transformActive) return false
     const def = CHARACTERS[this.charId]
     const tier = getWeaponTier(this.charId, this.lv)
-    const cost = this.skillCost(tier, def.skill.chargeCost)
+    const rawCost = this.skillCost(tier, def.skill.chargeCost)
+    // 兜底：任何专武档位的消耗都不能超过当前充能上限，否则会出现「满了却放不出」
+    const cost = Math.min(this.meter.max, Math.max(20, rawCost))
     if (this.charge < cost) return false
     const dir = this.dirFromAim(px, pz, aimX, aimZ)
     if (this.charId === 'mutsumi') {
