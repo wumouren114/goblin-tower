@@ -510,16 +510,19 @@ export class Combat {
     for (const t of hits) {
       const killed = t.hit(dmg, dir.x * 1.2, dir.z * 1.2)
       this.hooks.onHit(t, dmg, crit, killed)
+      // 技能把路径上命中的敌人也拉到终点，方便接普攻
+      if (t.alive) gatherTo(t, end.x, end.z, 0.95)
     }
-    // 终点聚怪：2.4m 内全部拉到终点附近
-    const gatherRadius = p.gatherRadius ?? 2.4
+    // 终点聚怪：范围内的敌人一起收拢
+    const gatherRadius = p.gatherRadius ?? 2.8
     for (const t of world.enemies) {
       if (!t.alive) continue
       if (Math.hypot(t.x - end.x, t.z - end.z) > gatherRadius) continue
-      gatherTo(t, end.x, end.z, 0.9)
+      gatherTo(t, end.x, end.z, 0.95)
     }
-    const heal = tierNum(tier, 'skillHeal', p.heal ?? 15) + (hits.length >= 3 ? 5 : 0)
-    world.heal(heal)
+    // 回血与命中数挂钩：每命中 1 个敌人回 healPerHit 血
+    const healPerHit = tierNum(tier, 'skillHealPerHit', 7)
+    world.heal(healPerHit * hits.length)
     world.grantInvuln(p.invulnerable ?? 0.3)
     world.dashPlayer(dir.x, dir.z, distance, p.dashDuration ?? 0.24)
     this.lockedLeft = Math.max(this.lockedLeft, p.recovery ?? 0.2)

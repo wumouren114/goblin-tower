@@ -16,7 +16,7 @@ import { rotateInput } from './core/math'
 import { TowerFloor } from './world/floor'
 import { pickScene, STAGE_NAMES } from './data/stages'
 import { CHARACTERS, CHARGE_FLOOR_START_RATIO } from './data/characters'
-import { getWeaponTier, charTakeDamageMul } from './data/characterRuntime'
+import { getWeaponTier, charTakeDamageMul, tierNum } from './data/characterRuntime'
 import {
   DIFFICULTIES,
   layerCount,
@@ -834,7 +834,7 @@ export class Game {
     const p = this.player
     if (!p || !p.alive) return
     const stats = p.stats
-    if (Math.random() < Math.min(0.24, stats.dodge)) {
+    if (Math.random() < Math.min(0.3, stats.dodge)) {
       this.hud.floatText(new THREE.Vector3(p.x, 1.8, p.z), '闪避', 'dodge')
       this.vfx.ring(p.x, p.z, { color: 0x8fd8ff, radius: 0.9, life: 0.3, grow: 1.6 })
       return
@@ -1345,7 +1345,7 @@ export class Game {
       chargeGain: c.chargeGain ?? 0,
       armor: 0,
       armorRate: Math.min(0.6, c.armor ?? 0),
-      dodge: Math.min(0.24, (c.dodge ?? 0) + ((tier.dodgeChance as number) ?? 0)),
+      dodge: Math.min(0.3, (c.dodge ?? 0) + ((tier.dodgeChance as number) ?? 0)),
       critChance: Math.min(0.6, 0.08 + (c.crit ?? 0)),
       critMultiplier: 1.8,
       pickupRadius: 2.0,
