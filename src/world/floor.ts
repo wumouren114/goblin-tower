@@ -64,7 +64,9 @@ export class TowerFloor implements WorldV3 {
   private props: PropSet | null = null
 
   private torches: TorchEntry[] = []
-  /** 墙体材质：相机退到墙外时淡出，避免挡住角色 */
+  /** 四面墙网格：相机退到墙外时直接隐藏对应那面，避免挡视线 */
+  private wallMeshes: Partial<Record<'south' | 'north' | 'east' | 'west', THREE.Mesh>> = {}
+  private corniceMeshes: Partial<Record<'south' | 'north' | 'east' | 'west', THREE.Mesh>> = {}
   private wallMat: THREE.MeshStandardMaterial | null = null
 
   private altarRune: THREE.Mesh | null = null
@@ -173,18 +175,20 @@ export class TowerFloor implements WorldV3 {
     tex.wall.anisotropy = 8
     const wallMat = new THREE.MeshStandardMaterial({ map: tex.wall, roughness: 0.97, metalness: 0.02 })
     this.wallMat = wallMat
+    this.wallMat = wallMat
 
-    const addWall = (w: number, d: number, x: number, z: number): void => {
+    const addWall = (w: number, d: number, x: number, z: number, side: 'south' | 'north' | 'east' | 'west'): void => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, wallH, d), wallMat)
       m.position.set(x, wallH / 2, z)
       m.castShadow = true
       m.receiveShadow = true
       this.root.add(m)
+      this.wallMeshes[side] = m
     }
-    addWall(size + thick * 2, thick, 0, half + thick / 2) // 南 (+z)
-    addWall(size + thick * 2, thick, 0, -(half + thick / 2)) // 北 (-z)
-    addWall(thick, size, half + thick / 2, 0) // 东 (+x)
-    addWall(thick, size, -(half + thick / 2), 0) // 西 (-x)
+    addWall(size + thick * 2, thick, 0, half + thick / 2, 'south') // 南 (+z)
+    addWall(size + thick * 2, thick, 0, -(half + thick / 2), 'north') // 北 (-z)
+    addWall(thick, size, half + thick / 2, 0, 'east') // 东 (+x)
+    addWall(thick, size, -(half + thick / 2), 0, 'west') // 西 (-x)
 
     const capMat = new THREE.MeshStandardMaterial({
       color: theme.wallTopColor,
@@ -192,18 +196,19 @@ export class TowerFloor implements WorldV3 {
       metalness: 0.04,
       flatShading: true,
     })
-    const addCornice = (w: number, d: number, x: number, z: number): void => {
+    const addCornice = (w: number, d: number, x: number, z: number, side: 'south' | 'north' | 'east' | 'west'): void => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.42, d), capMat)
       m.position.set(x, wallH - 0.21, z)
       m.castShadow = true
       m.receiveShadow = true
       this.root.add(m)
+      this.corniceMeshes[side] = m
     }
     // 压边向内探出 0.55m，形成收口
-    addCornice(size, 0.55, 0, half - 0.275)
-    addCornice(size, 0.55, 0, -(half - 0.275))
-    addCornice(0.55, size, half - 0.275, 0)
-    addCornice(0.55, size, -(half - 0.275), 0)
+    addCornice(size, 0.55, 0, half - 0.275, 'south')
+    addCornice(size, 0.55, 0, -(half - 0.275), 'north')
+    addCornice(0.55, size, half - 0.275, 0, 'east')
+    addCornice(0.55, size, -(half - 0.275), 0, 'west')
 
     /* ---------------- 四角塔柱 ---------------- */
     const pillarMat = new THREE.MeshStandardMaterial({
@@ -644,15 +649,13 @@ export class TowerFloor implements WorldV3 {
     for (const torch of this.torches) {
       const s = torch.seed
       const f =
-        0.9 +
-        Math.sin(t * 9.3 + s) * 0.16 +
-        Math.sin(t * 21.7 + s * 1.7) * 0.07 +
-        Math.sin(t * 4.1 + s * 0.4) * 0.05
+        0.95 +
+        Math.sin(t * 1.6 + s) * 0.05 +
+        Math.sin(t * 0.9 + s * 1.7) * 0.03 +
+        Math.sin(t * 2.3 + s * 0.4) * 0.02
       torch.flame.scale.set(0.42 + f * 0.1, 0.7 + f * 0.22, 1)
       if (torch.light) {
-        torch.light.intensity =
-          torch.baseIntensity *
-          (f * 0.72 + Math.sin(t * 17.1 + s * 2.3) * 0.12 + Math.sin(t * 5.7 + s) * 0.08)
+        torch.light.intensity = torch.baseIntensity * (0.92 + (f - 0.95) * 1.1)
       }
     }
 
@@ -790,6 +793,14 @@ export class TowerFloor implements WorldV3 {
     this.propColliders.length = 0
     this.spawnPoints = []
     this.scene.fog = null
+  }
+
+  /** 相机退到墙外时直接隐藏那一面墙 */
+  setWallHidden(side: 'south' | 'north' | 'east' | 'west', hidden: boolean): void {
+    const m = this.wallMeshes[side]
+    if (m) m.visible = !hidden
+    const c = this.corniceMeshes[side]
+    if (c) c.visible = !hidden
   }
 
   /** 0 = 实体墙，1 = 完全透明（相机退到墙外时调用） */

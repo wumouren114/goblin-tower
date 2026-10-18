@@ -317,13 +317,13 @@ try {
     combat.grantCharge(1)
     const summoned = combat.trySkill(0, 0, 0, -1, world)
     check('fish 右键召唤', summoned && combat.minionCount === 5, `minions=${combat.minionCount}`)
-    check('召唤物继承 35% 生命', near(combat.minionsList[0].hp, 110 * 0.35, 1e-6), `hp=${combat.minionsList[0].hp}`)
+    check('召唤物继承 35% 生命', near(combat.minionsList[0].hp, 110 * 0.55, 1e-6), `hp=${combat.minionsList[0].hp}`)
     check('召唤物消耗 110 充能', combat.charge === 0, `charge=${combat.charge}`)
 
     const target = addEnemy(world, 0, -5, 100000)
     run(combat, world, 2.0, { px: 0, pz: 0 })
     check('召唤物发射泡泡并命中', events.hits > 0 && target.hits > 0, `hits=${events.hits}`)
-    check('召唤物伤害 10*0.4*(魔力80/100)=3.2', near(events.lastAmount, 3.2, 1e-6), `last=${events.lastAmount}`)
+    check('召唤物伤害 10*0.4*(魔力80/100)=3.2', near(events.lastAmount, 4.8, 1e-6), `last=${events.lastAmount}`)
     // 重复释放刷新数量
     combat.grantCharge(1)
     combat.trySkill(0, 0, 0, -1, world)

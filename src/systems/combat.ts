@@ -435,7 +435,7 @@ export class Combat {
       return true
     }
     if (!this.meter.spend(cost)) return false
-    this.skillSummon(px, pz, tier)
+    this.skillSummon(px, pz, tier, world)
     return true
   }
 
@@ -523,7 +523,7 @@ export class Combat {
     this.hooks.onSfx('skill')
   }
 
-  private skillSummon(px: number, pz: number, tier: WeaponTier): void {
+  private skillSummon(px: number, pz: number, tier: WeaponTier, world: CombatWorld): void {
     const def = CHARACTERS.fish
     const p = def.skill.params
     const count = Math.max(1, Math.floor(tierNum(tier, 'minionCount', p.count ?? 3)))
@@ -550,6 +550,19 @@ export class Combat {
       })
     }
     this.minions.spawn(specs)
+    // 召唤瞬间的冲击波：给周围敌人一次伤害，避免「放了大招没反馈」
+    const burstDamage = hitDamage(p.burstDamage ?? 26, this.stats.magic)
+    const burstRadius = p.burstRadius ?? 4.2
+    let hits = 0
+    for (const t of world.enemies) {
+      if (!t.alive) continue
+      const dx = t.x - px
+      const dz = t.z - pz
+      if (dx * dx + dz * dz > burstRadius * burstRadius) continue
+      t.hit(burstDamage, dx * 0.6, dz * 0.6)
+      hits += 1
+    }
+    if (hits > 0) this.burstAt(px, pz, 0x9fe8ff, 16)
     this.burstAt(px, pz, 0x9fe8ff, 18)
     this.hooks.onSfx('summon')
   }

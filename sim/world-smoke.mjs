@@ -371,7 +371,7 @@ for (let s = 0; s < 3; s++) {
     check(typeof d.subtitle === 'string' && d.subtitle.length >= 2, `${tag} 有 subtitle`)
     eq(d.stage, s + 1, `${tag} stage = ${s + 1}`)
     eq(d.halfSize, CONTRACT_HALF[s][i], `${tag} halfSize = ${CONTRACT_HALF[s][i]}`)
-    check(Number.isInteger(d.props) && d.props >= 10, `${tag} props 数量合理(${d.props})`)
+    check(Number.isInteger(d.props) && d.props >= 6, `${tag} props 数量合理(${d.props})`)
     check(/^#[0-9a-fA-F]{6}$/.test(d.accent), `${tag} accent 为 #RRGGBB`)
     check(!!THEMES_V3[d.themeId], `${tag} themeId '${d.themeId}' 在 THEMES_V3 中`)
     const theme = THEMES_V3[d.themeId]

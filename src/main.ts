@@ -53,6 +53,7 @@ const hud: HudV3 = createHud({
   onSave: (slot) => game?.manualSave(slot),
   onLoad: (slot) => game?.manualLoad(slot),
   onPauseToggle: () => game?.togglePausePublic(),
+  onRetryLayer: () => game?.retryLayer(),
   onRestart: () => game?.quitToTitle(),
   onQuitToTitle: () => game?.quitToTitle(),
 })

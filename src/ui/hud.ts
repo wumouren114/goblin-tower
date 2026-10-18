@@ -114,6 +114,7 @@ const TUNNEL_META: Record<TunnelType, { label: string; hint: string }> = {
   reward: { label: '奖励', hint: '宝箱与技能卡' },
   trade: { label: '交易', hint: '商人或祭坛' },
   battle: { label: '对战', hint: '怪潮与精英' },
+  rest: { label: '休息', hint: '回血与充能' },
 }
 
 const ROOM_LABEL: Record<TunnelRoom, string> = {
@@ -124,6 +125,7 @@ const ROOM_LABEL: Record<TunnelRoom, string> = {
   'mob-wave': '哥布林怪潮',
   'elite-fight': '精英巢穴',
   boss: '首领之间',
+  rest: '休憩营地',
 }
 
 const STAT_ORDER: CardStat[] = [
@@ -421,6 +423,7 @@ const UI_TEMPLATE = /* html */ `
       <h2 class="end-title js-end-title">你倒在了塔中</h2>
       <p class="end-sub js-end-sub"></p>
       <div class="end-stats js-end-stats"></div>
+      <button class="btn-primary js-end-retry" type="button">重试本层</button>
       <button class="btn-restart js-restart" type="button">重新爬塔</button>
       <button class="btn-ghost js-end-title-btn" type="button">返回标题</button>
       <p class="end-tip">按 <kbd>R</kbd> 立即重开 · 按 <kbd>Enter</kbd> 返回标题</p>
@@ -538,6 +541,7 @@ class HudImpl implements HudV3 {
 
   /* ---------- 结算 ---------- */
   private endEl!: HTMLElement
+  private endRetryEl!: HTMLButtonElement
   private endKickerEl!: HTMLElement
   private endTitleEl!: HTMLElement
   private endSubEl!: HTMLElement
@@ -1129,6 +1133,8 @@ class HudImpl implements HudV3 {
 
   private wireEnd(): void {
     this.endEl = this.q('.js-end')
+    this.endRetryEl = this.q('.js-end-retry') as HTMLButtonElement
+    this.endRetryEl.addEventListener('click', () => this.handlers.onRetryLayer())
     this.endKickerEl = this.q('.js-end-kicker')
     this.endTitleEl = this.q('.js-end-title')
     this.endSubEl = this.q('.js-end-sub')
@@ -1518,6 +1524,7 @@ class HudImpl implements HudV3 {
 
   private renderEnd(stats: RunStatsV3, victory: boolean, reason?: DefeatReason): void {
     this.endLocked = false
+    this.endRetryEl.hidden = victory
     this.endEl.classList.toggle('is-victory', victory)
     setText(this.endKickerEl, victory ? 'VICTORY · 通关' : 'RUN OVER · 失败')
 

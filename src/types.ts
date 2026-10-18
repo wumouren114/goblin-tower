@@ -69,7 +69,7 @@ export type CardStat =
 
 export type DefeatReason = 'hp' | 'timeout'
 
-export type TunnelType = 'reward' | 'trade' | 'battle'
+export type TunnelType = 'reward' | 'trade' | 'battle' | 'rest'
 
 export type TunnelRoom =
   | 'chest'
@@ -78,6 +78,7 @@ export type TunnelRoom =
   | 'altar'
   | 'mob-wave'
   | 'elite-fight'
+  | 'rest'
   | 'boss'
 
 /** 一条「时空隧道」路线（层末三选一） */
@@ -102,6 +103,7 @@ export interface TunnelPayload {
   altarReward?: { stat: CardStat; value: number }
   enemyCount?: number
   bossLayer?: boolean
+  rest?: { healRatio: number; chargeRatio: number }
 }
 
 export interface ShopOffer {
@@ -349,6 +351,7 @@ export interface HudV3Handlers {
   onSave(slot: number): void
   onLoad(slot: number): void
   onPauseToggle(): void
+  onRetryLayer(): void
   onRestart(): void
   onQuitToTitle(): void
 }

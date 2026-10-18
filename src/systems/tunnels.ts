@@ -21,7 +21,7 @@ import { generateOffers } from './shop'
 // ── balance.json 段落（balance.ts 未声明类型，本模块只读）──
 interface PortalsCfg {
   count: number
-  weights: { reward: number; trade: number; battle: number }
+  weights: { reward: number; trade: number; battle: number; rest: number }
   reward: { chest: number; skillCard: number }
   trade: { merchant: number; altar: number }
   battle: { mobWave: number; eliteFight: number }
@@ -84,6 +84,7 @@ const ROOM_ICON: Record<TunnelRoom, string> = {
   'mob-wave': '👹',
   'elite-fight': '💀',
   boss: '👑',
+  rest: '⛺',
 }
 
 const ROOM_KIND: Record<TunnelRoom, TunnelType> = {
@@ -94,6 +95,7 @@ const ROOM_KIND: Record<TunnelRoom, TunnelType> = {
   'mob-wave': 'battle',
   'elite-fight': 'battle',
   boss: 'battle',
+  rest: 'rest',
 }
 
 export interface RoomResolution {
@@ -104,6 +106,7 @@ export interface RoomResolution {
   altarReward?: { stat: CardStat; value: number }
   enemies?: { count: number; elite: number }
   bossLayer?: boolean
+  rest?: { healRatio: number; chargeRatio: number }
 }
 
 /** 技能卡三选一的结果条目（TunnelPayload.skillCard 的非空形状） */
@@ -172,7 +175,9 @@ function rollRoomType(rng: Rng): TunnelRoom {
   const roll = rng.next()
   const rewardEnd = weights.reward
   const tradeEnd = rewardEnd + weights.trade
-  const kind: TunnelType = roll < rewardEnd ? 'reward' : roll < tradeEnd ? 'trade' : 'battle'
+  const battleEnd = tradeEnd + weights.battle
+  const kind: TunnelType = roll < rewardEnd ? 'reward' : roll < tradeEnd ? 'trade' : roll < battleEnd ? 'battle' : 'rest'
+  if (kind === 'rest') return 'rest'
   if (kind === 'reward') return rng.chance(PORTALS.reward.chest) ? 'chest' : 'skill-card'
   if (kind === 'trade') return rng.chance(PORTALS.trade.merchant) ? 'merchant' : 'altar'
   return rng.chance(PORTALS.battle.mobWave) ? 'mob-wave' : 'elite-fight'
@@ -206,6 +211,8 @@ function makePayload(
       return { gold: battleGold(layer, true), enemyCount: eliteFightCount(layer) }
     case 'boss':
       return { gold: battleGold(layer, true), enemyCount: 1, bossLayer: true }
+    case 'rest':
+      return { rest: { healRatio: 0.28, chargeRatio: 0.5 } }
     default:
       return {}
   }
@@ -251,6 +258,8 @@ function describePayload(
       }
     case 'boss':
       return { title: 'Boss 房间', desc: '正面击破最终阶段 Boss，锁定通关' }
+    case 'rest':
+      return { title: '休憩营地', desc: '回血 28%、充能 +50%，安全但没金币' }
     default:
       return { title: '未知房间', desc: '' }
   }

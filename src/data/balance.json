@@ -93,9 +93,10 @@
   "portals": {
     "count": 3,
     "weights": {
-      "reward": 0.4,
-      "trade": 0.35,
-      "battle": 0.25
+      "reward": 0.32,
+      "trade": 0.28,
+      "battle": 0.2,
+      "rest": 0.2
     },
     "reward": {
       "chest": 0.8,
@@ -469,8 +470,8 @@
           "minionCount": 3,
           "minionTaunt": 1,
           "minionSlow": 0,
-          "riceInterval": 10,
-          "riceBuff": 0.06,
+          "riceInterval": 8,
+          "riceBuff": 0.07,
           "riceMax": 8,
           "price": 260
         },
@@ -482,8 +483,8 @@
           "minionCount": 3,
           "minionTaunt": 1,
           "minionSlow": 0.2,
-          "riceInterval": 10,
-          "riceBuff": 0.06,
+          "riceInterval": 8,
+          "riceBuff": 0.07,
           "riceMax": 8,
           "price": 430
         },
@@ -495,8 +496,8 @@
           "minionCount": 5,
           "minionTaunt": 1,
           "minionSlow": 0.2,
-          "riceInterval": 10,
-          "riceBuff": 0.06,
+          "riceInterval": 8,
+          "riceBuff": 0.07,
           "riceMax": 8,
           "price": 650
         }

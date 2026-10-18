@@ -144,8 +144,10 @@ export class Game {
   private statDirty = false
   private mortisVisual = false
   private bonusOffers: TunnelOffer[] = []
-  private wallFade = 0
   private bonusActive = false
+  private layerSnapshot: RunState | null = null
+  private riceStacks = 0
+  private bossBarrageTimer = 4
   private autoPlay = false
   private disposed = false
 
@@ -175,6 +177,7 @@ export class Game {
 
   startRun(character: CharacterId, difficulty: DifficultyId): void {
     this.cleanupFloor()
+    this.riceStacks = 0
     this.run = makeRunState(character, difficulty)
     this.run.seed = Math.floor(Math.random() * 1e9)
     this.rng = new Rng(this.run.seed)
@@ -318,6 +321,13 @@ export class Game {
     if (!restoring) this.hud.toast(bossLayer ? 'Boss 层：击杀哥布林之王！' : `第 ${layer} 层 · 清完 ${this.layerTotal} 只哥布林`, 'info')
     this.recalcStats()
     this.saveRun(AUTOSAVE_SLOT)
+    this.layerSnapshot = {
+      ...this.run,
+      cards: { ...this.run.cards },
+      inventory: this.run.inventory.map((item) => ({ ...item })),
+      hp: this.player?.hp ?? this.run.hp,
+      maxHp: this.player?.stats.maxHp ?? this.run.maxHp,
+    }
   }
 
   /** 清掉非场景实体的临时对象（保留下层可复用的池） */
@@ -398,7 +408,7 @@ export class Game {
     const p = this.player
     if (p) {
       this.rig.update(dt, p.x, p.z, this.moveInput.x, this.moveInput.z, this.phase === 'title')
-      this.updateWallFade(dt)
+      this.updateWallVisibility()
       this.pickups.update(dt, p.x, p.z, 0, () => {})
     } else {
       this.rig.update(dt, 0, 0, 0, 0, this.phase === 'title')
@@ -424,6 +434,39 @@ export class Game {
     }
   }
 
+  /** 失败后重试本层：回滚到进入本层时的状态 */
+  retryLayer(): void {
+    const snap = this.layerSnapshot
+    if (!snap) {
+      this.hud.toast('没有可回溯的层快照', 'bad')
+      return
+    }
+    this.hud.hideEnd()
+    this.run = {
+      ...snap,
+      cards: { ...snap.cards },
+      inventory: snap.inventory.map((item) => ({ ...item })),
+    }
+    this.cards = { ...snap.cards }
+    this.inventory = new Inventory(12)
+    for (const item of this.run.inventory) this.inventory.add({ ...item })
+    if (!this.player) {
+      this.startRun(this.run.character, this.run.difficulty)
+      return
+    }
+    this.player.alive = true
+    this.syncCards()
+    this.recalcStats()
+    if (this.combat) {
+      this.combat.setCharacter(this.run.character)
+      this.combat.setWeaponLv(this.run.weaponLv)
+    }
+    this.player.setHp(Math.max(1, Math.min(this.player.stats.maxHp, snap.hp || this.player.stats.maxHp)))
+    this.run.hp = this.player.hp
+    this.enterLayer(this.run.layer, false)
+    this.hud.toast('重试本层！', 'good')
+  }
+
   togglePausePublic(): void {
     this.togglePause()
   }
@@ -444,17 +487,15 @@ export class Game {
     }
   }
 
-  /** 相机贴到墙外时把墙淡出，保证永远能看到角色和怪物 */
-  private updateWallFade(dt: number): void {
+  /** 相机退到哪面墙外，就隐藏那面墙（不做透明度渐变，避免材质每帧重编译导致闪烁） */
+  private updateWallVisibility(): void {
     if (!this.floor) return
     const half = this.floor.halfSize
     const cp = this.camera.position
-    const outside =
-      Math.abs(cp.x) > half - 0.4 || Math.abs(cp.z) > half - 0.4 || this.camera.position.y > 26
-    const target = outside ? 1 : 0
-    this.wallFade += (target - this.wallFade) * Math.min(1, dt * 8)
-    if (Math.abs(this.wallFade - target) < 0.01) this.wallFade = target
-    this.floor.fadeWalls(this.wallFade)
+    this.floor.setWallHidden('south', cp.z > half - 1)
+    this.floor.setWallHidden('north', cp.z < -(half - 1))
+    this.floor.setWallHidden('east', cp.x > half - 1)
+    this.floor.setWallHidden('west', cp.x < -(half - 1))
   }
 
   private updateAim(): void {
@@ -763,6 +804,20 @@ export class Game {
       boss.z = Math.max(-lim, Math.min(lim, boss.z))
     }
     this.hud.updateBoss(boss.hp)
+    if (boss.phase2 && boss.alive) {
+      this.bossBarrageTimer -= dt
+      if (this.bossBarrageTimer <= 0) {
+        this.bossBarrageTimer = 6.5
+        const count = 12
+        for (let i = 0; i < count; i += 1) {
+          const a = (i / count) * Math.PI * 2 + this.rng.next() * 0.2
+          this.spawnEnemyShot(boss.x, boss.z, boss.x + Math.cos(a) * 10, boss.z + Math.sin(a) * 10, mobDamageFor(this.run.difficulty, this.run.layer) * 2.2)
+        }
+        this.vfx.ring(boss.x, boss.z, { color: 0xb46bff, radius: 2.2, life: 0.5, grow: 2.4 })
+        this.hud.toast('哥布林之王释放了紫色弹幕！', 'bad')
+        audio.bossRoar()
+      }
+    }
     if (!boss.alive) {
       this.onBossDefeated()
       return
@@ -839,9 +894,11 @@ export class Game {
       this.player?.heal(value)
       audio.heal()
     } else if (kind === 'rice') {
+      this.riceStacks = Math.min(8, this.riceStacks + 1)
       this.combat?.grantCharge(0.2)
+      this.recalcStats()
       audio.pickup()
-      this.hud.toast('白米饭：充能 +20%', 'good')
+      this.hud.toast(`白米饭 ${this.riceStacks}/8：全属性 +${this.riceStacks * 7}%`, 'good')
     } else {
       const stat = this.rng.pick(['magic', 'stamina', 'intelligence', 'hp', 'moveSpeed', 'armor']) as CardStat
       const item = makeCardItem(stat, 1)
@@ -1028,6 +1085,19 @@ export class Game {
         this.hud.toast('背包已满，卡牌丢失', 'bad')
       }
     }
+    if (res.rest) {
+      const p = this.player
+      if (p) {
+        p.heal(p.stats.maxHp * res.rest.healRatio)
+        this.run.hp = p.hp
+      }
+      this.combat?.grantCharge(res.rest.chargeRatio)
+      this.vfx.ring(p?.x ?? 0, p?.z ?? 0, { color: 0x8fffc8, radius: 3, life: 0.8, grow: 2.2 })
+      this.hud.toast(`休憩：回血 28%、充能 +50%`, 'good')
+      audio.heal()
+      this.proceedToShop()
+      return
+    }
     if (res.shopOffers && res.shopOffers.length > 0) {
       this.shopOffers = res.shopOffers
       this.shopMode = 'room'
@@ -1155,6 +1225,13 @@ export class Game {
     this.hud.hideShop()
     this.hud.hideInventory()
     this.saveRun(AUTOSAVE_SLOT)
+    this.layerSnapshot = {
+      ...this.run,
+      cards: { ...this.run.cards },
+      inventory: this.run.inventory.map((item) => ({ ...item })),
+      hp: this.player?.hp ?? this.run.hp,
+      maxHp: this.player?.stats.maxHp ?? this.run.maxHp,
+    }
     const next = this.run.layer + 1
     if (next > layerCount(this.run.difficulty)) {
       this.win()
@@ -1249,7 +1326,7 @@ export class Game {
     if (!p) return
     const def = CHARACTERS[this.run.character]
     const tier = getWeaponTier(this.run.character, this.run.weaponLv) as Record<string, number>
-    const allStat = tier.allStatMul ?? 1
+    const allStat = (tier.allStatMul ?? 1) * (1 + this.riceStacks * 0.07)
     const mods = this.combat?.modifiers ?? NEUTRAL_MODS
     const c = this.cards
     const maxHp = Math.round((def.base.hp + (c.hp ?? 0)) * allStat)
@@ -1291,7 +1368,13 @@ export class Game {
     for (const g of this.goblins) if (g.alive) enemies.push(g as unknown as Hittable)
     if (this.boss && this.boss.alive) enemies.push(this.boss as unknown as Hittable)
     return {
-      spawnPickup: (x, z, kind) => this.pickups.spawn(kind, x, z, kind === 'gold' ? 1 : 20),
+      spawnPickup: (x, z, kind) => {
+        this.pickups.spawn(kind, x, z, kind === 'gold' ? 1 : 20)
+        if (kind === 'rice') {
+          this.vfx.ring(x, z, { color: 0x8fffc8, radius: 1.1, life: 0.6, grow: 1.6 })
+          this.hud.toast('白米饭出现了！拾取全属性 +7%', 'good')
+        }
+      },
       enemies,
       halfSize: this.floor?.halfSize ?? 20,
       clamp: (x, z) => this.floor?.clampToArena(x, z, 0.4) ?? { x, z },
