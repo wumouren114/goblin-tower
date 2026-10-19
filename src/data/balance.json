@@ -170,8 +170,8 @@
       190,
       300,
       450,
-      720,
-      1150
+      900,
+      1700
     ],
     "mergePairsToNext": 2,
     "desc": "同等级两张合成下一级；用于提升角色专武 1→7 级"
@@ -396,7 +396,7 @@
           "waveBounce": 1,
           "sizeMul": 1.4,
           "hitRadiusMul": 1.5,
-          "price": 720
+          "price": 900
         },
         {
           "lv": 7,
@@ -413,7 +413,7 @@
           "waveBounce": 1,
           "sizeMul": 1.5,
           "hitRadiusMul": 1.6,
-          "price": 1150
+          "price": 1700
         }
       ]
     },
@@ -504,7 +504,7 @@
           "stepOnAttack": 0.8,
           "skillDamageMul": 1.4,
           "allStatMul": 1.15,
-          "price": 720
+          "price": 900
         },
         {
           "lv": 7,
@@ -519,7 +519,7 @@
           "stepOnAttack": 0.9,
           "skillDamageMul": 1.5,
           "allStatMul": 1.2,
-          "price": 1150
+          "price": 1700
         }
       ]
     },
@@ -598,7 +598,7 @@
           "riceInterval": 8,
           "riceBuff": 0.08,
           "riceMax": 8,
-          "price": 720
+          "price": 900
         },
         {
           "lv": 7,
@@ -611,7 +611,7 @@
           "riceInterval": 8,
           "riceBuff": 0.09,
           "riceMax": 8,
-          "price": 1150
+          "price": 1700
         }
       ]
     }
