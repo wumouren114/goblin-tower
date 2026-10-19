@@ -89,6 +89,8 @@ npm run art:check    # 校验 37 张图尺寸/图集等分（只读 PNG 头，CI
 ```
 替换原画：把同名 PNG 覆盖进 `assets/art_pack/美术资源整合包/` 对应子目录 → 重新跑 `npm run art`。哥布林小怪没有原画，仍用程序化图集。
 
+单行升级：新规格 v5 的角色样张放在 `assets/art_pack/美术资源整合包/09-角色正面行样张/`（`char_<角色>_row1_front.png`，640×80 = 10 格 × 64×80）。归一化脚本会自动用它覆盖图集第 1 行（其余行保持旧图），并按参考身高把这一行缩放到与其他行同高；四行补齐后直接覆盖整张 640×400 图集即可，脚本无需改。
+
 **音频**：`assets/audio/` 里的 5 首 BGM（title / battle / boss / shop / victory）和 18 个音效全部由 `scripts/make-audio.mjs` 离线合成（零依赖、固定种子、逐字节可复现），运行时按曲目切歌、暂停压音量，缺文件自动回退旧程序化音效。
 ```bash
 npm run audio        # 重新渲染全部 WAV（约 1 秒，6.5MB）

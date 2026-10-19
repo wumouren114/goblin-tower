@@ -46,3 +46,8 @@
 - 角色图集格内无字母/文字标注；图集行 5（技能态）含义：睦=Mortis、丛雨=拔刀蓄力、肥鱼=召唤。
 - 若需 Mortis 独立文件 char_mortis.png，可从 char_mutsumi.png 第 5 行裁出（96×80×10 帧）。
 - 原稿/过程版本已在会话画布（Canvas）中存档，可随时回看。
+
+九、角色正面行样张（新规格 v5，先出正面行确认）
+  char_mutsumi_row1_front.png / char_fish_row1_front.png / char_murasame_row1_front.png  640×80 透明底（10格×64×80）
+  脚底对齐 y=74、跑步 4 帧明显交替、无网格/分隔/地面线、≤32 色；preview_*_x4.png 为 ×4 放大预览。
+  注：三角色剩余四行（背面/朝左/朝右/技能态）确认正面行后补齐为完整 640×400 图集。
