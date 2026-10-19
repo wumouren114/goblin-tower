@@ -1,5 +1,8 @@
 # 哥布林之塔 · Tower of the Goblin King（v3）
 
+> 在线试玩（手机/电脑浏览器直接打开）：https://wumouren114.github.io/goblin-tower/
+> 仓库：https://github.com/wumouren114/goblin-tower
+
 像素二次元 × 3D 俯视角 × 割草 Roguelike 爬塔。三角色任选，每层限时清空固定数量的哥布林，穿过「时空隧道」三选一，用金币升级专武与增益卡，最终登上塔顶击杀**哥布林之王**。
 
 > 技术栈：Vite + TypeScript(strict) + three.js。**外置美术/音频已接入**（AI 原画 `assets/art_raw/` + 自产 WAV `assets/audio/`），运行时缺失会自动回退到程序化生成；无 CDN、无新增依赖。
