@@ -809,10 +809,14 @@ export class TowerFloor implements WorldV3 {
   /** 相机退到墙外时直接隐藏那一面墙 */
   setWallHidden(side: 'south' | 'north' | 'east' | 'west', hidden: boolean): void {
     const m = this.wallMeshes[side]
-    if (m) m.visible = !hidden
     const c = this.corniceMeshes[side]
+    const wasVisible = (m ? m.visible : true) || (c ? c.visible : true)
+    if (m) m.visible = !hidden
     if (c) c.visible = !hidden
-    this.refreshShadow()
+    const nowVisible = (m ? m.visible : true) || (c ? c.visible : true)
+    // 只在真的发生显隐变化时才补一帧阴影：每帧都置 needsUpdate 会退化成逐帧重算阴影，
+    // PCFSoft 的采样抖动会让地面出现细碎闪烁。
+    if (wasVisible !== nowVisible) this.refreshShadow()
   }
 
   /**
@@ -834,8 +838,12 @@ export class TowerFloor implements WorldV3 {
 
   /** 只隐藏塔柱（相机贴边时角柱最容易糊住角色） */
   setPillarsHidden(hidden: boolean): void {
-    for (const m of this.pillarMeshes) m.visible = !hidden
-    this.refreshShadow()
+    let changed = false
+    for (const m of this.pillarMeshes) {
+      if (m.visible === hidden) changed = true
+      m.visible = !hidden
+    }
+    if (changed) this.refreshShadow()
   }
 
   /** 方向光阴影冻结（场景静态，避免每帧重算导致地面阴影闪烁） */

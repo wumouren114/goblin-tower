@@ -12,7 +12,8 @@
     "art:check": "node scripts/check-art.mjs",
     "audio": "node scripts/make-audio.mjs",
     "audio:check": "node scripts/check-audio.mjs",
-    "smoke": "node sim/world-smoke.mjs && node sim/combat-smoke.mjs && node sim/economy-smoke.mjs && node sim/art-smoke.mjs"
+    "smoke": "node sim/world-smoke.mjs && node sim/combat-smoke.mjs && node sim/economy-smoke.mjs && node sim/art-smoke.mjs",
+    "pack": "node scripts/pack-single.mjs"
   },
   "dependencies": {
     "three": "^0.186.1"

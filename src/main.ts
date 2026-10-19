@@ -93,6 +93,7 @@ async function boot(): Promise<void> {
   const diff = (params.get('autostart') ?? '') as DifficultyId | ''
   const floor = Number(params.get('floor') ?? '1')
   const warmup = Number(params.get('warmup') ?? '0')
+  if (params.get('seed') !== null) game.setDebugSeed(Number(params.get('seed')))
   if (diff) {
     game.debugJump(Number.isFinite(floor) ? floor : 1, diff, char)
     if (params.get('px') || params.get('pz')) {

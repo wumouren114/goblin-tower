@@ -121,6 +121,8 @@ export class Game {
   phase: GamePhase = 'title'
   paused = false
   private pausedFrom: GamePhase = 'playing'
+  /** 调试用固定随机种子（?seed=N），null = 每局随机 */
+  private debugSeedValue: number | null = null
 
   private run: RunState = makeRunState('mutsumi', 'normal')
   private cards: Record<CardStat, number> = emptyCards()
@@ -192,7 +194,7 @@ export class Game {
     audio.resume()
     audio.startBgm('battle')
     audio.setBgmIntensity(1)
-    this.run.seed = Math.floor(Math.random() * 1e9)
+    this.run.seed = this.debugSeedValue ?? Math.floor(Math.random() * 1e9)
     this.rng = new Rng(this.run.seed)
     this.inventory = new Inventory(12)
     this.cards = emptyCards()
@@ -1511,6 +1513,11 @@ export class Game {
   }
 
   // ---------- 调试（截图/自测用） ----------
+
+  /** ?seed=N：固定开局随机种子，便于两次截图逐像素比对（排查地面闪烁） */
+  setDebugSeed(seed: number | null): void {
+    this.debugSeedValue = seed !== null && Number.isFinite(seed) ? seed : null
+  }
 
   debugJump(layer: number, difficulty: DifficultyId = 'normal', character: CharacterId = 'mutsumi'): void {
     this.startRun(character, difficulty)

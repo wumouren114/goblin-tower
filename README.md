@@ -10,7 +10,10 @@
 npm install
 npm run dev        # http://127.0.0.1:5173
 npm run build      # tsc --noEmit + vite build
+npm run pack       # 额外产出 dist/哥布林之塔-单文件版.html（约 15MB，双击即玩）
 ```
+
+**分享给别人玩**：`npm run pack` 生成的「哥布林之塔-单文件版.html」把 JS/CSS/PNG/WAV 全内联成 data URI，Windows 上双击用 Edge/Chrome 打开就能玩（微信/网盘直接传，不用装 Node、不用开服务器）。首次点击画面后音乐才会响（浏览器自动播放策略）。其他方式：`npm run build` 后把整个 `dist/` 交给对方用任意静态服务器跑，或 `npm run dev -- --host 0.0.0.0` 让同局域网的人访问 `http://你的IP:5173`。
 
 首次进入是标题页：左侧选角色（若叶睦 / 丛雨 / 蓝色大肥鱼），右侧选难度（简单 7 层 / 普通 5+7 层 / 困难 5+5+5 层），点「开始爬塔」。有存档时标题页会出现「继续游戏」。
 
