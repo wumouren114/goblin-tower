@@ -41,14 +41,6 @@ SHEETS = {
     "boss_king.png": dict(cols=6, rows=4, cell=(96, 112), fit=(90, 104), baseline=107),
 }
 
-# 新规格 v5 的单行样张：出图先只出「正面行」确认，放在 09-角色正面行样张/。
-# 存在时用样张覆盖图集的第 1 行（正面/朝下），其余行仍用原图集，逐行升级不打断游戏。
-ROW_PATCHES = {
-    "char_mutsumi.png": "char_mutsumi_row1_front.png",
-    "char_murasame.png": "char_murasame_row1_front.png",
-    "char_fish.png": "char_fish_row1_front.png",
-}
-
 # 单图资源：原样复制（尺寸必须与 docs/07 规格一致，不一致会告警）
 SINGLES = {
     "keyart_title.png": (1920, 1080),
@@ -437,27 +429,11 @@ def normalize_sheet(name: str, cols: int, rows: int, cell_wh, fit_wh, baseline: 
     strip_grid_lines(src_img)
     strip_cell_borders(src_img, cols, rows, cw, ch)
 
-    # 新规格 v5 的「正面行」样张：有就用它覆盖第 1 行（只做轻度清理，样张本身没有格线）
-    patch_img = None
-    patch_name = ROW_PATCHES.get(name)
-    if patch_name:
-        try:
-            patch_img = Image.open(find(patch_name)).convert("RGBA")
-        except SystemExit:
-            patch_img = None
-        if patch_img is not None and patch_img.size[1] != ch:
-            print(f"  !! {patch_name} 高度 {patch_img.size[1]} != 格子高 {ch}，忽略该行样张")
-            patch_img = None
-
     frames = [[None] * cols for _ in range(rows)]
     dims: list[tuple[int, int]] = []
-    patch_dims: list[tuple[int, int]] = []
     for r in range(rows):
         for c in range(cols):
-            is_patch = r == 0 and patch_img is not None and c < cols
-            if is_patch:
-                res = clean_frame_cell(patch_img, c, 0, cw, ch)
-            elif mode == "window":
+            if mode == "window":
                 res = clean_frame_window(src_img, c, r, cw, ch)
             else:
                 res = clean_cell(src_img, c, r, cw, ch)
@@ -465,7 +441,7 @@ def normalize_sheet(name: str, cols: int, rows: int, cell_wh, fit_wh, baseline: 
                 continue
             fimg, foot_x = res
             frames[r][c] = (fimg, foot_x)
-            (patch_dims if is_patch else dims).append((fimg.width, fimg.height))
+            dims.append((fimg.width, fimg.height))
 
     def p90_dim(items: list[tuple[int, int]]) -> tuple[int, int]:
         if not items:
@@ -479,16 +455,6 @@ def normalize_sheet(name: str, cols: int, rows: int, cell_wh, fit_wh, baseline: 
     # 用 90 分位而不是最大值算缩放：个别帧多抓到一条刀光/残影不会把整个角色缩小
     ref_w, ref_h = p90_dim(dims)
     scale = min(1.0, fit_w / ref_w, fit_h / ref_h)
-
-    # 行样张和旧行是两批出图，身高可能差 10~20%：按参考高度把样张行单独缩放到同一身高
-    row_scale = scale
-    if patch_dims and dims:
-        pw, ph = p90_dim(patch_dims)
-        if ph > 1:
-            row_scale = scale * (ref_h / ph)
-            max_w_patch = max(d[0] for d in patch_dims)
-            # 放大后别顶出格子/内容框
-            row_scale = min(row_scale, (cw - 2) / max_w_patch, fit_w / max_w_patch)
     out = Image.new("RGBA", expect, (0, 0, 0, 0))
     for r in range(rows):
         for c in range(cols):
@@ -496,7 +462,7 @@ def normalize_sheet(name: str, cols: int, rows: int, cell_wh, fit_wh, baseline: 
             if item is None:
                 continue
             fimg, foot_x = item
-            used_scale = row_scale if (r == 0 and patch_dims) else scale
+            used_scale = scale
             tw = max(1, round(fimg.width * used_scale))
             th = max(1, round(fimg.height * used_scale))
             fimg = fimg.resize((tw, th), Image.NEAREST)

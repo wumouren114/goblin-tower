@@ -51,3 +51,7 @@
   char_mutsumi_row1_front.png / char_fish_row1_front.png / char_murasame_row1_front.png  640×80 透明底（10格×64×80）
   脚底对齐 y=74、跑步 4 帧明显交替、无网格/分隔/地面线、≤32 色；preview_*_x4.png 为 ×4 放大预览。
   注：三角色剩余四行（背面/朝左/朝右/技能态）确认正面行后补齐为完整 640×400 图集。
+
+十、角色其余四行（新规格 v5 补齐）
+  char_<角色>_row2_back / row3_left / row4_right / row5_skill.png 各 4 张（3 角色共 12 张），每张 640×80 透明底（10格×64×80）
+  脚底对齐 y=75、跑步 4 帧明显交替、无网格/分隔/地面线、≤32 色；row5 技能态：睦=Mortis（紫色音波）、丛雨=拔刀蓄力（蓝白刀光）、大肥鱼=召唤（青白泡泡）；preview_*_x4.png 为 ×4 放大预览。
