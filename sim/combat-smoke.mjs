@@ -374,11 +374,30 @@ try {
   {
     const t1 = runtime.getWeaponTier('mutsumi', 1)
     const t5 = runtime.getWeaponTier('mutsumi', 5)
-    check('mutsumi lv1 单发 / lv5 三发', t1.projectiles === 1 && t5.projectiles === 3, `${t1.projectiles}/${t5.projectiles}`)
+    check(
+      'mutsumi lv1 单发 / lv5 三发 / lv7 四发',
+      t1.projectiles === 1 &&
+        t5.projectiles === 3 &&
+        runtime.getWeaponTier('mutsumi', 7).projectiles === 4,
+      `${t1.projectiles}/${t5.projectiles}/${runtime.getWeaponTier('mutsumi', 7).projectiles}`,
+    )
     check('mutsumi lv5 黄瓜变大', t5.sizeMul === 1.4 && t5.hitRadiusMul === 1.5, JSON.stringify({ s: t5.sizeMul, h: t5.hitRadiusMul }))
-    check('murasame lv5 突进消耗 70', runtime.getWeaponTier('murasame', 5).skillCharge === 64)
-    check('fish lv5 召唤 5 只', runtime.getWeaponTier('fish', 5).minionCount === 5)
-    check('武器等级夹到 1..5', runtime.getWeaponTier('fish', 99).lv === 5 && runtime.getWeaponTier('fish', -3).lv === 1)
+    check(
+      'murasame lv5/lv7 突进消耗与拔刀半径',
+      runtime.getWeaponTier('murasame', 5).skillCharge === 64 &&
+        runtime.getWeaponTier('murasame', 7).radiusMul === 1.32,
+      JSON.stringify(runtime.getWeaponTier('murasame', 7)),
+    )
+    check(
+      'fish lv5 召唤 5 只 / lv7 召唤 6 只',
+      runtime.getWeaponTier('fish', 5).minionCount === 5 &&
+        runtime.getWeaponTier('fish', 7).minionCount === 6,
+      `${runtime.getWeaponTier('fish', 5).minionCount}/${runtime.getWeaponTier('fish', 7).minionCount}`,
+    )
+    check(
+      `武器等级夹到 1..${runtime.MAX_WEAPON_LV}`,
+      runtime.getWeaponTier('fish', 99).lv === runtime.MAX_WEAPON_LV && runtime.getWeaponTier('fish', -3).lv === 1,
+    )
   }
 
   // ═════════════ F. 暴击与击杀 ═════════════

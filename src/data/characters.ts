@@ -114,7 +114,9 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
         burstKnockback: 3,
         pulseInterval: 0.5,
         pulseBaseDamage: 11,
-        pulseBaseRadius: 5.6,
+        // 音波基础半径 5.6→4.3（-23%）：只在敌群/贴身时有效，避免一个大招覆盖全场；
+        // 专武 mortisRadiusMul 仍按 lv 叠加（lv5 ×1.15、lv6 ×1.20、lv7 ×1.25）逐步补回覆盖。
+        pulseBaseRadius: 4.3,
         slow: 0.3,
         slowDuration: 0.15,
       },

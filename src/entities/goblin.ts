@@ -55,7 +55,7 @@ export class Goblin {
     def: EnemyDef,
     x: number,
     z: number,
-    mul: { hp: number; damage: number; speed: number; scale: number },
+    mul: { hp: number; damage: number; speed: number; scale: number; layerSpeed?: number },
     elite = false,
   ) {
     this.scene = scene
@@ -66,7 +66,8 @@ export class Goblin {
     this.hp = this.maxHp
     this.radius = def.radius
     this.damage = def.damage * mul.damage
-    this.speed = def.speed * mul.speed
+    // 层数移速压力：layerSpeed 来自 balance.layerCurve.mobSpeed*（mobSpeedMulFor），老调用缺省 = 1
+    this.speed = def.speed * mul.speed * (mul.layerSpeed ?? 1)
     this.xpValue = def.xp
     this.goldChance = def.goldChance
     this.scale = def.scale * mul.scale

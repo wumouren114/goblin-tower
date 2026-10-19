@@ -97,7 +97,7 @@ export interface TunnelOffer {
 export interface TunnelPayload {
   gold?: number
   card?: InventoryItem
-  skillCard?: { id: string; name: string; desc: string; stat: CardStat; value: number }
+  skillCard?: { id: string; name: string; desc: string; stat: CardStat; value: number; tier?: 1 | 2 | 3 }
   /** 商人/祭坛的报价（该房间内可购买的商品） */
   shopOffers?: ShopOffer[]
   altarCost?: number
@@ -351,6 +351,8 @@ export interface HudV3Handlers {
   onCloseInventory(): void
   onMergeItem(uidA: string, uidB: string): void
   onUseItem(uid: string): void
+  /** 丢弃背包里的物品（丢弃不退金币）；可选：未接线的模式/HUD 预览可不实现 */
+  onDiscardItem?: (uid: string) => void
   onSave(slot: number): void
   onLoad(slot: number): void
   onPauseToggle(): void

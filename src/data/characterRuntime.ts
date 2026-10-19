@@ -20,8 +20,14 @@ interface WeaponDef {
 
 const WEAPONS = ((BALANCE as unknown as { weapons?: Record<string, WeaponDef> }).weapons ?? {}) as Record<string, WeaponDef>
 
-/** 专武最高等级（balance 每个角色都是 5 档） */
-export const MAX_WEAPON_LV = 5
+/**
+ * 专武最高等级：由 balance.json 各角色 tiers 的 lv 推出（当前 7 档），
+ * 不再写死数字——以后加专武等级只改数据，代码自动跟上。
+ */
+export const MAX_WEAPON_LV = Math.max(
+  1,
+  ...Object.values(WEAPONS).flatMap((w) => (w.tiers ?? []).map((t) => t.lv)),
+)
 
 /** 取角色专武某一档；level 自动夹在 1..MAX，找不到时退回最近一档 */
 export function getWeaponTier(charId: CharacterId, level: number): WeaponTier {

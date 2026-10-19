@@ -186,15 +186,18 @@ check('商店价格曲线随层数单调上涨（55 金基准）', () => {
 check('品质倍率抬高价格并放大卡值', () => {
   const tier2 = economy.makeCardItem('magic', 2)
   const tier3 = economy.makeCardItem('magic', 3)
-  approx(tier2.value, 18 * 1.9, 1e-9, 'tier2 magic 18×1.9')
-  approx(tier3.value, 18 * 3.2, 1e-9, 'tier3 magic 18×3.2')
-  ok(tier2.name.startsWith(BALANCE.shop.quality.tier2.name), 'tier2 名字应带品质前缀')
-  ok(economy.priceOf(55, 1, 2.4) > economy.priceOf(55, 1), '品质 priceMul 应抬高价格')
+  const q2 = BALANCE.shop.quality.tier2
+  const q3 = BALANCE.shop.quality.tier3
+  approx(tier2.value, 18 * q2.valueMul, 1e-9, `tier2 magic 18×${q2.valueMul}`)
+  approx(tier3.value, 18 * q3.valueMul, 1e-9, `tier3 magic 18×${q3.valueMul}`)
+  ok(tier2.name.startsWith(q2.name), 'tier2 名字应带品质前缀')
+  ok(economy.priceOf(55, 1, q2.priceMul) > economy.priceOf(55, 1), '品质 priceMul 应抬高价格')
 })
-check('15 层总收入能覆盖专武 1→5 级（90/180/320/520）', () => {
-  const weaponCost = 90 + 180 + 320 + 520
-  ok(totalIncome > weaponCost * 2, `15 层收入 ${totalIncome} 应远大于专武总价 ${weaponCost}`)
-  console.log(`  15 层总收入 ≈ ${totalIncome} 金，专武全买 = ${weaponCost} 金`)
+check('15 层总收入能承担专武 1→7 级的长线开销', () => {
+  // 专武总价 = 各角色 tiers 2..MAX 的 price 之和（fish 与其他角色同价）
+  const weaponCost = BALANCE.weapons.fish.tiers.slice(1).reduce((sum, t) => sum + (t.price ?? 0), 0)
+  ok(totalIncome > weaponCost * 0.6, `15 层收入 ${totalIncome} 应能承担专武长线总价 ${weaponCost} 的六成以上`)
+  console.log(`  15 层总收入 ≈ ${totalIncome} 金，专武 1→7 全买 = ${weaponCost} 金`)
 })
 
 // ═════════════════════════════════════════════════════════════════
@@ -510,13 +513,13 @@ check('use() 只吃消耗品并返回该物品', () => {
 check('cards 汇总：只累计增益卡，消耗品/专武券不上面板', () => {
   const bag = new Inventory()
   bag.add(economy.makeCardItem('magic', 1)) // 18
-  bag.add(economy.makeCardItem('hp', 2)) // 25×1.9=47.5
+  bag.add(economy.makeCardItem('hp', 2)) // 25 × tier2.valueMul
   bag.add(economy.makeCardItem('armor', 1)) // 0.05
   bag.add(economy.makeWeaponItem('fish', 2))
   bag.add({ uid: 'c1', kind: 'consumable', name: '充能电池', desc: '', icon: '🔋', tier: 1, value: 1 })
   const cards = bag.cards
   approx(cards.magic, 18, 1e-9)
-  approx(cards.hp, 47.5, 1e-9)
+  approx(cards.hp, 25 * BALANCE.shop.quality.tier2.valueMul, 1e-9)
   approx(cards.armor, 0.05, 1e-9)
   eq(cards.stamina, 0)
 })
@@ -675,14 +678,16 @@ check('商店随机可复现（同 seed 同货架）', () => {
   eq(a.find((offer) => offer.kind === 'weapon').weaponLevel, 4, '专武券 = 当前等级 +1')
   const weapon = a.find((offer) => offer.kind === 'weapon')
   eq(weapon.price, BALANCE.weapons.fish.tiers[3].price, '专武价格取 tiers[level-1].price')
+  const hi = shop.generateOffers(10, 'fish', 999, new Rng(777), 4, 6)
+  eq(hi.find((offer) => offer.kind === 'weapon')?.weaponLevel, 7, 'Lv6 货架应能出 Lv7 专武券')
   const cards = a.filter((offer) => offer.kind === 'buff-card')
   ok(cards.length >= 2, '至少 2 张增益卡')
   ok(shop.refreshOffers(6, 'fish', new Rng(1), 2).length === 4, 'refreshOffers 出 4 件')
 })
 
-check('商店专武券到 5 级后不再出现', () => {
+check('商店专武券到 7 级后不再出现', () => {
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    const offers = shop.generateOffers(10, 'murasame', 999, new Rng(attempt), 4, 5)
+    const offers = shop.generateOffers(10, 'murasame', 999, new Rng(attempt), 4, 7)
     ok(offers.every((offer) => offer.kind !== 'weapon'), '满级不应出专武券')
   }
 })

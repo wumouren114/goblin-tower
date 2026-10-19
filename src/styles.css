@@ -3201,6 +3201,51 @@ button:focus-visible {
   text-overflow: ellipsis;
 }
 
+/* 丢弃按钮：格子右上角的小圆钮（26px 触控热区），压低存在感防误触，悬停才变亮 */
+.ic-discard {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-family: var(--font-num);
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+  color: rgba(255, 214, 205, 0.72);
+  background: rgba(60, 16, 14, 0.72);
+  border: 1px solid rgba(255, 120, 108, 0.34);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.68;
+  touch-action: manipulation;
+  user-select: none;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease, border-color 0.12s ease,
+    transform 0.12s ease;
+}
+
+.ic-discard:hover,
+.ic-discard:focus-visible {
+  color: #fff3ef;
+  background: rgba(168, 40, 32, 0.92);
+  border-color: rgba(255, 150, 138, 0.9);
+  opacity: 1;
+  transform: scale(1.1);
+}
+
+.ic-discard:active {
+  transform: scale(0.94);
+}
+
+.inv-cell.is-empty .ic-discard {
+  display: none;
+}
+
 .inv-summary {
   display: flex;
   flex-direction: column;

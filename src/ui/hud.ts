@@ -27,6 +27,7 @@ import type {
 import { CHARACTERS } from '../data/characters'
 import { artReady, artUrl, type ArtKey } from '../art/atlasImport'
 import { BALANCE, DIFFICULTIES, DIFFICULTY_IDS } from '../data/balance'
+import { canMergeItems } from '../systems/inventory'
 import {
   clamp01,
   div,
@@ -52,6 +53,8 @@ const BOSS_PHASE2_RATIO = 0.55
 const LOW_TIME_SECONDS = 15
 /** 选卡/按钮防连点间隔 */
 const PICK_DELAY_MS = 150
+/** 丢弃按钮防连点间隔（避免一次双击把移位后的下一件物品也丢掉） */
+const DISCARD_GUARD_MS = 250
 /** 飘字上飘距离（px）与存活时长（s） */
 const FLOATER_RISE_PX = 52
 const FLOATER_LIFE = 0.86
@@ -96,6 +99,7 @@ interface InvCellRef {
   icon: HTMLSpanElement
   name: HTMLSpanElement
   meta: HTMLSpanElement
+  discard: HTMLButtonElement
 }
 
 /* ------------------------------------------------------------------ */
@@ -445,7 +449,7 @@ const UI_TEMPLATE = /* html */ `
           <div class="howto-list">
             <div class="howto-row"><span class="howto-keys"><kbd>WASD</kbd></span><span>移动躲闪，左键普攻</span></div>
             <div class="howto-row"><span class="howto-keys"><kbd>右键</kbd></span><span>释放专武技能，充能靠击杀</span></div>
-            <div class="howto-row"><span class="howto-keys"><kbd>TAB</kbd></span><span>查看背包，两张同级同类卡可合成</span></div>
+            <div class="howto-row"><span class="howto-keys"><kbd>TAB</kbd></span><span>查看背包，两张同级同类卡可合成，点格子右上角 × 可丢弃</span></div>
             <div class="howto-row"><span class="howto-keys"><kbd>P</kbd></span><span>暂停 / 存档</span></div>
           </div>
           <p class="howto-note">每层限时，清空全部敌人后从时空隧道三选一前进。</p>
@@ -502,12 +506,12 @@ const UI_TEMPLATE = /* html */ `
         <aside class="inv-summary">
           <h3 class="inv-summary-title">已获卡片汇总</h3>
           <div class="inv-stats js-inv-stats"></div>
-          <p class="inv-hint js-inv-hint">点击两张同级同种的卡牌合成；消耗品点击即使用。</p>
-          <p class="inv-warn js-inv-warn" hidden>背包已满！合成或使用物品腾出格子。</p>
+          <p class="inv-hint js-inv-hint">点击两张同级同种的卡牌合成；消耗品点击即使用；点格子右上角 × 丢弃。</p>
+          <p class="inv-warn js-inv-warn" hidden>背包已满：可合成/丢弃，或在商店购买时自动合成。</p>
         </aside>
       </div>
       <footer class="inv-foot">
-        <span class="inv-tip">同类同级可合成，最高 3 级；装备与增益卡进包即计入面板。</span>
+        <span class="inv-tip">同类同级可合成，最高 3 级（专武券按专武表升级）；点 × 可丢弃，丢弃不退金币。</span>
         <button class="btn-primary js-inv-close" type="button">关闭</button>
       </footer>
     </div>
@@ -653,6 +657,8 @@ class HudImpl implements HudV3 {
   private invMaxSlots = 12
   private invSelected: string | null = null
   private invGold = 0
+  /** 上次丢弃的时间戳：防连点把下一格物品也丢掉 */
+  private invDiscardMs = 0
 
   /* ---------- 暂停 / 存档 ---------- */
   private pauseEl!: HTMLElement
@@ -1548,20 +1554,21 @@ class HudImpl implements HudV3 {
       const icon = span('ic-icon', '')
       const name = span('ic-name', '空')
       const meta = span('ic-meta', '')
-      cell.append(tier, icon, name, meta)
+      // 丢弃按钮：放在格子右上角，阻止冒泡避免触发「选中/合成」
+      const discard = el('button', 'ic-discard')
+      discard.type = 'button'
+      discard.textContent = '×'
+      discard.title = '丢弃'
+      discard.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        this.onInvDiscard(index)
+      })
+      cell.append(tier, icon, name, meta, discard)
       cell.addEventListener('click', () => this.onInvCellClick(index))
       this.invGridEl.appendChild(cell)
-      this.invCellRefs.push({ cell, tier, icon, name, meta })
+      this.invCellRefs.push({ cell, tier, icon, name, meta, discard })
     }
-  }
-
-  private canMerge(a: InventoryItem, b: InventoryItem): boolean {
-    if (a.uid === b.uid) return false
-    if (a.kind !== b.kind) return false
-    if (a.kind === 'consumable') return false
-    if (a.tier !== b.tier) return false
-    if (a.tier >= 3) return false
-    return (a.stat ?? '') === (b.stat ?? '')
   }
 
   private onInvCellClick(index: number): void {
@@ -1576,7 +1583,7 @@ class HudImpl implements HudV3 {
       return
     }
     const selected = this.invSelected ? this.invItems.find((entry) => entry.uid === this.invSelected) : null
-    if (selected && this.canMerge(selected, item)) {
+    if (selected && canMergeItems(selected, item)) {
       this.invSelected = null
       this.handlers.onMergeItem(selected.uid, item.uid)
       return
@@ -1585,11 +1592,24 @@ class HudImpl implements HudV3 {
     this.renderInventory(this.invGold)
   }
 
+  /** 丢弃指定格子的物品（防误触：仅格子右上角 × 触发；随后重绘面板） */
+  private onInvDiscard(index: number): void {
+    const item = this.invItems[index]
+    if (!item) return
+    const now = performance.now()
+    if (now - this.invDiscardMs < DISCARD_GUARD_MS) return
+    this.invDiscardMs = now
+    if (this.invSelected === item.uid) this.invSelected = null
+    this.handlers.onDiscardItem?.(item.uid)
+    // 回调通常已让 game 触发 updateInventory；这里兜底重绘，确保丢弃后立即从面板消失
+    this.renderInventory(this.invGold)
+  }
+
   private renderInventory(gold: number): void {
     this.invGold = Math.max(0, gold)
     setText(this.invGoldEl, fmtInt(this.invGold))
     setText(this.invCountEl, `${this.invItems.length} / ${this.invMaxSlots}`)
-    setText(this.invHintEl, '点击两张同级同种的卡牌合成；消耗品点击即使用。')
+    setText(this.invHintEl, '点击两张同级同种的卡牌合成；消耗品点击即使用；点格子右上角 × 丢弃。')
     const full = this.invItems.length >= this.invMaxSlots
     this.invWarnEl.hidden = !full
 
@@ -1607,6 +1627,7 @@ class HudImpl implements HudV3 {
       const item = this.invItems[i]
       if (!item) {
         ref.cell.className = 'inv-cell is-empty'
+        ref.discard.hidden = true
         setText(ref.tier, '')
         setArtIcon(ref.icon, null, '＋')
         setText(ref.name, '空')
@@ -1615,8 +1636,11 @@ class HudImpl implements HudV3 {
       }
       ref.cell.className = `inv-cell ${tierClass(item.tier)}`
       if (item.uid === this.invSelected) ref.cell.classList.add('is-selected')
-      if (selectedItem && this.canMerge(selectedItem, item)) ref.cell.classList.add('is-mergeable')
+      if (selectedItem && canMergeItems(selectedItem, item)) ref.cell.classList.add('is-mergeable')
       if (item.kind === 'consumable') ref.cell.classList.add('is-consumable')
+      ref.discard.hidden = false
+      ref.discard.setAttribute('aria-label', `丢弃 ${item.name}`)
+      ref.discard.title = `丢弃 ${item.name}`
       setText(ref.tier, tierLabel(item.tier))
       setArtIcon(ref.icon, itemArtKey(item, this.runCharacter), item.icon || '✦')
       setText(ref.name, item.name)
@@ -1632,7 +1656,7 @@ class HudImpl implements HudV3 {
     if (selectedItem) {
       setText(
         this.invHintEl,
-        `已选中「${selectedItem.name}」：点击另一张同级同种的卡牌合成，或再次点击取消。`,
+        `已选中「${selectedItem.name}」：点击另一张同级同种的卡牌合成；点右上角 × 丢弃；再次点击取消选中。`,
       )
     }
 

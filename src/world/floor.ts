@@ -812,6 +812,16 @@ export class TowerFloor implements WorldV3 {
     if (m) m.visible = !hidden
     const c = this.corniceMeshes[side]
     if (c) c.visible = !hidden
+    this.refreshShadow()
+  }
+
+  /**
+   * 墙/柱显隐会改变它们投在地面上的影子：阴影贴图被冻结（防闪烁）时必须补一帧，
+   * 否则墙面隐藏后地板上还留着那道墙影，来回走动就像地板在闪。
+   */
+  private refreshShadow(): void {
+    const light = this.keyLight
+    if (light?.shadow) light.shadow.needsUpdate = true
   }
 
   /** 相机退到墙外时逐面隐藏 + 同时隐藏四角塔柱，避免任何方向挡视线 */
@@ -825,6 +835,7 @@ export class TowerFloor implements WorldV3 {
   /** 只隐藏塔柱（相机贴边时角柱最容易糊住角色） */
   setPillarsHidden(hidden: boolean): void {
     for (const m of this.pillarMeshes) m.visible = !hidden
+    this.refreshShadow()
   }
 
   /** 方向光阴影冻结（场景静态，避免每帧重算导致地面阴影闪烁） */

@@ -30,6 +30,10 @@ interface LayerCurve {
   maxAliveBase: number
   maxAlivePerLayer: number
   maxAliveCap: number
+  /** 小怪移速：base + perLayer × (层-1)，封顶 cap */
+  mobSpeedBase: number
+  mobSpeedPerLayer: number
+  mobSpeedCap: number
   clearGoldBase: number
   clearGoldPerLayer: number
   goldPerKillBase: number
@@ -127,6 +131,16 @@ export function mobDamageFor(id: DifficultyId, layer: number): number {
   const c = LAYER_CURVE
   const w = warmupFor(id, layer)
   return c.mobDamageBase * (1 + c.mobDamagePerLayer * (layer - 1)) * DIFFICULTIES[id].damageMul * (w?.damageMul ?? 1)
+}
+
+/**
+ * 第 layer 层小怪移速倍率（数据驱动：layerCurve.mobSpeed*）。
+ * 只作用于小怪（由 game.ts 传入 Goblin.mul.layerSpeed），不影响玩家与 Boss。
+ */
+export function mobSpeedMulFor(layer: number): number {
+  const c = LAYER_CURVE
+  const lv = Math.max(1, Math.round(layer))
+  return Math.min(c.mobSpeedCap, c.mobSpeedBase + c.mobSpeedPerLayer * (lv - 1))
 }
 
 export function quotaFor(id: DifficultyId, layer: number): number

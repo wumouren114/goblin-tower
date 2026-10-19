@@ -67,18 +67,22 @@
   },
   "layerCurve": {
     "mobHpBase": 24,
-    "mobHpPerLayer": 0.44,
+    "mobHpPerLayer": 0.36,
     "mobDamageBase": 5,
     "mobDamagePerLayer": 0.16,
     "quotaBase": 30,
-    "quotaPerLayer": 5,
+    "quotaPerLayer": 7,
     "spawnIntervalBase": 0.9,
-    "spawnIntervalDecay": 0.032,
-    "spawnIntervalMin": 0.4,
+    "spawnIntervalDecay": 0.04,
+    "spawnIntervalMin": 0.34,
     "spawnBatchBase": 2,
     "maxAliveBase": 18,
-    "maxAlivePerLayer": 2,
-    "maxAliveCap": 48,
+    "maxAlivePerLayer": 3,
+    "maxAliveCap": 60,
+    "mobSpeedBase": 1,
+    "mobSpeedPerLayer": 0.055,
+    "mobSpeedCap": 1.9,
+    "mobSpeedNote": "每层小怪移速倍率 = min(mobSpeedCap, mobSpeedBase + mobSpeedPerLayer × (层-1))",
     "clearGoldBase": 72,
     "clearGoldPerLayer": 15,
     "goldPerKillBase": 1,
@@ -141,19 +145,19 @@
     },
     "quality": {
       "note": "层数越高，商店越可能刷出高品质货物（数值与价格同时提高）",
-      "tierUpStartLayer": 4,
+      "tierUpStartLayer": 3,
       "tier2": {
-        "chancePerLayer": 0.06,
-        "chanceCap": 0.55,
-        "valueMul": 1.9,
+        "chancePerLayer": 0.085,
+        "chanceCap": 0.8,
+        "valueMul": 2.1,
         "priceMul": 2.4,
         "name": "精制"
       },
       "tier3": {
-        "startLayer": 9,
-        "chancePerLayer": 0.05,
-        "chanceCap": 0.4,
-        "valueMul": 3.2,
+        "startLayer": 8,
+        "chancePerLayer": 0.065,
+        "chanceCap": 0.55,
+        "valueMul": 3.8,
         "priceMul": 5.5,
         "name": "臻品"
       }
@@ -165,10 +169,12 @@
       110,
       190,
       300,
-      450
+      450,
+      720,
+      1150
     ],
     "mergePairsToNext": 2,
-    "desc": "同等级两张合成下一级；用于提升角色专武 1→5 级"
+    "desc": "同等级两张合成下一级；用于提升角色专武 1→7 级"
   },
   "buffCards": [
     {
@@ -374,6 +380,40 @@
           "sizeMul": 1.4,
           "hitRadiusMul": 1.5,
           "price": 450
+        },
+        {
+          "lv": 6,
+          "desc": "黄瓜伤害 23→27；Mortis 音波半径再 +5%（变身期覆盖更远）",
+          "projectiles": 3,
+          "damage": 27,
+          "spread": 10,
+          "bounce": 1,
+          "bounceMul": 0.6,
+          "mortisPulseMul": 0.77,
+          "mortisRadiusMul": 1.2,
+          "mortisLifesteal": 0.06,
+          "mortisWave": 1.2,
+          "waveBounce": 1,
+          "sizeMul": 1.4,
+          "hitRadiusMul": 1.5,
+          "price": 720
+        },
+        {
+          "lv": 7,
+          "desc": "四发黄瓜（±13°）单发 27→29；音波半径 +5%，黄瓜体积/命中半径小幅提升",
+          "projectiles": 4,
+          "damage": 29,
+          "spread": 13,
+          "bounce": 1,
+          "bounceMul": 0.6,
+          "mortisPulseMul": 0.77,
+          "mortisRadiusMul": 1.25,
+          "mortisLifesteal": 0.06,
+          "mortisWave": 1.2,
+          "waveBounce": 1,
+          "sizeMul": 1.5,
+          "hitRadiusMul": 1.6,
+          "price": 1150
         }
       ]
     },
@@ -450,6 +490,36 @@
           "skillDamageMul": 1.25,
           "allStatMul": 1.15,
           "price": 450
+        },
+        {
+          "lv": 6,
+          "desc": "普攻 26→29、吸血 5%→6.5%、闪避 18%→20%；技能伤害 ×1.4、每命中回 9 血",
+          "damage": 29,
+          "radiusMul": 1.15,
+          "gatherOnHit": 0,
+          "dodgeChance": 0.2,
+          "lifesteal": 0.065,
+          "skillHealPerHit": 9,
+          "skillCharge": 64,
+          "stepOnAttack": 0.8,
+          "skillDamageMul": 1.4,
+          "allStatMul": 1.15,
+          "price": 720
+        },
+        {
+          "lv": 7,
+          "desc": "普攻 29→32、拔刀半径 +32%、闪避 20%→25%、吸血 6.5%→7.5%；技能伤害 ×1.5",
+          "damage": 32,
+          "radiusMul": 1.32,
+          "gatherOnHit": 0,
+          "dodgeChance": 0.25,
+          "lifesteal": 0.075,
+          "skillHealPerHit": 10,
+          "skillCharge": 62,
+          "stepOnAttack": 0.9,
+          "skillDamageMul": 1.5,
+          "allStatMul": 1.2,
+          "price": 1150
         }
       ]
     },
@@ -516,6 +586,32 @@
           "riceBuff": 0.07,
           "riceMax": 8,
           "price": 450
+        },
+        {
+          "lv": 6,
+          "desc": "泡泡伤害 13→15、穿透 +1、白米饭全属性增益 +6%→+8%",
+          "damage": 15,
+          "pierce": 2,
+          "minionCount": 5,
+          "minionTaunt": 1,
+          "minionSlow": 0.2,
+          "riceInterval": 8,
+          "riceBuff": 0.08,
+          "riceMax": 8,
+          "price": 720
+        },
+        {
+          "lv": 7,
+          "desc": "小鲸子 5→6 只、泡泡伤害 15→18、白米饭全属性增益 +9%",
+          "damage": 18,
+          "pierce": 2,
+          "minionCount": 6,
+          "minionTaunt": 1,
+          "minionSlow": 0.2,
+          "riceInterval": 8,
+          "riceBuff": 0.09,
+          "riceMax": 8,
+          "price": 1150
         }
       ]
     }

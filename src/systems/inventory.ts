@@ -1,5 +1,7 @@
 /**
- * 12 格背包：添加 / 移除 / 使用 / 合成（同级同种 → 下一级，数值 ×2，最高 3 级）。
+ * 12 格背包：添加 / 丢弃 / 使用 / 合成（同级同种 → 下一级，数值 ×2）。
+ * 合成上限来自数据层：增益卡按 tier（backpack.maxMergeTier），
+ * 专武券按 balance.weapons[char].tiers 的长度（数值表扩级时自动跟随，不写死）。
  * 纯数据层：不 import three.js、不碰 DOM。卡片面板统一由 `cards` 汇总。
  */
 import type { CardStat, CharacterId, InventoryItem } from '../types'
@@ -16,7 +18,7 @@ const DEFAULT_SLOTS = BACKPACK.slots
 const MAX_MERGE_TIER = BACKPACK.maxMergeTier
 
 const WEAPONS = (BALANCE as unknown as {
-  weapons: Record<string, { name: string }>
+  weapons: Record<string, { name: string; tiers: { lv: number }[] }>
 }).weapons
 
 /** 从专武券名字反查角色（三把专武名互不相同） */
@@ -27,8 +29,41 @@ function weaponCharOf(item: InventoryItem): CharacterId | null {
   return null
 }
 
+/**
+ * 专武券可合成到的最高等级 = balance 里该角色 tiers 的长度。
+ * 数值表从 5 级扩到 7 级时这里自动跟随（不要再写死 5）。
+ */
+export function weaponMaxLevel(charId: CharacterId): number {
+  const def = WEAPONS[charId]
+  return Math.max(1, def?.tiers?.length ?? 1)
+}
+
+function weaponMaxLevelOf(item: InventoryItem): number {
+  const charId = weaponCharOf(item)
+  return charId ? weaponMaxLevel(charId) : 1
+}
+
 function tidy(v: number): number {
   return Number(v.toFixed(3))
+}
+
+/**
+ * 两张物品能否合成（纯函数，HUD 与数据层共用同一份判定，避免两处规则漂移）。
+ * - 增益卡：同 stat、同 tier，且 tier < backpack.maxMergeTier
+ * - 专武券：同名、同等级，且等级 < 该角色专武表长度
+ * - 消耗品：不合成
+ */
+export function canMergeItems(a: InventoryItem, b: InventoryItem): boolean {
+  if (a.uid === b.uid) return false
+  if (a.kind !== b.kind) return false
+  if (a.kind === 'consumable') return false
+  if (a.kind === 'weapon') {
+    const lv = a.value ?? 0
+    return lv >= 1 && lv < weaponMaxLevelOf(a) && lv === b.value && a.name === b.name
+  }
+  if (!a.stat || a.stat !== b.stat) return false
+  if (a.tier !== b.tier) return false
+  return a.tier < MAX_MERGE_TIER
 }
 
 export class Inventory {
@@ -84,6 +119,20 @@ export class Inventory {
     return true
   }
 
+  /**
+   * 购买/拾取入口：满包时先把可合成的两张自动合掉腾格子，再尝试放入。
+   * @returns 是否成功进包；false 表示满包且没有可合成对（调用方应提示玩家丢弃/合成）
+   */
+  addOrMerge(item: InventoryItem): boolean {
+    if (this.isFull) this.autoMerge()
+    return this.add(item)
+  }
+
+  /** 丢弃：语义化 remove（丢弃不退金币，金币结算由调用方负责） */
+  discard(uid: string): InventoryItem | null {
+    return this.remove(uid)
+  }
+
   remove(uid: string): InventoryItem | null {
     const index = this.items.findIndex((it) => it.uid === uid)
     if (index < 0) return null
@@ -91,21 +140,42 @@ export class Inventory {
     return removed
   }
 
-  /** 两张同级同种可合成：增益卡同 stat 同 tier(<3)；专武券同名同等级(<5)；消耗品不合成 */
+  /** 两张同级同种可合成：判定见模块级 canMergeItems（HUD 复用同一份规则） */
   canMerge(uidA: string, uidB: string): boolean {
-    if (uidA === uidB) return false
     const a = this.get(uidA)
     const b = this.get(uidB)
     if (!a || !b) return false
-    if (a.kind !== b.kind) return false
-    if (a.kind === 'consumable') return false
-    if (a.kind === 'weapon') {
-      const lv = a.value ?? 0
-      return lv >= 1 && lv < 5 && lv === b.value && a.name === b.name
+    return canMergeItems(a, b)
+  }
+
+  /**
+   * 自动合成：反复找出当前可合成的两张（靠前格子优先）并合成，直到没有可合成对。
+   * 每次合成净减少 1 格，所以循环上限取当前格数即可保证不死循环。
+   * @returns 本次合成出的物品（按合成顺序，供上层提示/同步面板）
+   */
+  autoMerge(): InventoryItem[] {
+    const merged: InventoryItem[] = []
+    const guardLimit = this.items.length
+    for (let guard = 0; guard < guardLimit; guard += 1) {
+      const pair = this.findMergePair()
+      if (!pair) break
+      const item = this.merge(pair[0], pair[1])
+      if (!item) break
+      merged.push(item)
     }
-    if (!a.stat || a.stat !== b.stat) return false
-    if (a.tier !== b.tier) return false
-    return a.tier < MAX_MERGE_TIER
+    return merged
+  }
+
+  /** 找出第一对可合成的 uid（i<j，靠前格子优先）；没有则返回 null */
+  private findMergePair(): [string, string] | null {
+    for (let i = 0; i < this.items.length; i += 1) {
+      for (let j = i + 1; j < this.items.length; j += 1) {
+        if (canMergeItems(this.items[i], this.items[j])) {
+          return [this.items[i].uid, this.items[j].uid]
+        }
+      }
+    }
+    return null
   }
 
   /** 合成：消耗两张，在靠前格子生成下一级；数值按「同名同级两份 → ×2」结算 */
@@ -120,11 +190,13 @@ export class Inventory {
 
     let merged: InventoryItem | null = null
     if (a.kind === 'buff-card') {
-      const nextTier = Math.min(3, a.tier + 1) as 1 | 2 | 3
+      const nextTier = Math.min(MAX_MERGE_TIER, a.tier + 1) as 1 | 2 | 3
       merged = makeCardItem(a.stat ?? '', nextTier)
       merged.value = tidy((a.value ?? 0) * 2)
     } else if (a.kind === 'weapon') {
       const charId = weaponCharOf(a)
+      // 等级上限由 canMergeItems 按专武表 tiers 长度把关；制券交给 economy.makeWeaponItem，
+      // 它按 data/characterRuntime 的 MAX_WEAPON_LV 夹紧——两者都由 balance.weapons 推出，扩级自动同步
       if (charId) merged = makeWeaponItem(charId, (a.value ?? 1) + 1)
     }
     if (!merged) return null

@@ -63,6 +63,7 @@ const hud: HudV3 = createHud({
   onCloseInventory: () => game?.closeInventory(),
   onMergeItem: (a, b) => game?.mergeItems(a, b),
   onUseItem: (uid) => game?.useItem(uid),
+  onDiscardItem: (uid) => game?.discardItem(uid),
   onSave: (slot) => game?.manualSave(slot),
   onLoad: (slot) => game?.manualLoad(slot),
   onPauseToggle: () => game?.togglePausePublic(),

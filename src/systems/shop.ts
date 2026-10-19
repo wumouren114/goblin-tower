@@ -6,6 +6,7 @@
 import type { CardStat, CharacterId, ShopOffer } from '../types'
 import type { Rng } from '../core/rng'
 import { BALANCE } from '../data/balance'
+import { MAX_WEAPON_LV } from '../data/characterRuntime'
 import { makeCardItem, priceOf, qualityFor } from './economy'
 
 interface BuffCardLite {
@@ -56,7 +57,7 @@ function rollPrice(base: number, layer: number, qualityMul = 1): number {
 function makeWeaponOffer(charId: CharacterId, weaponLv: number): ShopOffer | null {
   const current = Math.round(weaponLv)
   const next = current + 1
-  if (next > 5 || next < 2) return null
+  if (next > MAX_WEAPON_LV || next < 2) return null
   const weapon = WEAPONS[charId]
   const def = weapon.tiers[next - 1]
   if (!def) return null

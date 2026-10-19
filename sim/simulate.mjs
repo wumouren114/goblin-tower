@@ -55,6 +55,15 @@ const rnd = (state) => {
 const C = balance.layerCurve
 const WEAPON = balance.weapons
 
+/**
+ * Mortis 基础半径写在 src/data/characters.ts（不在 balance.json），这里按源码镜像读取，
+ * 避免 sim 与游戏两处各写一份数字；读不到时退回 5.6（v3 旧基准）。
+ */
+const CHARACTERS_SRC = fs.readFileSync(path.join(here, '..', 'src', 'data', 'characters.ts'), 'utf8')
+const PULSE_BASE_RADIUS = Number((CHARACTERS_SRC.match(/pulseBaseRadius:\s*([\d.]+)/) ?? [])[1] ?? 5.6)
+/** 半径对群伤覆盖率的折算基准（5.6m = v3 旧半径） */
+const MORTIS_RADIUS_REF = 5.6
+
 const layerCount = (diff) => diff.stages.reduce((a, b) => a + b, 0)
 function isBossLayer(diff, layer) {
   let acc = 0
@@ -97,7 +106,8 @@ function playerOutput(charId, st) {
   if (charId === 'mutsumi') {
     const castsPerLayerCost = chargeCost / (chargePerKill * 8) // 粗略：每 8 杀一次
     const uptime = clamp(castsPerLayerCost * c.skill.duration, 0, 0.6)
-    crowdDps *= 1 + uptime * 0.5
+    // 音波半径越小，变身期 AoE 覆盖率越低（按 5.6m 旧基准线性折算）
+    crowdDps *= 1 + uptime * 0.5 * (PULSE_BASE_RADIUS / MORTIS_RADIUS_REF)
   } else {
     crowdDps *= 1 + c.skill.aoe
   }
@@ -249,8 +259,14 @@ function simulateRun(charId, diff, seed) {
 
     const clearDur = clearTime
     const mobDmg = C.mobDamageBase * (1 + C.mobDamagePerLayer * (layer - 1)) * diff.damageMul * (W?.damageMul ?? 1)
+    // 小怪移速随层数上涨：跑得越快，贴脸/围殴频率越高（Boss 移速不参与）
+    const mobSpeedMul = Math.min(
+      C.mobSpeedCap ?? 9,
+      (C.mobSpeedBase ?? 1) + (C.mobSpeedPerLayer ?? 0) * (layer - 1),
+    )
+    const speedContact = boss ? 1 : Math.min(1.4, mobSpeedMul)
     const hitsPerSecond = boss ? 0.12 : 0.075
-    const crowdFactor = boss ? 1 : 1 + Math.min(0.4, spawnRate / 8)
+    const crowdFactor = boss ? 1 : (1 + Math.min(0.4, spawnRate / 8)) * speedContact
     const dodge = Math.min(0.24, st.cards.dodge ?? 0)
     const armor = clamp(st.cards.armor ?? 0, 0, 0.6)
     let dmgTaken = mobDmg * hitsPerSecond * clearDur * crowdFactor * (1 - dodge) * (1 - armor) * CHARS[charId].exposure

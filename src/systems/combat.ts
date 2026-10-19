@@ -469,7 +469,7 @@ export class Combat {
     }
     // 变身瞬间：半径爆发 + 击退
     const radius =
-      (p.pulseBaseRadius ?? 5.6) *
+      (p.pulseBaseRadius ?? 4.3) *
       (this.stats.intelligence / 100) *
       tierNum(tier, 'mortisRadiusMul', 1)
     const amount = hitDamage(p.burstDamage ?? 40, this.stats.magic)
@@ -637,7 +637,7 @@ export class Combat {
     const p = CHARACTERS.mutsumi.skill.params
     const tier = getWeaponTier(this.charId, this.lv)
     const radius =
-      (p.pulseBaseRadius ?? 5.6) *
+      (p.pulseBaseRadius ?? 4.3) *
       (this.stats.intelligence / 100) *
       tierNum(tier, 'mortisRadiusMul', 1)
     const amount = hitDamage(p.pulseBaseDamage ?? 11, this.stats.magic) * tierNum(tier, 'mortisPulseMul', 1)

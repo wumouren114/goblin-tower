@@ -24,6 +24,7 @@ import {
   stageOfLayer,
   mobHpFor,
   mobDamageFor,
+  mobSpeedMulFor,
   quotaFor,
   spawnIntervalFor,
   maxAliveFor,
@@ -32,7 +33,7 @@ import {
   bossHpFor,
   BALANCE,
 } from './data/balance'
-import { Inventory } from './systems/inventory'
+import { Inventory, weaponMaxLevel } from './systems/inventory'
 import { generateOffers, REFRESH_COST } from './systems/shop'
 import { rollTunnels, resolveRoom } from './systems/tunnels'
 import { listSlots, loadFromSlot, saveToSlot } from './systems/saveLoad'
@@ -42,6 +43,7 @@ import {
   emptyCards,
   killGold,
   makeCardItem,
+  qualityFor,
 } from './systems/economy'
 import type { HudV3 } from './ui/hud'
 import type {
@@ -524,8 +526,8 @@ export class Game {
     if (!this.floor) return
     const half = this.floor.halfSize
     const cp = this.camera.position
-    // 迟滞：越过 half-1.0 才隐藏，退回 half-2.6 才显示，避免临界点反复切换
-    const check = (cur: boolean, over: number): boolean => (cur ? over > half - 1.0 : over > half - 2.6)
+    // 迟滞：越过 half-2.0 就隐藏（更早，避免墙沿切进画面下缘挡角色），退回 half-3.6 才显示
+    const check = (cur: boolean, over: number): boolean => (cur ? over > half - 2.0 : over > half - 3.6)
     const st = this.wallHideState
     st.south = check(st.south, cp.z)
     st.north = check(st.north, -cp.z)
@@ -685,7 +687,14 @@ export class Game {
     const def = kind === 'small' ? GOBLIN_SMALL : kind === 'brute' ? GOBLIN_BRUTE : kind === 'caster' ? GOBLIN_CASTER : GOBLIN_ELITE
     const hpMul = mobHpFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.hp
     const dmgMul = mobDamageFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.damage
-    const g = new Goblin(this.scene, def, x, z, { hp: hpMul, damage: dmgMul, speed: 1, scale: 1 }, kind === 'elite')
+      const g = new Goblin(
+        this.scene,
+        def,
+        x,
+        z,
+        { hp: hpMul, damage: dmgMul, speed: 1, scale: 1, layerSpeed: mobSpeedMulFor(this.run.layer) },
+        kind === 'elite',
+      )
     this.goblins.push(g)
     this.goblinKinds.set(g, kind)
   }
@@ -947,11 +956,9 @@ export class Game {
       this.hud.toast(`白米饭 ${this.riceStacks}/8：全属性 +${this.riceStacks * 7}%`, 'good')
     } else {
       const stat = this.rng.pick(['magic', 'stamina', 'intelligence', 'hp', 'moveSpeed', 'armor']) as CardStat
-      const item = makeCardItem(stat, 1)
-      if (this.inventory.add(item)) {
-        this.syncCards()
-        this.hud.toast(`拾取增益卡：${item.name}`, 'good')
-      }
+      const q = qualityFor(this.run.layer, this.rng)
+      const item = makeCardItem(stat, q.tier)
+      if (this.grantItem(item)) this.hud.toast(`拾取增益卡：${item.name}`, 'good')
     }
   }
 
@@ -1052,22 +1059,27 @@ export class Game {
     return table[stat] ?? '🎴'
   }
 
-  /** 每层清空后：先三选一拿一张增益卡，再开时空隧道 */
+  /** 每层清空后：先三选一拿一张增益卡，再开时空隧道。
+   *  高层按 balance.shop.quality 掷品质，出精制/臻品，后期不至于「选谁都一样」 */
   private openBonusCards(): void {
     const pool = [...BALANCE.buffCards]
     this.bonusOffers = []
     for (let i = 0; i < 3 && pool.length > 0; i += 1) {
       const idx = this.rng.int(0, pool.length - 1)
       const card = pool.splice(idx, 1)[0]
+      const q = qualityFor(this.run.layer, this.rng)
+      const value = Number((card.value * q.valueMul).toFixed(3))
+      const tierName = q.tier === 3 ? '臻品' : q.tier === 2 ? '精制' : ''
+      const bonusTag = q.tier > 1 ? `（${tierName} ×${q.valueMul}）` : ''
       this.bonusOffers.push({
         id: `bonus-${i}`,
         kind: 'reward',
         room: 'skill-card',
-        title: card.name,
-        desc: card.desc,
+        title: `${tierName}${card.name}`,
+        desc: `${card.desc}${bonusTag}`,
         icon: this.cardIcon(card.stat),
         payload: {
-          skillCard: { id: card.id, name: card.name, desc: card.desc, stat: card.stat as CardStat, value: card.value },
+          skillCard: { id: card.id, name: card.name, desc: card.desc, stat: card.stat as CardStat, value, tier: q.tier },
         },
       })
     }
@@ -1110,13 +1122,12 @@ export class Game {
       audio.click()
       const card = pick.payload.skillCard
       if (card) {
-        const item = makeCardItem(card.stat as CardStat, 1)
+        const item = makeCardItem(card.stat as CardStat, card.tier ?? 1)
         item.value = card.value
-        if (this.inventory.add(item)) {
-          this.syncCards()
+        if (this.grantItem(item)) {
           this.hud.toast(`清层奖励：${item.name}`, 'good')
         } else {
-          this.hud.toast('背包已满，奖励卡丢失', 'bad')
+          this.hud.toast('背包已满，奖励卡丢失（可先合成/丢弃）', 'bad')
         }
       }
       this.openTunnels()
@@ -1132,11 +1143,10 @@ export class Game {
       this.hud.toast(`+${res.gold} 金币`, 'good')
     }
     if (res.card) {
-      if (this.inventory.add(res.card)) {
-        this.syncCards()
+      if (this.grantItem(res.card)) {
         this.hud.toast(`${res.card.icon} ${res.card.name} 已放入背包`, 'good')
       } else {
-        this.hud.toast('背包已满，卡牌丢失', 'bad')
+        this.hud.toast('背包已满，卡牌丢失（可先合成/丢弃）', 'bad')
       }
     }
     if (res.rest) {
@@ -1163,11 +1173,11 @@ export class Game {
     }
     if (res.altarCost !== undefined && res.altarReward) {
       if (this.run.gold >= res.altarCost) {
-        this.run.gold -= res.altarCost
         const qv = res.altarReward.value ?? 1
         const tier = qv >= 2.6 ? 3 : qv >= 1.5 ? 2 : 1
         const item = makeCardItem(res.altarReward.stat, tier)
-        if (this.inventory.add(item)) this.syncCards()
+        if (!this.grantItem(item)) return
+        this.run.gold -= res.altarCost
         this.hud.toast(`祭坛献金 ${res.altarCost}：${item.name}`, 'good')
       } else {
         this.hud.toast('金币不足，祭坛不理你', 'bad')
@@ -1234,22 +1244,12 @@ export class Game {
       this.shopOffers.splice(idx, 1)
       this.hud.toast(`专武升级到 Lv${this.run.weaponLv}`, 'good')
     } else if (offer.kind === 'buff-card') {
-      if (this.inventory.isFull) {
-        this.hud.toast('背包已满', 'bad')
-        return
-      }
-      this.run.gold -= offer.price
       const item = makeCardItem(offer.stat as CardStat, offer.tier)
-      this.inventory.add(item)
-      this.syncCards()
+      if (!this.grantItem(item)) return
+      this.run.gold -= offer.price
       this.shopOffers.splice(idx, 1)
       this.hud.toast(`获得 ${item.name}`, 'good')
     } else {
-      if (this.inventory.isFull) {
-        this.hud.toast('背包已满', 'bad')
-        return
-      }
-      this.run.gold -= offer.price
       const item: InventoryItem = {
         uid: `u${Date.now()}${this.rng.int(0, 999)}`,
         kind: 'consumable',
@@ -1260,7 +1260,8 @@ export class Game {
         stat: undefined,
         value: 1,
       }
-      this.inventory.add(item)
+      if (!this.grantItem(item)) return
+      this.run.gold -= offer.price
       this.hud.toast(`${offer.name} 放入背包`, 'good')
     }
     audio.coin()
@@ -1312,6 +1313,33 @@ export class Game {
 
   closeInventory(): void {
     this.hud.hideInventory()
+  }
+
+  /** 把物品放进背包：满了先自动合成腾格子，合成后仍满才拒绝（不再直接卡进度） */
+  private grantItem(item: InventoryItem): boolean {
+    if (this.inventory.isFull) this.inventory.autoMerge()
+    if (this.inventory.isFull) {
+      this.hud.toast('背包已满：先合成或丢弃两张再买', 'bad')
+      return false
+    }
+    if (!this.inventory.add(item)) return false
+    const merged = this.inventory.autoMerge()
+    if (merged.length > 0) {
+      const last = merged[merged.length - 1]
+      this.hud.toast(`自动合成 ${last.name}`, 'good')
+    }
+    this.syncCards()
+    if (this.inventoryOpen()) this.hud.updateInventory(this.inventory.items, this.run.gold)
+    return true
+  }
+
+  discardItem(uid: string): void {
+    const item = this.inventory.discard(uid)
+    if (!item) return
+    this.syncCards()
+    this.hud.updateInventory(this.inventory.items, this.run.gold)
+    this.hud.toast(`丢弃 ${item.name}（不退金币）`, 'info')
+    audio.click()
   }
 
   mergeItems(a: string, b: string): void {
@@ -1489,7 +1517,7 @@ export class Game {
     for (let i = 0; i < 8; i += 1) {
       const gold = 400
       this.run.gold += gold
-      this.run.weaponLv = Math.min(5, this.run.weaponLv + 1)
+      this.run.weaponLv = Math.min(weaponMaxLevel(this.run.character), this.run.weaponLv + 1)
       this.combat?.setWeaponLv(this.run.weaponLv)
       if (i < 5) {
         const stat = (['magic', 'stamina', 'intelligence', 'hp', 'moveSpeed'] as CardStat[])[i % 5]
