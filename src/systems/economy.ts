@@ -7,7 +7,6 @@ import type { CardStat, CharacterId, DifficultyId, InventoryItem } from '../type
 import type { Rng } from '../core/rng'
 import type { QualityRoll } from '../data/balance'
 import { BALANCE, clearGoldFor, goldPerKillFor, rollQuality, shopPriceFor } from '../data/balance'
-import { MAX_WEAPON_LV } from '../data/characterRuntime'
 import { CHARACTERS, GOLD_PER_KILL } from '../data/characters'
 
 // ── balance.json 里 balance.ts 尚未声明类型的段落（本模块只读，不改数据）──
@@ -26,26 +25,13 @@ interface QualityCfg {
   tier3: { valueMul: number; priceMul: number; name: string }
 }
 
-interface WeaponTierDef {
-  lv: number
-  desc: string
-  price?: number
-}
-
-interface WeaponDef {
-  name: string
-  tiers: WeaponTierDef[]
-}
-
 interface EconomyData {
   buffCards: BuffCardDef[]
-  weapons: Record<CharacterId, WeaponDef>
   shop: { quality: QualityCfg; slots: number; priceGrowthPerLayer: number }
 }
 
 const DATA = BALANCE as unknown as EconomyData
 const BUFF_CARDS = DATA.buffCards
-const WEAPONS = DATA.weapons
 const QUALITY = DATA.shop.quality
 
 const CARD_ICONS: Record<CardStat, string> = {
@@ -128,23 +114,6 @@ export function makeCardItem(cardId: string, tier: 1 | 2 | 3): InventoryItem {
     tier,
     stat: def.stat,
     value: tidy(def.value * tierValueMul(tier)),
-  }
-}
-
-/** 专武券物品：level = 本券解锁到的专武等级（2~MAX_WEAPON_LV，value 复用为等级供合成判断） */
-export function makeWeaponItem(charId: CharacterId, level: number): InventoryItem {
-  const weapon = WEAPONS[charId]
-  const lv = Math.min(MAX_WEAPON_LV, Math.max(1, Math.round(level)))
-  const def = weapon.tiers[lv - 1]
-  return {
-    uid: nextUid(),
-    kind: 'weapon',
-    name: `${weapon.name}券·Lv${lv}`,
-    desc: def?.desc ?? '',
-    icon: '⚔️',
-    tier: lv <= 2 ? 1 : lv === 3 ? 2 : 3,
-    // 专武不加面板数值，value 复用为「解锁到第几级」
-    value: lv,
   }
 }
 

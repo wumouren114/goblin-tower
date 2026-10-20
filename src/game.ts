@@ -16,7 +16,7 @@ import { rotateInput } from './core/math'
 import { TowerFloor } from './world/floor'
 import { pickScene, STAGE_NAMES } from './data/stages'
 import { CHARACTERS, CHARGE_FLOOR_START_RATIO } from './data/characters'
-import { getWeaponTier, charTakeDamageMul, tierNum } from './data/characterRuntime'
+import { getWeaponTier, charTakeDamageMul, tierNum, MAX_WEAPON_LV } from './data/characterRuntime'
 import {
   DIFFICULTIES,
   layerCount,
@@ -29,11 +29,10 @@ import {
   spawnIntervalFor,
   maxAliveFor,
   clearGoldFor,
-  layerTimerFor,
   bossHpFor,
   BALANCE,
 } from './data/balance'
-import { Inventory, weaponMaxLevel } from './systems/inventory'
+import { Inventory } from './systems/inventory'
 import { generateOffers, REFRESH_COST } from './systems/shop'
 import { rollTunnels, resolveRoom } from './systems/tunnels'
 import { listSlots, loadFromSlot, saveToSlot } from './systems/saveLoad'
@@ -56,6 +55,7 @@ import type {
   PlayerStats,
   RunState,
   RunStatsV3,
+  ShopMode,
   ShopOffer,
   TunnelOffer,
 } from './types'
@@ -132,14 +132,14 @@ export class Game {
   private layerTotal = 0
   private layerSpawned = 0
   private layerKilled = 0
-  private timeLeft = 60
-  private timeLimit = 60
   private spawnTimer = 0
   private roomActive = false
 
   private tunnelOffers: TunnelOffer[] = []
   private shopOffers: ShopOffer[] = []
-  private shopMode: 'room' | 'standard' = 'standard'
+  private shopMode: ShopMode = 'standard'
+  /** 商人房货架 → 标准商店的切换防连点（毫秒时间戳） */
+  private shopLeaveLockedUntil = 0
 
   private rng = new Rng(1)
   private moveInput = { x: 0, z: 0 }
@@ -334,8 +334,6 @@ export class Game {
     this.layerKilled = 0
     this.clearEnemyShots()
     this.casterCd.clear()
-    this.timeLimit = layerTimerFor(diff, bossLayer, layer)
-    this.timeLeft = this.timeLimit
     this.spawnTimer = bossLayer ? 2.0 : 0.4
     this.combat?.resetLayer(CHARGE_FLOOR_START_RATIO)
 
@@ -459,13 +457,19 @@ export class Game {
       this.hud.setMuted(muted)
     }
     if (this.input.justPressed('KeyV')) this.rig.toggleMode()
-    if (this.input.justPressed('KeyP') || this.input.justPressed('Escape')) {
+    if (!this.inventoryOpen() && (this.input.justPressed('KeyP') || this.input.justPressed('Escape'))) {
       if (this.phase === 'playing' || this.phase === 'shop') this.togglePause()
     }
-    if (this.input.justPressed('KeyI')) {
-      if (this.phase === 'shop') this.openInventory()
-      else if (this.inventoryOpen()) this.closeInventory()
+    // TAB / I 共用同一个背包开关；HUD 不再单独处理 Tab，避免同一次按键开完又关。
+    if (this.input.justPressed('KeyI') || this.input.justPressed('Tab')) {
+      if (this.inventoryOpen()) this.closeInventory()
+      else if (this.phase === 'shop') this.openInventory()
     }
+  }
+
+  /** 结算页「重新爬塔」/ R：用当前角色与难度立刻开新局 */
+  restartRun(): void {
+    this.startRun(this.run.character, this.run.difficulty)
   }
 
   /** 失败后重试本层：回滚到进入本层时的状态 */
@@ -571,11 +575,6 @@ export class Game {
     const p = this.player
     if (!p || !this.floor) return
     this.run.playTime += dt
-    this.timeLeft = Math.max(0, this.timeLeft - dt)
-    if (this.timeLeft <= 0) {
-      this.die('timeout')
-      return
-    }
 
     const axis = this.input.moveAxis()
     const worldMove = axis.x === 0 && axis.z === 0 ? null : rotateInput(axis.x, axis.z, this.rig.yaw)
@@ -616,12 +615,14 @@ export class Game {
     const lockOn = this.nearestEnemy(p.x, p.z, lockRange)
     if (lockOn) this.aimPoint.set(lockOn.x, 0.6, lockOn.z)
 
-    const attackHeld = this.autoPlay || this.input.attackHeld
-    if (attackHeld && this.combat) {
+    // 只有手动点击左键才会开火；自动索敌只负责把这一发对准最近敌人。
+    const attackPressed = this.input.consumeAttack()
+    if ((this.autoPlay || attackPressed) && this.combat) {
       p.faceToward(this.aimPoint.x, this.aimPoint.z)
       this.combat.tryAttack(dt, p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld())
     }
-    const skillPressed = this.input.consumeSkill() || this.input.justPressed('KeyQ')
+    // 右键为技能唯一鼠标键位；Q 不再绑定技能。
+    const skillPressed = this.input.consumeSkill()
     if (skillPressed && this.combat) {
       p.faceToward(this.aimPoint.x, this.aimPoint.z)
       if (this.combat.trySkill(p.x, p.z, this.aimPoint.x, this.aimPoint.z, this.buildWorld(), worldMove ?? undefined)) {
@@ -642,7 +643,7 @@ export class Game {
     this.pickups.update(dt, p.x, p.z, 2.0, (kind, value) => this.onCollect(kind, value))
     this.run.hp = p.hp
     if (p.hp <= 0) {
-      this.die('hp')
+      this.die()
       return
     }
     this.checkLayerClear()
@@ -971,14 +972,48 @@ export class Game {
       if (this.goblins.length === 0) this.finishRoomBattle()
       return
     }
+    // Boss 层只以「哥布林之王死亡」结算（updateBoss → onBossDefeated）；
+    // 小怪只是干扰，不参与清层，避免 HUD 显示「剩余 N 只」误导玩家。
     if (isBossLayer(this.run.difficulty, this.run.layer)) return
     if (this.layerKilled >= this.layerTotal && this.goblins.length === 0) this.onLayerCleared()
   }
 
+  /**
+   * 清层/离开战斗前，把地面剩余掉落一次性结算。
+   * 必须在 enterLayer 的 pickups.clear() 之前调用，避免未拾取收益被吞掉。
+   */
+  private collectRemainingPickups(): { count: number; gold: number } {
+    const drops = this.pickups.drainAll()
+    if (drops.length === 0) return { count: 0, gold: 0 }
+
+    let gold = 0
+    let hearts = 0
+    for (const drop of drops) {
+      if (drop.kind === 'gold') gold += drop.value
+      else if (drop.kind === 'heart') hearts += drop.value
+      else this.onCollect(drop.kind, drop.value)
+    }
+    if (gold > 0) this.onCollect('gold', gold)
+    if (hearts > 0) this.onCollect('heart', hearts)
+
+    const p = this.player
+    if (p) {
+      this.vfx.ring(p.x, p.z, { color: 0xffd166, radius: 1.1, life: 0.55, grow: 3 })
+      if (gold > 0) {
+        this.vfx.burst(p.x, p.z, { color: 0xffd166, count: 16, speed: 5, life: 0.45, size: 0.22 })
+      }
+    }
+    return { count: drops.length, gold }
+  }
+
   private onLayerCleared(): void {
-    const gold = clearGoldFor(this.run.difficulty, this.run.layer, )
+    const picked = this.collectRemainingPickups()
+    const gold = clearGoldFor(this.run.difficulty, this.run.layer)
     this.run.gold += gold
-    this.hud.toast(`第 ${this.run.layer} 层清空！+${gold} 金币`, 'good')
+    const autoNote = picked.count > 0
+      ? `（自动吸取 ${picked.count} 件${picked.gold > 0 ? `，+${picked.gold} 金币` : ''}）`
+      : ''
+    this.hud.toast(`第 ${this.run.layer} 层清空！+${gold} 金币${autoNote}`, 'good')
     audio.stairs()
     this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
     this.openBonusCards()
@@ -998,6 +1033,9 @@ export class Game {
     this.vfx.ring(boss.x, boss.z, { color: 0xffd166, radius: 3, life: 1.2, grow: 4 })
     this.vfx.burst(boss.x, boss.z, { color: 0xffd166, count: 40, speed: 9, life: 0.9, size: 0.4 })
     this.run.gold += Math.round(killGold(this.run.layer, 'boss'))
+    this.collectRemainingPickups()
+    // Boss 也计入全局累计击杀；Boss 层的清层条件仍只看 Boss 死亡。
+    this.run.kills += 1
     this.hud.toast('哥布林之王倒下了！', 'good')
     boss.dispose()
     this.boss = null
@@ -1008,7 +1046,7 @@ export class Game {
     }
   }
 
-  private die(reason: 'hp' | 'timeout'): void {
+  private die(): void {
     if (this.phase === 'dead' || this.phase === 'victory') return
     this.phase = 'dead'
     if (this.player) this.player.alive = false
@@ -1018,7 +1056,7 @@ export class Game {
     audio.setBgmIntensity(0)
     this.hud.hideBoss()
     this.fx.setBossMode(false)
-    this.hud.showDefeat(reason, this.runStats())
+    this.hud.showDefeat('hp', this.runStats('hp'))
   }
 
   private win(): void {
@@ -1029,7 +1067,7 @@ export class Game {
     this.hud.showVictory(this.runStats())
   }
 
-  private runStats(reason?: 'hp' | 'timeout'): RunStatsV3 {
+  private runStats(reason?: 'hp'): RunStatsV3 {
     return {
       difficulty: this.run.difficulty,
       character: this.run.character,
@@ -1093,7 +1131,7 @@ export class Game {
     this.phase = 'tunnel'
     audio.startBgm('shop')
     audio.duck(false)
-    this.hud.showTunnelOffers(this.bonusOffers, this.run.layer)
+    this.hud.showTunnelOffers(this.bonusOffers, this.run.layer, 'bonus')
     audio.levelUp()
   }
 
@@ -1110,7 +1148,7 @@ export class Game {
       this.rng,
       this.run.weaponLv,
     )
-    this.hud.showTunnelOffers(this.tunnelOffers, this.run.layer)
+    this.hud.showTunnelOffers(this.tunnelOffers, this.run.layer, 'tunnel')
   }
 
   pickTunnel(id: string): void {
@@ -1170,7 +1208,7 @@ export class Game {
       this.phase = 'shop'
       audio.startBgm('shop')
       audio.setBgmIntensity(0)
-      this.hud.showShop(this.shopOffers, this.run.gold, REFRESH_COST)
+      this.hud.showShop(this.shopOffers, this.run.gold, REFRESH_COST, 'room')
       return
     }
     if (res.altarCost !== undefined && res.altarReward) {
@@ -1197,7 +1235,6 @@ export class Game {
     this.roomActive = true
     audio.startBgm('battle')
     audio.setBgmIntensity(1)
-    this.timeLeft = Math.max(this.timeLeft, 45)
     this.layerTotal = count
     this.layerKilled = 0
     for (let i = 0; i < count; i += 1) {
@@ -1211,7 +1248,8 @@ export class Game {
 
   private finishRoomBattle(): void {
     this.roomActive = false
-    this.hud.toast('房间清空！', 'good')
+    const picked = this.collectRemainingPickups()
+    this.hud.toast(picked.count > 0 ? `房间清空！自动吸取 ${picked.count} 件掉落` : '房间清空！', 'good')
     this.run.gold += clearGoldFor(this.run.difficulty, this.run.layer)
     this.proceedToShop()
   }
@@ -1222,7 +1260,7 @@ export class Game {
     this.phase = 'shop'
     audio.startBgm('shop')
     audio.duck(false)
-    this.hud.showShop(this.shopOffers, this.run.gold, REFRESH_COST)
+    this.hud.showShop(this.shopOffers, this.run.gold, REFRESH_COST, 'standard')
   }
 
   buyOffer(id: string): void {
@@ -1283,10 +1321,24 @@ export class Game {
     this.hud.updateShop(this.shopOffers, this.run.gold, REFRESH_COST)
   }
 
+  /**
+   * 离开商店。
+   * 商人房是「额外货架」：离开后进入本层标准商店，不推进层；
+   * 标准商店离开后才存档并进入下一层。500ms 防连点，避免双击跳过标准商店。
+   */
   leaveShop(): void {
     if (this.phase !== 'shop') return
+    if (Date.now() < this.shopLeaveLockedUntil) return
+    const fromRoom = this.shopMode === 'room'
     this.hud.hideShop()
     this.hud.hideInventory()
+    if (fromRoom) {
+      this.shopMode = 'standard'
+      this.shopLeaveLockedUntil = Date.now() + 500
+      this.proceedToShop()
+      this.hud.toast('额外货架结束，进入本层标准商店', 'good')
+      return
+    }
     this.saveRun(AUTOSAVE_SLOT)
     this.layerSnapshot = {
       ...this.run,
@@ -1492,8 +1544,7 @@ export class Game {
       stairsUnlocked: false,
       monsterKilled: this.layerKilled,
       monsterTotal: this.layerTotal,
-      timeLeft: this.timeLeft,
-      timeLimit: this.timeLimit,
+      bossLayer: isBossLayer(this.run.difficulty, this.run.layer),
       enemiesAlive: this.goblins.length + (this.boss ? 1 : 0),
       kills: this.run.kills,
       time: this.run.playTime,
@@ -1524,7 +1575,7 @@ export class Game {
     for (let i = 0; i < 8; i += 1) {
       const gold = 400
       this.run.gold += gold
-      this.run.weaponLv = Math.min(weaponMaxLevel(this.run.character), this.run.weaponLv + 1)
+      this.run.weaponLv = Math.min(MAX_WEAPON_LV, this.run.weaponLv + 1)
       this.combat?.setWeaponLv(this.run.weaponLv)
       if (i < 5) {
         const stat = (['magic', 'stamina', 'intelligence', 'hp', 'moveSpeed'] as CardStat[])[i % 5]
@@ -1602,7 +1653,7 @@ export class Game {
     } else if (name === 'victory') {
       this.win()
     } else if (name === 'defeat') {
-      this.die('timeout')
+      this.die()
     } else if (name === 'skill') {
       if (this.combat && this.player) {
         this.combat.grantCharge(1)

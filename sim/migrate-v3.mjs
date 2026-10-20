@@ -1,3 +1,7 @@
+// 历史一次性迁移脚本（v2 → v3）。v4.4 已移除倒计时并调整配额，请勿再运行。
+console.error('migrate-v3.mjs 是历史脚本，v4.4 起不再适用；当前数值以 balance.json 为准。')
+process.exit(1)
+
 import fs from 'node:fs'
 const p = 'src/data/balance.json'
 const b = JSON.parse(fs.readFileSync(p, 'utf8'))

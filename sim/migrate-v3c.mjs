@@ -1,3 +1,7 @@
+// 历史一次性迁移脚本。v4.4 已移除倒计时，请勿再运行（否则会把 timer 字段写回 balance.json）。
+console.error('migrate-v3c.mjs 是历史脚本，v4.4 起不再适用；当前数值以 balance.json 为准。')
+process.exit(1)
+
 import fs from 'node:fs'
 
 const bp = 'src/data/balance.json'

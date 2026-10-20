@@ -68,7 +68,7 @@ export type CardStat =
   | 'armor'
   | 'crit'
 
-export type DefeatReason = 'hp' | 'timeout'
+export type DefeatReason = 'hp'
 
 export type TunnelType = 'reward' | 'trade' | 'battle' | 'rest'
 
@@ -93,6 +93,9 @@ export interface TunnelOffer {
   /** 房间内的具体奖励预览（由 tunnels.ts 生成，结算时直接用） */
   payload: TunnelPayload
 }
+
+/** 层末三选一的两个阶段：先领清层奖励卡，再选时空隧道门 */
+export type TunnelScreenMode = 'bonus' | 'tunnel'
 
 export interface TunnelPayload {
   gold?: number
@@ -121,9 +124,12 @@ export interface ShopOffer {
   weaponLevel?: number
 }
 
+/** 商店来源：隧道商人的额外货架 / 每层固定的标准商店 */
+export type ShopMode = 'room' | 'standard'
+
 export interface InventoryItem {
   uid: string
-  kind: 'weapon' | 'buff-card' | 'consumable'
+  kind: 'buff-card' | 'consumable'
   name: string
   desc: string
   icon: string
@@ -222,8 +228,6 @@ export interface FloorDef {
   wallHeight: number
   /** 解锁楼梯所需击杀数 */
   quota: number
-  /** 兜底计时（秒）：到达后楼梯也会开启，防止卡关 */
-  timeLimit: number
   spawnInterval: number
   spawnBatch: number
   maxAlive: number
@@ -291,9 +295,8 @@ export interface HudSnapshot {
   /** 本层固定怪物总数（=quotaMax），已击杀（=quota） */
   monsterKilled?: number
   monsterTotal?: number
-  /** 本层剩余秒数（倒计时，超时判负） */
-  timeLeft?: number
-  timeLimit?: number
+  /** 当前层是否为阶段 Boss 层；Boss 层以击杀首领为唯一通关条件 */
+  bossLayer?: boolean
   charge?: number
   chargeMax?: number
   weaponLv?: number
@@ -311,9 +314,9 @@ export interface HudV3 {
   hideTitle(): void
   showCharacterSelect(): void
   hideCharacterSelect(): void
-  showTunnelOffers(offers: TunnelOffer[], layer: number): void
+  showTunnelOffers(offers: TunnelOffer[], layer: number, mode?: TunnelScreenMode): void
   hideTunnels(): void
-  showShop(offers: ShopOffer[], gold: number, refreshCost: number): void
+  showShop(offers: ShopOffer[], gold: number, refreshCost: number, mode?: ShopMode): void
   updateShop(offers: ShopOffer[], gold: number, refreshCost: number): void
   hideShop(): void
   isInventoryOpen?(): boolean
@@ -355,6 +358,8 @@ export interface HudV3Handlers {
   onDiscardItem?: (uid: string) => void
   onSave(slot: number): void
   onLoad(slot: number): void
+  /** 暂停菜单 / HUD 的静音按钮；HUD 只负责显示，音频由外部接线 */
+  onToggleMute?: (muted: boolean) => void
   onPauseToggle(): void
   onRetryLayer(): void
   onRestart(): void

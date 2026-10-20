@@ -1,12 +1,9 @@
 {
-  "_comment": "哥布林之塔 · 关卡与经济数值唯一数据源（docs/04 的实现口径）。v3：无经验系统，怪物数量固定，超时判负。修改后跑 node sim/simulate.mjs 复验。",
+  "_comment": "哥布林之塔 · 关卡与经济数值唯一数据源（docs/04 的实现口径）。v3：无经验系统，怪物数量固定，无倒计时、不设超时判负。修改后跑 node sim/simulate.mjs 复验。",
   "meta": {
     "version": 3,
-    "layerTimerSeconds": 70,
-    "bossTimerSeconds": 100,
-    "timeoutIsDefeat": true,
     "monsterCountIsFixed": true,
-    "note": "每层怪物总数固定（= quota 字段），刷完即止；限时内清完才通关，超时判负"
+    "note": "每层怪物总数固定（= quota 字段），刷完即止；无倒计时，清完即过关"
   },
   "difficulties": {
     "easy": {
@@ -20,7 +17,6 @@
       "spawnMul": 0.9,
       "goldMul": 1.2,
       "xpMul": 1.2,
-      "timerMul": 1.15,
       "note": "一届 7 层，轻松娱乐"
     },
     "normal": {
@@ -35,7 +31,6 @@
       "spawnMul": 1,
       "goldMul": 1,
       "xpMul": 1,
-      "timerMul": 1,
       "note": "两阶段 5+7，难度阶梯上升"
     },
     "hard": {
@@ -51,27 +46,26 @@
       "spawnMul": 1.2,
       "goldMul": 1.05,
       "xpMul": 0.95,
-      "timerMul": 1,
       "note": "三阶段 5+5+5，节奏更快"
     }
   },
   "warmup": {
-    "note": "前几层给玩家发育时间：小怪更脆、伤害更低、刷新更慢、倒计时更长；困难模式只保第 1 层",
+    "note": "前几层给玩家发育时间：小怪更脆、伤害更低、刷新更慢、同屏更少；困难模式只保第 1 层",
     "easyNormal": [
-      { "hpMul": 0.7, "damageMul": 0.5, "spawnMul": 1.2, "timerBonus": 12, "maxAliveMul": 0.6 },
-      { "hpMul": 0.8, "damageMul": 0.65, "spawnMul": 1.12, "timerBonus": 8, "maxAliveMul": 0.72 },
-      { "hpMul": 0.9, "damageMul": 0.8, "spawnMul": 1.05, "timerBonus": 4, "maxAliveMul": 0.85 },
-      { "hpMul": 0.95, "damageMul": 0.9, "spawnMul": 1.0, "timerBonus": 2, "maxAliveMul": 0.95 }
+      { "hpMul": 0.7, "damageMul": 0.5, "spawnMul": 1.2, "maxAliveMul": 0.6 },
+      { "hpMul": 0.8, "damageMul": 0.65, "spawnMul": 1.12, "maxAliveMul": 0.72 },
+      { "hpMul": 0.9, "damageMul": 0.8, "spawnMul": 1.05, "maxAliveMul": 0.85 },
+      { "hpMul": 0.95, "damageMul": 0.9, "spawnMul": 1.0, "maxAliveMul": 0.95 }
     ],
-    "hard": [{ "hpMul": 0.88, "damageMul": 0.72, "spawnMul": 1.1, "timerBonus": 6, "maxAliveMul": 0.85 }]
+    "hard": [{ "hpMul": 0.88, "damageMul": 0.72, "spawnMul": 1.1, "maxAliveMul": 0.85 }]
   },
   "layerCurve": {
     "mobHpBase": 24,
     "mobHpPerLayer": 0.36,
     "mobDamageBase": 5,
     "mobDamagePerLayer": 0.16,
-    "quotaBase": 30,
-    "quotaPerLayer": 7,
+    "quotaBase": 33,
+    "quotaPerLayer": 7.5,
     "spawnIntervalBase": 0.9,
     "spawnIntervalDecay": 0.04,
     "spawnIntervalMin": 0.34,
@@ -91,9 +85,7 @@
     "xpPerKillPerLayer": 0.5,
     "bossHpBase": 480,
     "bossHpPerLayer": 0.45,
-    "timeoutHpPenaltyRatio": 0.25,
-    "timeoutSkipsReward": true,
-    "quotaNote": "quota = 本层固定怪物总数，不再随时间无限刷新"
+    "quotaNote": "quota = 本层固定怪物总数，不再随时间无限刷新；无倒计时，清完即过关"
   },
   "portals": {
     "count": 3,
@@ -162,19 +154,6 @@
         "name": "臻品"
       }
     }
-  },
-  "weaponCoupons": {
-    "name": "武器强化券",
-    "prices": [
-      110,
-      190,
-      300,
-      450,
-      900,
-      1700
-    ],
-    "mergePairsToNext": 2,
-    "desc": "同等级两张合成下一级；用于提升角色专武 1→7 级"
   },
   "buffCards": [
     {
@@ -619,7 +598,7 @@
   "backpack": {
     "slots": 12,
     "maxMergeTier": 3,
-    "note": "两张同等级同种物品合成下一级（数值 ×2）；装备与增益卡共用格子"
+    "note": "两张同级同种增益卡合成下一级（数值 ×2）；增益卡与消耗品共用格子"
   },
   "save": {
     "slots": 3,

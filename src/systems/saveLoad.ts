@@ -78,7 +78,7 @@ function isItem(value: unknown): value is InventoryItem {
   if (!value || typeof value !== 'object') return false
   const item = value as Record<string, unknown>
   if (typeof item.uid !== 'string') return false
-  if (item.kind !== 'weapon' && item.kind !== 'buff-card' && item.kind !== 'consumable') return false
+  if (item.kind !== 'buff-card' && item.kind !== 'consumable') return false
   if (typeof item.name !== 'string' || typeof item.desc !== 'string' || typeof item.icon !== 'string') {
     return false
   }
@@ -104,6 +104,23 @@ export function isRunState(value: unknown): value is RunState {
   return true
 }
 
+/**
+ * 兼容旧档：旧版专武物品已从背包系统移除，存档里若残留 kind:'weapon' 物品，
+ * 读档时直接丢弃，避免整份存档因一个已删除的物品类型被判定为坏档。
+ */
+function stripLegacyWeaponItems(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value
+  const state = value as Record<string, unknown>
+  if (!Array.isArray(state.inventory)) return value
+  return {
+    ...state,
+    inventory: state.inventory.filter((item) => {
+      if (!item || typeof item !== 'object') return true
+      return (item as Record<string, unknown>).kind !== 'weapon'
+    }),
+  }
+}
+
 function readSlot(slot: number): RunState | null {
   const store = storage()
   if (!store) return null
@@ -123,11 +140,12 @@ function readSlot(slot: number): RunState | null {
     deleteSlot(slot)
     return null
   }
-  if (!isRunState(parsed)) {
+  const migrated = stripLegacyWeaponItems(parsed)
+  if (!isRunState(migrated)) {
     deleteSlot(slot)
     return null
   }
-  return parsed
+  return migrated
 }
 
 export function listSlots(): SaveSlotMeta[] {

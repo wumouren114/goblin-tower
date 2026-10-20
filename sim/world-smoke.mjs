@@ -622,6 +622,18 @@ section('拾取物 gold / heart / rice / card')
   eq(byKind.get('gold'), 5, '金币使用调用方传值')
   eq(byKind.get('card'), 1, '卡片默认值 = 1')
 
+  /* 清层 drainAll：一次性取回所有剩余掉落并清空场景 */
+  pm.clear()
+  pm.spawn('gold', 2, 0, 7)
+  pm.spawn('gold', -2, 0, 5)
+  pm.spawn('heart', 0, 2)
+  pm.spawn('rice', 0, -2)
+  const drained = pm.drainAll()
+  eq(drained.length, 4, 'drainAll 取回全部剩余掉落')
+  eq(drained.filter((d) => d.kind === 'gold').reduce((sum, d) => sum + d.value, 0), 12, 'drainAll 保留金币金额')
+  eq(pm.count, 0, 'drainAll 后拾取物清空')
+  eq(pkScene.children.length, 0, 'drainAll 后场景清空')
+
   /* 拾取物漂移视觉 + dispose 不泄漏 */
   pm.clear()
   pm.spawn('card', 2, -2)

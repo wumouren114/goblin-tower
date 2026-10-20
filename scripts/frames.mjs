@@ -1,4 +1,4 @@
-// 同一页面连拍多帧：用 CDP 截图，排查「画面闪烁」这类逐帧问题。
+﻿// 同一页面连拍多帧：用 CDP 截图，排查「画面闪烁」这类逐帧问题。
 // 用法：node scripts/frames.mjs <url> [outDir] [count] [intervalMs] [width] [height]
 // 依赖：本机 Edge/Chrome + 内置 WebSocket（Node 22+ 自带）。
 import { spawn } from 'node:child_process'
@@ -36,7 +36,7 @@ const profile = path.join(outDir, 'profile')
 const proc = spawn(
   browser,
   [
-    '--headless=new',
+    '--headless',
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`,
     '--no-first-run',

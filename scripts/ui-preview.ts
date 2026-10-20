@@ -66,14 +66,13 @@ const slots: SaveSlotMeta[] = [
 ]
 
 const shopOffers: ShopOffer[] = [
-  { id: 's1', kind: 'weapon', name: '小黄瓜·专武券', desc: '专武等级 +1（当前 Lv.2）', icon: '🥒', price: 120, tier: 2, weaponLevel: 3 },
+  { id: 's1', kind: 'weapon', name: '小黄瓜·Lv3', desc: '专武升级（当前 Lv.2）', icon: '🥒', price: 120, tier: 2, weaponLevel: 3 },
   { id: 's2', kind: 'buff-card', name: '魔力药剂', desc: '魔力 +18', icon: '🔮', price: 45, tier: 3, stat: 'magic', value: 18 },
   { id: 's3', kind: 'buff-card', name: '疾风之靴', desc: '移动速度 +0.25', icon: '👢', price: 38, tier: 2, stat: 'moveSpeed', value: 0.25 },
   { id: 's4', kind: 'consumable', name: '治疗药水', desc: '立刻回复 30 点生命', icon: '🧪', price: 20, tier: 1 },
 ]
 
 const items: InventoryItem[] = [
-  { uid: 'i1', kind: 'weapon', name: '小黄瓜·专武券', desc: '专武等级 +1', icon: '🥒', tier: 2 },
   { uid: 'i2', kind: 'buff-card', name: '魔力药剂', desc: '魔力 +18', icon: '🔮', tier: 2, stat: 'magic', value: 18 },
   { uid: 'i3', kind: 'buff-card', name: '魔力药剂', desc: '魔力 +18', icon: '🔮', tier: 2, stat: 'magic', value: 18 },
   { uid: 'i4', kind: 'buff-card', name: '生命结晶', desc: '生命上限 +25', icon: '💎', tier: 3, stat: 'hp', value: 25 },
@@ -116,7 +115,7 @@ const tunnelOffers = (): TunnelOffer[] => [
   },
 ]
 
-const stats = (reason?: 'hp' | 'timeout'): RunStatsV3 => ({
+const stats = (reason?: 'hp'): RunStatsV3 => ({
   character: 'murasame',
   difficulty: 'hard',
   layer: reason ? 6 : 10,
@@ -141,7 +140,6 @@ const snapshot = (): HudSnapshot => ({
   stairsUnlocked: false,
   enemiesAlive: 3,
   time: 12,
-  timeLeft: 12,
   charge: 68,
   chargeMax: 100,
   weaponLv: 2,
@@ -150,6 +148,7 @@ const snapshot = (): HudSnapshot => ({
   cardCount: 5,
   stage: 2,
   difficulty: 'normal',
+  difficultyName: '普通',
   monsterKilled: 6,
   monsterTotal: 9,
   boss: null,
@@ -178,6 +177,35 @@ function demoFloaters(): void {
   hud.damageNumber(new THREE.Vector3(0.4, 1.5, 0), 86, 'crit')
   hud.damageNumber(new THREE.Vector3(1.6, 0.7, 0), 18, 'heal')
   hud.damageNumber(new THREE.Vector3(-2.4, 0.3, 0), 12, 'gold')
+}
+
+/** 同一落点的 10 连击，用来检查四位数是否还会叠字 */
+function demoDamageStack(legacy = false): void {
+  const cam = new THREE.PerspectiveCamera(45, 16 / 9, 0.1, 100)
+  cam.position.set(0, 2, 10)
+  cam.lookAt(0, 1, 0)
+  cam.updateMatrixWorld()
+  hud.setCamera(cam)
+  for (let i = 0; i < 10; i += 1) {
+    hud.damageNumber(new THREE.Vector3(0, 1.2, 0), 2929, i % 5 === 0 ? 'crit' : 'normal')
+  }
+  if (!legacy) return
+  // 仅用于预览对比：还原改前的字号、颜色和零错位
+  const previewHud = hud as unknown as {
+    floaters: Array<Record<string, unknown>>
+    renderFloater: (floater: Record<string, unknown>) => void
+  }
+  for (const floater of previewHud.floaters) {
+    if (!floater.active) continue
+    floater.offsetX = 0
+    floater.offsetY = 0
+    const el = floater.el as HTMLElement
+    const crit = floater.kind === 'crit'
+    el.style.fontSize = crit ? '31px' : '19px'
+    el.style.color = crit ? '#ffd24a' : '#f4f7f2'
+    el.style.transform = 'translate(-50%, -50%) scale(1)'
+    previewHud.renderFloater(floater)
+  }
 }
 
 const screen =
@@ -221,9 +249,6 @@ switch (screen) {
   case 'defeat-hp':
     hud.showDefeat('hp', stats('hp'))
     break
-  case 'defeat-timeout':
-    hud.showDefeat('timeout', stats('timeout'))
-    break
   case 'victory':
     hud.showVictory(stats())
     break
@@ -237,8 +262,13 @@ switch (screen) {
     hud.showBoss('哥布林督军·格里克', 640, 1600)
     demoFloaters()
     break
-  case 'hud-danger':
-    hud.update({ ...snapshot(), hp: 9, timeLeft: 6 })
+  case 'dmg':
+    hud.update(snapshot())
+    demoDamageStack()
+    break
+  case 'dmg-before':
+    hud.update(snapshot())
+    demoDamageStack(true)
     break
   default:
     hud.showTitle(slots)

@@ -88,7 +88,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     id: 'mutsumi',
     name: '若叶睦',
     title: '双形态 · 远近切换',
-    role: '远程单体起手，按右键变身 Mortis 打范围音波爆发',
+    role: '远程单体起手，按右键 变身 Mortis 打范围音波爆发',
     chargeGainMul: 0.55,
     base: { hp: 110, chargeMax: 100, stamina: 135, magic: 100, intelligence: 100, moveSpeed: 6.2 },
     attack: {
@@ -128,7 +128,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     id: 'murasame',
     name: '丛雨',
     title: '近战 · 突进',
-    role: '贴脸扇形拔刀清群，右键远距离突进聚怪并回血',
+    role: '贴脸扇形拔刀清群，右键 远距离突进聚怪并回血',
     chargeGainMul: 1,
     base: { hp: 205, chargeMax: 80, stamina: 145, magic: 95, intelligence: 70, moveSpeed: 7.5 },
     attack: {
@@ -161,7 +161,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     id: 'fish',
     name: '蓝色大肥鱼',
     title: '远程 · 召唤',
-    role: '高频泡泡风筝，右键召唤 3 只小肥鱼一起打',
+    role: '高频泡泡风筝，右键 召唤 3 只小肥鱼一起打',
     chargeGainMul: 1.25,
     base: { hp: 110, chargeMax: 90, stamina: 180, magic: 80, intelligence: 110, moveSpeed: 6.6 },
     attack: {

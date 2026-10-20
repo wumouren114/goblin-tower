@@ -4,7 +4,7 @@
  * 约定：
  * - 界面切换只改 class（.is-open），不重建 DOM；update() 每帧只改文本和宽度。
  * - 所有动态卡片（难度/角色/隧道/商店/背包格）构造时预创建，之后复用节点。
- * - 不再显示经验条、等级、楼梯 —— v3 用「击杀进度 / 倒计时 / 技能充能」代替。
+ * - 不再显示经验条、等级、楼梯 —— v3 用「击杀进度 / 难度 / 技能充能」代替。
  */
 
 import * as THREE from 'three'
@@ -19,9 +19,11 @@ import type {
   InventoryItem,
   RunStatsV3,
   SaveSlotMeta,
+  ShopMode,
   ShopOffer,
   TunnelOffer,
   TunnelRoom,
+  TunnelScreenMode,
   TunnelType,
 } from '../types'
 import { CHARACTERS } from '../data/characters'
@@ -46,18 +48,31 @@ import {
 export type { HudSnapshot, HudV3, HudV3Handlers } from '../types'
 
 /** 同屏最多飘字数量（超出复用最老的） */
-const MAX_FLOATERS = 40
+const MAX_FLOATERS = 24
 /** Boss 血条狂暴阈值 */
 const BOSS_PHASE2_RATIO = 0.55
-/** 倒计时进入危险态（红色闪烁）的秒数 */
-const LOW_TIME_SECONDS = 15
 /** 选卡/按钮防连点间隔 */
 const PICK_DELAY_MS = 150
 /** 丢弃按钮防连点间隔（避免一次双击把移位后的下一件物品也丢掉） */
 const DISCARD_GUARD_MS = 250
 /** 飘字上飘距离（px）与存活时长（s） */
-const FLOATER_RISE_PX = 52
-const FLOATER_LIFE = 0.86
+const FLOATER_RISE_PX = 42
+const FLOATER_LIFE = 0.72
+/** 同一落点连续飘字的扇形错位（px），避免 2929 这类四位数叠成一坨 */
+const FLOATER_FAN: ReadonlyArray<readonly [number, number]> = [
+  [0, 0],
+  [-34, 10],
+  [34, -10],
+  [-17, 20],
+  [17, -20],
+  [-51, 0],
+  [51, 0],
+  [-34, -18],
+  [34, 18],
+  [-17, -28],
+  [17, 28],
+  [-51, 20],
+]
 
 type DmgKind = 'normal' | 'crit' | 'heal' | 'gold' | 'dodge'
 
@@ -68,6 +83,9 @@ interface Floater {
   life: number
   kind: DmgKind
   drift: number
+  offsetX: number
+  offsetY: number
+  rise: number
   active: boolean
 }
 
@@ -191,7 +209,7 @@ const STAT_LABEL: Record<CardStat, string> = {
 const STAT_IS_PCT: Partial<Record<CardStat, boolean>> = { chargeGain: true, dodge: true, armor: true, crit: true }
 
 const SHOP_KIND_LABEL: Record<ShopOffer['kind'], string> = {
-  weapon: '专武券',
+  weapon: '专武升级',
   'buff-card': '增益卡',
   consumable: '消耗品',
 }
@@ -307,9 +325,8 @@ function cardArtKey(stat: CardStat | undefined): ArtKey | null {
   return stat ? CARD_ART[stat] ?? null : null
 }
 
-/** 背包 / 商店条目 → 原画 key（消耗品没有专属原画，保留 emoji） */
-function itemArtKey(item: InventoryItem, character: CharacterId): ArtKey | null {
-  if (item.kind === 'weapon') return weaponArtKey(character)
+/** 背包 / 奖励卡 → 原画 key（消耗品没有专属原画，保留 emoji） */
+function itemArtKey(item: InventoryItem): ArtKey | null {
   if (item.kind === 'buff-card') return cardArtKey(item.stat)
   return null
 }
@@ -342,7 +359,7 @@ const UI_TEMPLATE = /* html */ `
     <div class="hud-right">
       <div class="hud-stats">
         <div class="stat stat-gold"><span class="stat-label">金币</span><span class="stat-val js-gold">0</span></div>
-        <div class="stat stat-time js-time-block"><span class="stat-label">倒计时</span><span class="stat-val js-time">00:00</span></div>
+        <div class="stat stat-diff"><span class="stat-label">难度</span><span class="stat-val js-diff">—</span></div>
         <div class="stat stat-alive"><span class="stat-label">场上敌人</span><span class="stat-val js-alive-stat">0</span></div>
         <div class="stat stat-kill"><span class="stat-label">累计击杀</span><span class="stat-val js-kills-stat">0</span></div>
       </div>
@@ -374,9 +391,9 @@ const UI_TEMPLATE = /* html */ `
 
     <div class="hud-bottom">
       <div class="key-hints">
-        <span class="key-hint"><kbd>WASD</kbd>移动</span>
-        <span class="key-hint"><kbd>左键</kbd>普攻</span>
-        <span class="key-hint"><kbd>右键/Q</kbd>技能</span>
+        <span class="key-hint"><kbd>WASD/方向键</kbd>移动</span>
+        <span class="key-hint"><kbd>左键</kbd>点击普攻</span>
+        <span class="key-hint"><kbd>右键</kbd>技能</span>
         <button class="key-hint js-hud-pause" type="button"><kbd>P</kbd>暂停</button>
       </div>
       <div class="objective js-objective">清空本层敌人</div>
@@ -421,7 +438,7 @@ const UI_TEMPLATE = /* html */ `
         <h1 class="title-cn">哥布林之塔</h1>
         <p class="title-en">Tower of the Goblin King · v3</p>
       </header>
-      <div class="title-tagline">三分钟一局 · 清空每层 · 在限时耗尽前登顶</div>
+      <div class="title-tagline">一局约 8–12 分钟 · 清空每层 · 在血尽前登顶</div>
 
       <div class="title-lower">
         <div class="title-row">
@@ -438,6 +455,7 @@ const UI_TEMPLATE = /* html */ `
         <div class="title-start-row">
           <button class="btn-start js-start" type="button">开始爬塔</button>
           <p class="diff-tip js-diff-tip"></p>
+          <p class="title-platform"><strong>仅支持桌面浏览器 + 键鼠</strong> · 手机/平板可浏览，暂不可游玩</p>
         </div>
 
         <section class="title-panel panel-continue js-continue" hidden>
@@ -447,27 +465,31 @@ const UI_TEMPLATE = /* html */ `
 
         <section class="title-panel panel-howto">
           <div class="howto-list">
-            <div class="howto-row"><span class="howto-keys"><kbd>WASD</kbd></span><span>移动躲闪，左键普攻</span></div>
+            <div class="howto-row"><span class="howto-keys"><kbd>WASD / 方向键</kbd></span><span>移动躲闪，左键点击普攻（自动锁敌）</span></div>
             <div class="howto-row"><span class="howto-keys"><kbd>右键</kbd></span><span>释放专武技能，充能靠击杀</span></div>
-            <div class="howto-row"><span class="howto-keys"><kbd>TAB</kbd></span><span>查看背包，两张同级同类卡可合成，点格子右上角 × 可丢弃</span></div>
+            <div class="howto-row"><span class="howto-keys"><kbd>Shift / 空格</kbd></span><span>冲刺，短暂无敌</span></div>
+            <div class="howto-row"><span class="howto-keys"><kbd>TAB / I</kbd></span><span>商店中查看背包，两张同级同类卡可合成，点格子右上角 × 可丢弃</span></div>
             <div class="howto-row"><span class="howto-keys"><kbd>P</kbd></span><span>暂停 / 存档</span></div>
           </div>
-          <p class="howto-note">每层限时，清空全部敌人后从时空隧道三选一前进。</p>
+          <p class="howto-note">清空全部敌人后从时空隧道三选一前进 · V 切视角 · M 静音。</p>
         </section>
       </div>
     </div>
   </section>
 
-  <section class="screen tunnel-screen js-tunnel" aria-label="时空隧道">
+  <section class="screen tunnel-screen is-tunnel js-tunnel" aria-label="时空隧道">
     <div class="tunnel-inner">
-      <p class="tunnel-kicker">TIME RIFT</p>
-      <h2 class="tunnel-title">时空隧道 · 三选一</h2>
+      <div class="tunnel-mode-head">
+        <span class="tunnel-mode-mark js-tunnel-mode-mark" aria-hidden="true">🧭</span>
+        <p class="tunnel-kicker js-tunnel-kicker">STEP 2 / 2 · TIME RIFT</p>
+      </div>
+      <h2 class="tunnel-title js-tunnel-title">时空隧道 · 选择路线</h2>
       <p class="tunnel-sub js-tunnel-sub">选择前进的路线</p>
       <div class="tunnel-cards js-tunnel-cards"></div>
       <div class="tunnel-actions">
         <button class="tunnel-confirm js-tunnel-confirm" type="button" disabled>请先选择一条路线</button>
       </div>
-      <p class="tunnel-hint">先选一张卡，再点「确认选择」或按 <kbd>Enter</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）</p>
+      <p class="tunnel-hint js-tunnel-hint">选中一条路线，再点「确认路线」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）</p>
     </div>
   </section>
 
@@ -483,7 +505,7 @@ const UI_TEMPLATE = /* html */ `
       <div class="shop-grid js-shop-grid"></div>
       <footer class="shop-foot">
         <button class="btn-ghost js-shop-refresh" type="button">重掷 <b class="js-refresh-cost">25</b> 金</button>
-        <button class="btn-ghost js-shop-inv" type="button">进入背包</button>
+        <button class="btn-ghost js-shop-inv" type="button">进入背包 <kbd>TAB / I</kbd></button>
         <button class="btn-primary js-shop-continue" type="button">继续前进</button>
       </footer>
     </div>
@@ -511,7 +533,7 @@ const UI_TEMPLATE = /* html */ `
         </aside>
       </div>
       <footer class="inv-foot">
-        <span class="inv-tip">同类同级可合成，最高 3 级（专武券按专武表升级）；点 × 可丢弃，丢弃不退金币。</span>
+        <span class="inv-tip">同类同级增益卡可合成，最高 3 级；点 × 可丢弃，丢弃不退金币。TAB / I / Esc 关闭</span>
         <button class="btn-primary js-inv-close" type="button">关闭</button>
       </footer>
     </div>
@@ -521,7 +543,7 @@ const UI_TEMPLATE = /* html */ `
     <div class="pause-box">
       <span class="pause-icon">II</span>
       <h2>已暂停</h2>
-      <p>按 <kbd>P</kbd> 继续，进度只在你点头时才继续流动</p>
+      <p>按 <kbd>P</kbd> / <kbd>Esc</kbd> 继续，进度只在你点头时才继续流动</p>
       <div class="pause-actions">
         <button class="btn-primary js-pause-resume" type="button">继续游戏</button>
         <button class="btn-ghost js-pause-save" type="button">存档</button>
@@ -577,8 +599,7 @@ class HudImpl implements HudV3 {
   private aliveEl!: HTMLElement
   private aliveStatEl!: HTMLElement
   private goldEl!: HTMLElement
-  private timeEl!: HTMLElement
-  private timeBlockEl!: HTMLElement
+  private diffEl!: HTMLElement
   private killsEl!: HTMLElement
   private killsStatEl!: HTMLElement
   private muteChipEl!: HTMLElement
@@ -624,20 +645,28 @@ class HudImpl implements HudV3 {
 
   /* ---------- 隧道 ---------- */
   private tunnelEl!: HTMLElement
+  private tunnelModeMarkEl!: HTMLElement
+  private tunnelKickerEl!: HTMLElement
+  private tunnelTitleEl!: HTMLElement
   private tunnelSubEl!: HTMLElement
+  private tunnelHintEl!: HTMLElement
   private tunnelCardsEl!: HTMLElement
   private readonly tunnelCardRefs: TunnelCardRef[] = []
   private tunnelOffers: TunnelOffer[] = []
+  private tunnelMode: TunnelScreenMode = 'tunnel'
   private tunnelLocked = false
   private tunnelSelected = -1
   private tunnelConfirmEl: HTMLButtonElement | null = null
 
   /* ---------- 商店 ---------- */
   private shopEl!: HTMLElement
+  private shopKickerEl!: HTMLElement
+  private shopTitleEl!: HTMLElement
   private shopGridEl!: HTMLElement
   private shopGoldEl!: HTMLElement
   private refreshBtnEl!: HTMLButtonElement
   private refreshCostEl!: HTMLElement
+  private shopContinueEl!: HTMLButtonElement
   private readonly shopCardRefs: ShopCardRef[] = []
   private shopOffers: ShopOffer[] = []
   private shopRefreshCost = 0
@@ -683,9 +712,9 @@ class HudImpl implements HudV3 {
   /* ---------- 内部状态 ---------- */
   private readonly floaters: Floater[] = []
   private floaterCursor = 0
+  private floaterSeq = 0
   private lastFrame = 0
   private readonly barCache = new WeakMap<HTMLElement, number>()
-  private timeDanger = false
   private bossPinned = false
   private bossRatio = -1
   private bannerTimer: number | null = null
@@ -740,12 +769,17 @@ class HudImpl implements HudV3 {
     if (snapshot.stage != null) setText(this.stageEl, String(Math.max(1, Math.floor(snapshot.stage))))
     setText(this.floorNameEl, snapshot.floorName || '未知区域')
 
+    const bossLayer = snapshot.bossLayer === true
     const total = Math.max(0, Math.floor(snapshot.monsterTotal ?? snapshot.quotaMax ?? 0))
     const killed = Math.max(0, Math.floor(snapshot.monsterKilled ?? snapshot.quota ?? 0))
-    const cleared = total > 0 && killed >= total
+    const cleared = !bossLayer && total > 0 && killed >= total
+    this.floorEl.classList.toggle('is-boss-layer', bossLayer)
     this.floorEl.classList.toggle('is-cleared', cleared)
-    setText(this.quotaTextEl, total > 0 ? `击杀 ${Math.min(killed, total)} / ${total}` : '首领层 · 击败首领')
-    setBarFill(this.quotaFillEl, total > 0 ? clamp01(killed / total) : 0, this.barCache)
+    setText(
+      this.quotaTextEl,
+      bossLayer ? '首领层 · 击败哥布林之王' : total > 0 ? `击杀 ${Math.min(killed, total)} / ${total}` : '首领层 · 击败首领',
+    )
+    setBarFill(this.quotaFillEl, bossLayer ? 0 : total > 0 ? clamp01(killed / total) : 0, this.barCache)
 
     const alive = Math.max(0, Math.floor(snapshot.enemiesAlive || 0))
     setText(this.aliveEl, String(alive))
@@ -753,18 +787,11 @@ class HudImpl implements HudV3 {
     setText(this.killsEl, fmtInt(snapshot.kills || 0))
     setText(this.killsStatEl, fmtInt(snapshot.kills || 0))
     setText(this.goldEl, fmtInt(snapshot.gold || 0))
-
-    // 倒计时：优先 timeLeft，其次把 time 当作倒计时剩余显示
-    const left =
-      typeof snapshot.timeLeft === 'number' && Number.isFinite(snapshot.timeLeft)
-        ? Math.max(0, snapshot.timeLeft)
-        : null
-    setText(this.timeEl, fmtTime(Math.ceil(left ?? Math.max(0, snapshot.time || 0))))
-    const danger = left !== null && left <= LOW_TIME_SECONDS
-    if (danger !== this.timeDanger) {
-      this.timeDanger = danger
-      this.timeBlockEl.classList.toggle('is-danger', danger)
-    }
+    const diffName =
+      snapshot.difficultyName ||
+      (snapshot.difficulty ? DIFFICULTIES[snapshot.difficulty]?.name : '') ||
+      '—'
+    setText(this.diffEl, diffName)
 
     // 生命
     const maxHp = Math.max(1, snapshot.maxHp || 1)
@@ -785,11 +812,13 @@ class HudImpl implements HudV3 {
     // 目标提示
     setText(
       this.objectiveEl,
-      total <= 0
-        ? '击败本层首领'
-        : cleared
-          ? '本层已清空 · 前往时空隧道'
-          : `剩余 ${total - killed} 只 · 清空后进入时空隧道`,
+      bossLayer
+        ? '击败哥布林之王 · 本层通关'
+        : total <= 0
+          ? '击败本层首领'
+          : cleared
+            ? '本层已清空 · 前往时空隧道'
+            : `剩余 ${total - killed} 只 · 清空后进入时空隧道`,
     )
 
     this.updateBossFromSnapshot(snapshot)
@@ -837,9 +866,31 @@ class HudImpl implements HudV3 {
     this.titleInnerEl.classList.remove('is-char-focus')
   }
 
-  showTunnelOffers(offers: TunnelOffer[], layer: number): void {
+  showTunnelOffers(offers: TunnelOffer[], layer: number, mode: TunnelScreenMode = 'tunnel'): void {
+    const hasLayer = layer > 0
+    const isBonus = mode === 'bonus'
+    this.tunnelMode = mode
     this.tunnelOffers = offers.slice(0, this.tunnelCardRefs.length)
-    setText(this.tunnelSubEl, layer > 0 ? `第 ${layer} 层已清空 · 选择前进的路线` : '选择前进的路线')
+    this.tunnelEl.classList.toggle('is-bonus', isBonus)
+    this.tunnelEl.classList.toggle('is-tunnel', !isBonus)
+    this.tunnelEl.dataset.mode = mode
+    this.tunnelEl.setAttribute('aria-label', isBonus ? '清层奖励三选一' : '时空隧道路线选择')
+    setText(this.tunnelModeMarkEl, isBonus ? '🎁' : '🧭')
+    setText(this.tunnelKickerEl, isBonus ? 'STEP 1 / 2 · LAYER REWARD' : 'STEP 2 / 2 · TIME RIFT')
+    setText(this.tunnelTitleEl, isBonus ? '清层奖励 · 三选一' : '时空隧道 · 选择路线')
+    setText(
+      this.tunnelSubEl,
+      isBonus
+        ? hasLayer
+          ? `第 ${layer} 层清层奖励 · 领取后进入时空隧道选路线`
+          : '本层清层奖励 · 领取后进入时空隧道选路线'
+        : hasLayer
+          ? `第 ${layer} 层已清空 · 选择前进的路线`
+          : '选择前进的路线',
+    )
+    this.tunnelHintEl.innerHTML = isBonus
+      ? '选中一张奖励卡，再点「领取奖励」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
+      : '选中一条路线，再点「确认路线」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
     for (let i = 0; i < this.tunnelCardRefs.length; i += 1) {
       const ref = this.tunnelCardRefs[i]
       const offer = this.tunnelOffers[i]
@@ -851,12 +902,12 @@ class HudImpl implements HudV3 {
       ref.card.disabled = false
       ref.card.dataset.offerId = offer.id
       ref.card.className = `tunnel-card kind-${offer.kind}`
-      setText(ref.band, TUNNEL_META[offer.kind]?.label ?? '未知')
+      setText(ref.band, isBonus ? '清层奖励' : TUNNEL_META[offer.kind]?.label ?? '未知')
       setArtIcon(ref.icon, this.tunnelIconArt(offer), offer.icon || '✦')
-      setText(ref.room, ROOM_LABEL[offer.room] ?? '未知房间')
+      setText(ref.room, isBonus ? '本层奖励 · 增益卡' : ROOM_LABEL[offer.room] ?? '未知房间')
       setText(ref.title, offer.title)
       setText(ref.desc, offer.desc)
-      const lines = this.tunnelPreviewLines(offer)
+      const lines = this.tunnelPreviewLines(offer, mode)
       ref.preview.replaceChildren(...lines.map((line) => this.makePreviewRow(line)))
       setText(ref.key, String(i + 1))
     }
@@ -873,7 +924,11 @@ class HudImpl implements HudV3 {
     this.refreshHud()
   }
 
-  showShop(offers: ShopOffer[], gold: number, refreshCost: number): void {
+  showShop(offers: ShopOffer[], gold: number, refreshCost: number, mode: ShopMode = 'standard'): void {
+    const roomShop = mode === 'room'
+    this.shopKickerEl.textContent = roomShop ? 'WANDERING MERCHANT · EXTRA SHELF' : 'WANDERING MERCHANT'
+    this.shopTitleEl.textContent = roomShop ? '流浪商人 · 额外货架' : '流浪商人'
+    this.shopContinueEl.textContent = roomShop ? '结束选购 → 标准商店' : '继续前进'
     this.shopOffers = offers.slice(0, 4)
     this.shopRefreshCost = Math.max(0, refreshCost)
     this.renderShop(gold)
@@ -916,6 +971,10 @@ class HudImpl implements HudV3 {
     this.refreshHud()
   }
 
+  isInventoryOpen(): boolean {
+    return this.invEl.classList.contains('is-open')
+  }
+
   showPause(slots: SaveSlotMeta[]): void {
     this.lastSlots = slots.slice()
     this.paused = true
@@ -944,8 +1003,8 @@ class HudImpl implements HudV3 {
     this.slotsEl.classList.remove('is-open')
   }
 
-  showDefeat(reason: DefeatReason, stats: RunStatsV3): void {
-    this.renderEnd(stats, false, reason)
+  showDefeat(_reason: DefeatReason, stats: RunStatsV3): void {
+    this.renderEnd(stats, false)
   }
 
   showVictory(stats: RunStatsV3): void {
@@ -993,29 +1052,28 @@ class HudImpl implements HudV3 {
   }
 
   floatText(worldPos: THREE.Vector3, text: string, kind: DmgKind = 'normal'): void {
+    this.spawnFloater(worldPos, text, kind)
+  }
+  damageNumber(worldPos: THREE.Vector3, amount: number, kind: 'normal' | 'crit' | 'heal' | 'gold'): void {
+    this.spawnFloater(worldPos, this.formatDamage(amount, kind), kind)
+  }
+
+  /** 所有飘字共用的生成入口：错位、寿命和上飘高度都在这里决定 */
+  private spawnFloater(worldPos: THREE.Vector3, text: string, kind: DmgKind): void {
     if (this.destroyed || this.floaters.length === 0) return
     const floater = this.acquireFloater()
+    const fan = FLOATER_FAN[this.floaterSeq++ % FLOATER_FAN.length]
     floater.world.copy(worldPos)
     floater.age = 0
-    floater.life = FLOATER_LIFE + Math.random() * 0.18
+    floater.life = FLOATER_LIFE + Math.random() * 0.14
     floater.kind = kind
-    floater.drift = (Math.random() - 0.5) * 26
+    floater.drift = (Math.random() - 0.5) * 8
+    floater.offsetX = fan[0] + (Math.random() - 0.5) * 4
+    floater.offsetY = fan[1] + (Math.random() - 0.5) * 3
+    floater.rise = FLOATER_RISE_PX * (0.82 + Math.random() * 0.3)
     floater.active = true
     floater.el.className = `dmg kind-${kind}`
     floater.el.textContent = text
-    this.renderFloater(floater)
-  }
-  damageNumber(worldPos: THREE.Vector3, amount: number, kind: 'normal' | 'crit' | 'heal' | 'gold'): void {
-    if (this.destroyed || this.floaters.length === 0) return
-    const floater = this.acquireFloater()
-    floater.world.copy(worldPos)
-    floater.age = 0
-    floater.life = FLOATER_LIFE + Math.random() * 0.18
-    floater.kind = kind
-    floater.drift = (Math.random() - 0.5) * 26
-    floater.active = true
-    floater.el.className = `dmg kind-${kind}`
-    floater.el.textContent = this.formatDamage(amount, kind)
     this.renderFloater(floater)
   }
 
@@ -1089,8 +1147,7 @@ class HudImpl implements HudV3 {
     this.aliveEl = this.q('.js-alive')
     this.aliveStatEl = this.q('.js-alive-stat')
     this.goldEl = this.q('.js-gold')
-    this.timeEl = this.q('.js-time')
-    this.timeBlockEl = this.q('.js-time-block')
+    this.diffEl = this.q('.js-diff')
     this.killsEl = this.q('.js-kills')
     this.killsStatEl = this.q('.js-kills-stat')
     this.muteChipEl = this.q('.js-mute')
@@ -1171,7 +1228,7 @@ class HudImpl implements HudV3 {
       mods.append(
         span('diff-mod', `敌人 ×${def.stages?.length ?? 1} 阶段`),
         span('diff-mod', `生命 ×${def.hpMul}`),
-        span('diff-mod', `计时 ×${def.timerMul}`),
+        span('diff-mod', `数量 ×${def.countMul}`),
       )
       const check = span('diff-check', '✓')
       card.append(head, desc, mods, check)
@@ -1190,7 +1247,11 @@ class HudImpl implements HudV3 {
 
   private wireTunnel(): void {
     this.tunnelEl = this.q('.js-tunnel')
+    this.tunnelModeMarkEl = this.q('.js-tunnel-mode-mark')
+    this.tunnelKickerEl = this.q('.js-tunnel-kicker')
+    this.tunnelTitleEl = this.q('.js-tunnel-title')
     this.tunnelSubEl = this.q('.js-tunnel-sub')
+    this.tunnelHintEl = this.q('.js-tunnel-hint')
     this.tunnelCardsEl = this.q('.js-tunnel-cards')
     for (let i = 0; i < 3; i += 1) {
       const card = el('button', 'tunnel-card')
@@ -1222,12 +1283,15 @@ class HudImpl implements HudV3 {
   }
 
   private applyTunnelSelection(): void {
+    const isBonus = this.tunnelMode === 'bonus'
     for (let i = 0; i < this.tunnelCardRefs.length; i += 1) {
       this.tunnelCardRefs[i].card.classList.toggle('is-selected', i === this.tunnelSelected)
     }
     if (this.tunnelConfirmEl) {
       this.tunnelConfirmEl.disabled = this.tunnelSelected < 0
-      this.tunnelConfirmEl.textContent = this.tunnelSelected >= 0 ? '确认选择' : '请先选择一条路线'
+      this.tunnelConfirmEl.textContent = this.tunnelSelected >= 0
+        ? (isBonus ? '领取奖励' : '确认路线')
+        : (isBonus ? '请先选择一张奖励卡' : '请先选择一条路线')
     }
   }
 
@@ -1238,17 +1302,20 @@ class HudImpl implements HudV3 {
 
   private wireShop(): void {
     this.shopEl = this.q('.js-shop')
+    this.shopKickerEl = this.q('.shop-kicker')
+    this.shopTitleEl = this.q('.shop-title')
     this.shopGridEl = this.q('.js-shop-grid')
     this.shopGoldEl = this.q('.js-shop-gold')
     this.refreshBtnEl = this.q('.js-shop-refresh')
     this.refreshCostEl = this.q('.js-refresh-cost')
+    this.shopContinueEl = this.q<HTMLButtonElement>('.js-shop-continue')
 
     this.refreshBtnEl.addEventListener('click', () => {
       if (this.shopGold < this.shopRefreshCost) return
       this.handlers.onShopRefresh()
     })
     this.q('.js-shop-inv').addEventListener('click', () => this.handlers.onOpenInventory())
-    this.q('.js-shop-continue').addEventListener('click', () => {
+    this.shopContinueEl.addEventListener('click', () => {
       this.hideShop()
       this.handlers.onShopClose()
     })
@@ -1333,6 +1400,9 @@ class HudImpl implements HudV3 {
         life: FLOATER_LIFE,
         kind: 'normal',
         drift: 0,
+        offsetX: 0,
+        offsetY: 0,
+        rise: FLOATER_RISE_PX,
         active: false,
       })
     }
@@ -1405,7 +1475,7 @@ class HudImpl implements HudV3 {
   private tunnelIconArt(offer: TunnelOffer): ArtKey | null {
     const payload = offer.payload ?? {}
     if (payload.bossLayer) return 'portrait_boss'
-    if (payload.card) return itemArtKey(payload.card, this.runCharacter)
+    if (payload.card) return itemArtKey(payload.card)
     if (payload.skillCard) return cardArtKey(payload.skillCard.stat)
     if (payload.altarReward) return cardArtKey(payload.altarReward.stat)
     return null
@@ -1421,17 +1491,18 @@ class HudImpl implements HudV3 {
     return row
   }
 
-  private tunnelPreviewLines(offer: TunnelOffer): TunnelPreviewLine[] {
+  private tunnelPreviewLines(offer: TunnelOffer, mode: TunnelScreenMode = 'tunnel'): TunnelPreviewLine[] {
     const payload = offer.payload ?? {}
     const lines: TunnelPreviewLine[] = []
     if (typeof payload.gold === 'number' && payload.gold > 0) {
       lines.push({ text: `金币 +${fmtInt(payload.gold)}`, art: null })
     }
     if (payload.card) {
-      lines.push({ text: `卡牌 · ${payload.card.name}`, art: itemArtKey(payload.card, this.runCharacter) })
+      lines.push({ text: `卡牌 · ${payload.card.name}`, art: itemArtKey(payload.card) })
     }
     if (payload.skillCard) {
-      lines.push({ text: `技能卡 · ${payload.skillCard.name}`, art: cardArtKey(payload.skillCard.stat) })
+      const label = mode === 'bonus' ? '增益卡' : '技能卡'
+      lines.push({ text: `${label} · ${payload.skillCard.name}`, art: cardArtKey(payload.skillCard.stat) })
     }
     if (payload.shopOffers && payload.shopOffers.length > 0) {
       lines.push({ text: `商会 · ${payload.shopOffers.length} 件商品`, art: null })
@@ -1642,7 +1713,7 @@ class HudImpl implements HudV3 {
       ref.discard.setAttribute('aria-label', `丢弃 ${item.name}`)
       ref.discard.title = `丢弃 ${item.name}`
       setText(ref.tier, tierLabel(item.tier))
-      setArtIcon(ref.icon, itemArtKey(item, this.runCharacter), item.icon || '✦')
+      setArtIcon(ref.icon, itemArtKey(item), item.icon || '✦')
       setText(ref.name, item.name)
       const bits: string[] = [SHOP_KIND_LABEL[item.kind] ?? '物品']
       if (item.stat && typeof item.value === 'number') {
@@ -1682,8 +1753,9 @@ class HudImpl implements HudV3 {
   /* ================================================================ */
 
   private toggleMute(): void {
-    this.setMuted(!this.muted)
-    window.dispatchEvent(new CustomEvent('goblin:mute', { detail: { muted: this.muted } }))
+    const muted = !this.muted
+    this.setMuted(muted)
+    this.handlers.onToggleMute?.(muted)
   }
 
   private makeSlotRow(meta: SaveSlotMeta, variant: 'continue' | 'save' | 'load'): HTMLButtonElement {
@@ -1750,7 +1822,7 @@ class HudImpl implements HudV3 {
     this.handlers.onRestart()
   }
 
-  private renderEnd(stats: RunStatsV3, victory: boolean, reason?: DefeatReason): void {
+  private renderEnd(stats: RunStatsV3, victory: boolean): void {
     this.endLocked = false
     this.endRetryEl.hidden = victory
     this.endEl.classList.toggle('is-victory', victory)
@@ -1759,9 +1831,6 @@ class HudImpl implements HudV3 {
     if (victory) {
       setText(this.endTitleEl, '塔顶的黎明')
       setText(this.endSubEl, '你带着战利品走出了哥布林之塔。')
-    } else if (reason === 'timeout') {
-      setText(this.endTitleEl, '时间耗尽')
-      setText(this.endSubEl, '倒计时归零，塔门在你身后合拢。')
     } else {
       setText(this.endTitleEl, '生命耗尽')
       setText(this.endSubEl, '你倒在了塔中，哥布林的笑声在石壁间回荡。')
@@ -1887,13 +1956,24 @@ class HudImpl implements HudV3 {
     const rect = this.dmgLayerEl.getBoundingClientRect()
     const halfW = rect.width * 0.5
     const halfH = rect.height * 0.5
-    const rise = FLOATER_RISE_PX * Math.min(1, t * 1.35)
-    node.style.left = `${(this.scratchProject.x * halfW + halfW + floater.drift * t).toFixed(1)}px`
-    node.style.top = `${(-this.scratchProject.y * halfH + halfH - rise).toFixed(1)}px`
+    const rise = floater.rise * Math.min(1, t * 1.35)
+    node.style.left = `${(
+      this.scratchProject.x * halfW +
+      halfW +
+      floater.offsetX +
+      floater.drift * t
+    ).toFixed(1)}px`
+    node.style.top = `${(
+      -this.scratchProject.y * halfH +
+      halfH -
+      rise +
+      floater.offsetY
+    ).toFixed(1)}px`
 
     let opacity = 1
     if (t > 0.65) opacity = Math.max(0, 1 - (t - 0.65) / 0.35)
-    const pop = t < 0.16 ? 0.72 + (t / 0.16) * 0.43 : 1.15 - Math.min(0.15, (t - 0.16) * 0.5)
+    // 缩小后的数字不再做大幅弹跳，避免 4 位数在弹跳瞬间又叠在一起
+    const pop = t < 0.16 ? 0.86 + (t / 0.16) * 0.18 : 1.04 - Math.min(0.04, (t - 0.16) * 0.15)
     node.style.opacity = opacity.toFixed(3)
     node.style.transform = `translate(-50%, -50%) scale(${pop.toFixed(3)})`
   }
@@ -1942,7 +2022,8 @@ class HudImpl implements HudV3 {
     }
 
     if (this.invEl.classList.contains('is-open')) {
-      if (event.code === 'Escape' || event.code === 'Tab') {
+      // TAB / I 由 game.ts 统一处理开关，这里只保留 Esc 关闭，避免双重处理。
+      if (event.code === 'Escape') {
         event.preventDefault()
         this.hideInventory()
         this.handlers.onCloseInventory()
@@ -1980,7 +2061,7 @@ class HudImpl implements HudV3 {
     }
 
     if (this.pauseEl.classList.contains('is-open')) {
-      if (event.code === 'Escape') {
+      if (event.code === 'Escape' || event.code === 'KeyP') {
         event.preventDefault()
         this.hidePause()
         this.handlers.onPauseToggle()

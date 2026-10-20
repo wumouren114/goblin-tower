@@ -456,27 +456,6 @@ check('不同种 / 不同级 / 消耗品 / 自己 都不能合', () => {
   eq(bag.canMerge('nope', magic.uid), false, '不存在的 uid')
 })
 
-check('专武券：同名同等级可合，升下一级', () => {
-  const bag = new Inventory()
-  const a = economy.makeWeaponItem('mutsumi', 2)
-  const b = economy.makeWeaponItem('mutsumi', 2)
-  bag.add(a)
-  bag.add(b)
-  ok(bag.canMerge(a.uid, b.uid), '同角色同等级专武券应可合')
-  const merged = bag.merge(a.uid, b.uid)
-  ok(merged, '应合成')
-  eq(merged.value, 3, '升到 Lv3')
-  ok(merged.name.includes('Lv3'), `名字应含 Lv3：${merged.name}`)
-  eq(merged.tier, 2)
-
-  const other = economy.makeWeaponItem('murasame', 2)
-  const bag2 = new Inventory()
-  const x = economy.makeWeaponItem('mutsumi', 2)
-  bag2.add(x)
-  bag2.add(other)
-  eq(bag2.canMerge(x.uid, other.uid), false, '不同角色不可合')
-})
-
 check('use() 只吃消耗品并返回该物品', () => {
   const bag = new Inventory()
   const potion = {
@@ -510,12 +489,11 @@ check('use() 只吃消耗品并返回该物品', () => {
   eq(bag.use('missing'), null, '不存在 uid')
 })
 
-check('cards 汇总：只累计增益卡，消耗品/专武券不上面板', () => {
+check('cards 汇总：只累计增益卡，消耗品不上面板', () => {
   const bag = new Inventory()
   bag.add(economy.makeCardItem('magic', 1)) // 18
   bag.add(economy.makeCardItem('hp', 2)) // 25 × tier2.valueMul
   bag.add(economy.makeCardItem('armor', 1)) // 0.05
-  bag.add(economy.makeWeaponItem('fish', 2))
   bag.add({ uid: 'c1', kind: 'consumable', name: '充能电池', desc: '', icon: '🔋', tier: 1, value: 1 })
   const cards = bag.cards
   approx(cards.magic, 18, 1e-9)
@@ -554,7 +532,6 @@ function buildRun() {
   const bag = new Inventory()
   bag.add(economy.makeCardItem('magic', 1))
   bag.add(economy.makeCardItem('hp', 2))
-  bag.add(economy.makeWeaponItem('murasame', 2))
   bag.add({ uid: 'potion-9', kind: 'consumable', name: '治疗药水', desc: '回血', icon: '🧪', tier: 1, value: 0.35 })
   return {
     version: 3,
@@ -597,6 +574,17 @@ check('saveToSlot / loadFromSlot 完整往返', () => {
   ok(loaded.savedAt > 0, 'savedAt 应在存档时刷新')
   deepEqual(loaded.inventory, state.inventory, '背包物品')
   deepEqual(loaded.cards, state.cards, '五维')
+})
+
+check('旧版专武物品读档时被过滤', () => {
+  const state = buildRun()
+  state.inventory.push({ uid: 'legacy-weapon', kind: 'weapon', name: '旧版专武', desc: '', icon: '⚔️', tier: 1 })
+  ok(saveLoad.saveToSlot(2, state), '旧档应能写入')
+  const loaded = saveLoad.loadFromSlot(2)
+  ok(loaded, '含旧物品的存档仍应可读')
+  eq(loaded.inventory.some((item) => item.kind === 'weapon'), false, '旧版专武物品应被过滤')
+  eq(loaded.inventory.length, state.inventory.length - 1, '其余物品应保留')
+  saveLoad.deleteSlot(2)
 })
 
 check('listSlots 返回元信息（空槽为空）', () => {
@@ -674,21 +662,21 @@ check('商店随机可复现（同 seed 同货架）', () => {
   const b = shop.generateOffers(6, 'fish', 200, new Rng(555), 4, 3)
   deepEqual(a, b, 'generateOffers')
   eq(a.length, 4)
-  ok(a.some((offer) => offer.kind === 'weapon'), '货架应含专武券')
-  eq(a.find((offer) => offer.kind === 'weapon').weaponLevel, 4, '专武券 = 当前等级 +1')
+  ok(a.some((offer) => offer.kind === 'weapon'), '货架应含专武升级')
+  eq(a.find((offer) => offer.kind === 'weapon').weaponLevel, 4, '专武升级 = 当前等级 +1')
   const weapon = a.find((offer) => offer.kind === 'weapon')
-  eq(weapon.price, BALANCE.weapons.fish.tiers[3].price, '专武价格取 tiers[level-1].price')
+  eq(weapon.price, BALANCE.weapons.fish.tiers[3].price, '专武升级价格取 tiers[level-1].price')
   const hi = shop.generateOffers(10, 'fish', 999, new Rng(777), 4, 6)
-  eq(hi.find((offer) => offer.kind === 'weapon')?.weaponLevel, 7, 'Lv6 货架应能出 Lv7 专武券')
+  eq(hi.find((offer) => offer.kind === 'weapon')?.weaponLevel, 7, 'Lv6 货架应能出 Lv7 专武升级')
   const cards = a.filter((offer) => offer.kind === 'buff-card')
   ok(cards.length >= 2, '至少 2 张增益卡')
   ok(shop.refreshOffers(6, 'fish', new Rng(1), 2).length === 4, 'refreshOffers 出 4 件')
 })
 
-check('商店专武券到 7 级后不再出现', () => {
+check('商店专武升级到 7 级后不再出现', () => {
   for (let attempt = 0; attempt < 50; attempt += 1) {
     const offers = shop.generateOffers(10, 'murasame', 999, new Rng(attempt), 4, 7)
-    ok(offers.every((offer) => offer.kind !== 'weapon'), '满级不应出专武券')
+    ok(offers.every((offer) => offer.kind !== 'weapon'), '满级不应出专武升级')
   }
 })
 

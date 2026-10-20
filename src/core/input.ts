@@ -1,9 +1,10 @@
 /**
- * 键盘 / 鼠标输入（v3：左键普攻、右键技能、中键拖拽转视角）
+ * 键盘 / 鼠标输入（v3：左键点击普攻、右键技能、中键拖拽转视角）
  *
- * - 左键按住 = 持续普攻（attackHeld）
+ * - 左键点击 = 单次普攻（attackQueued，仅边沿触发；不再按住连发）
  * - 右键按下 = 技能（skillPressed，仅边沿触发）
  * - 中键拖拽 / 滚轮 = 转视角 / 缩放
+ * - 方向键 / WASD / Space / Tab 拦截浏览器默认行为（Tab 防止焦点跳走）
  * - 鼠标位置以 NDC 暴露，game.ts 用它把准星投到地面
  */
 export class Input {
@@ -16,7 +17,7 @@ export class Input {
   /** NDC：(-1..1)，y 向上 */
   ndcX = 0
   ndcY = 0
-  attackHeld = false
+  private attackQueued = false
   skillPressed = false
   private skillQueued = false
   dragX = 0
@@ -29,9 +30,12 @@ export class Input {
     this.el = el
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // HUD 的 keydown 先注册、先执行；它已处理的按键（Enter/Escape/数字等）
+      // 不再写入游戏输入，避免同一次按键被 UI 和游戏各处理一次。
+      if (e.defaultPrevented) return
       const code = e.code
       if (
-        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(code)
+        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Tab', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(code)
       ) {
         e.preventDefault()
       }
@@ -45,7 +49,7 @@ export class Input {
     const onBlur = () => {
       this.down.clear()
       this.pointerDown = false
-      this.attackHeld = false
+      this.attackQueued = false
     }
     const isUi = (t: EventTarget | null): boolean => !!t && !!(t as HTMLElement).closest('#ui-root')
 
@@ -59,7 +63,7 @@ export class Input {
         return
       }
       if (e.button === 0) {
-        this.attackHeld = true
+        this.attackQueued = true
       } else if (e.button === 2) {
         this.skillQueued = true
       } else if (e.button === 1) {
@@ -71,7 +75,6 @@ export class Input {
       }
     }
     const onPointerUp = (e: PointerEvent) => {
-      if (e.button === 0) this.attackHeld = false
       if (e.button === 1) this.pointerDown = false
       this.button = -1
     }
@@ -135,6 +138,13 @@ export class Input {
     return this.pressedThisFrame.has(code)
   }
 
+  /** 本帧是否点击了左键（边沿触发，读取后消费；按住不会连发） */
+  consumeAttack(): boolean {
+    const v = this.attackQueued
+    this.attackQueued = false
+    return v
+  }
+
   /** 本帧是否按下了右键（边沿触发，读取后消费） */
   consumeSkill(): boolean {
     const v = this.skillQueued
@@ -174,6 +184,8 @@ export class Input {
   endFrame(): void {
     this.pressedThisFrame.clear()
     this.skillPressed = false
+    // 暂停/商店等非战斗阶段不接受残留的点击，避免恢复后突然开火
+    this.attackQueued = false
   }
 
   dispose(): void {

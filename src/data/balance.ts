@@ -12,7 +12,6 @@ export interface DifficultyDef {
   spawnMul: number
   goldMul: number
   xpMul: number
-  timerMul: number
   note: string
 }
 
@@ -42,15 +41,12 @@ interface LayerCurve {
   xpPerKillPerLayer: number
   bossHpBase: number
   bossHpPerLayer: number
-  timeoutHpPenaltyRatio: number
-  timeoutSkipsReward: boolean
 }
 
 export interface WarmupStep {
   hpMul: number
   damageMul: number
   spawnMul: number
-  timerBonus: number
   maxAliveMul: number
 }
 
@@ -65,7 +61,7 @@ export interface BuffCardDef {
 }
 
 interface BalanceShape {
-  meta: { version: number; layerTimerSeconds: number; bossTimerSeconds: number }
+  meta: { version: number; monsterCountIsFixed: boolean; note: string }
   difficulties: Record<DifficultyId, DifficultyDef>
   layerCurve: LayerCurve
   portals: Record<string, unknown>
@@ -182,12 +178,6 @@ export function xpPerKillFor(id: DifficultyId, layer: number): number {
 export function bossHpFor(id: DifficultyId, layer: number): number {
   const c = LAYER_CURVE
   return Math.round(c.bossHpBase * (1 + c.bossHpPerLayer * (layer - 1)) * DIFFICULTIES[id].hpMul)
-}
-
-export function layerTimerFor(id: DifficultyId, boss: boolean, layer = 1): number {
-  const base = boss ? BALANCE.meta.bossTimerSeconds : BALANCE.meta.layerTimerSeconds
-  const w = boss ? null : warmupFor(id, layer)
-  return base * DIFFICULTIES[id].timerMul + (w?.timerBonus ?? 0)
 }
 
 /** 商店实际价格：基准价 × (1 + 每层涨幅 × (层 - 1)) × 品质倍率 */

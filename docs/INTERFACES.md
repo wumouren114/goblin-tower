@@ -218,7 +218,7 @@ export interface Hud {
 - **飘字**：世界坐标 → 屏幕坐标投影，普通白、暴击黄大红字、金币金、回血绿；向上飘 + 淡出，DOM 实现，同屏上限 40。
 - **结束页**：死亡/通关两种文案 + 统计（层数/等级/击杀/金币/用时）+ 重新开始按钮（`handlers.onRestart`）。
 - **楼层横幅**：进入新层时「第 N 层 · 名称」大字，2 秒后淡出。
-- 响应式：适配 1280×720 以上，HUD 不遮挡中心战斗区；中文字体栈 `"Microsoft YaHei", "PingFang SC", sans-serif`。
+- 响应式：适配 1280×720 以上；移动端/触屏不保证可玩，HUD 不遮挡中心战斗区；中文字体栈 `"Microsoft YaHei", "PingFang SC", sans-serif`。
 - 风格：深色玻璃拟态 + 琥珀/青色霓虹描边 + 像素字体感（`font-weight:700; letter-spacing`），不要用外部字体/CDN。
 - `update` 每帧调用（60fps），避免频繁 DOM 重建：数值用 textContent 缓存，条用 transform/width。
 

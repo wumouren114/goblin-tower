@@ -1,4 +1,4 @@
-// 无头 Edge 截图工具：node scripts/shot.mjs <url> [out.png] [budgetMs] [width] [height]
+﻿// 无头 Edge 截图工具：node scripts/shot.mjs <url> [out.png] [budgetMs] [width] [height]
 // 用于在不打开真实浏览器的情况下验证 WebGL 场景是否正常渲染。
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs'
@@ -32,7 +32,7 @@ if (existsSync(out)) rmSync(out, { force: true })
 const result = spawnSync(
   browser,
   [
-    '--headless=new',
+    '--headless', // Edge 155 起 --headless=new 会被当成多个 target，改用旧 flag（Chrome 132+ 等价新 headless）
     '--user-data-dir=' + path.join(os.tmpdir(), 'gt-headless-profile'),
     '--disable-dev-shm-usage',
     '--no-first-run',

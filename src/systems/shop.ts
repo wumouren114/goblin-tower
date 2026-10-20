@@ -1,5 +1,5 @@
 /**
- * 商店（4 格）：1 张角色专武券（当前等级 +1）+ 2~3 张增益卡/消耗品。
+ * 商店（4 格）：1 格角色专武升级（当前等级 +1）+ 2~3 张增益卡/消耗品。
  * 品质与增价随层数上涨（rollQuality / shopPriceFor），重掷 25 金。
  * 纯数据层：不 import three.js、不碰 DOM；随机走传入的 Rng。
  */
@@ -54,7 +54,7 @@ function rollPrice(base: number, layer: number, qualityMul = 1): number {
   return priceOf(base, clampLayer(layer), qualityMul)
 }
 
-function makeWeaponOffer(charId: CharacterId, weaponLv: number): ShopOffer | null {
+function makeWeaponUpgradeOffer(charId: CharacterId, weaponLv: number): ShopOffer | null {
   const current = Math.round(weaponLv)
   const next = current + 1
   if (next > MAX_WEAPON_LV || next < 2) return null
@@ -123,7 +123,7 @@ function makeConsumableOffer(layer: number, rng: Rng, seq: number): ShopOffer {
 
 /**
  * 生成货架。gold 不筛货（只用于 HUD 是否买得起）；weaponLv 为角色当前专武等级，
- * 传入后专武券 = 当前等级 +1（不传按 1 级算）。
+ * 传入后专武升级 = 当前等级 +1（不传按 1 级算）。
  */
 export function generateOffers(
   layer: number,
@@ -138,7 +138,7 @@ export function generateOffers(
   const offers: ShopOffer[] = []
   if (total === 0) return offers
 
-  const weaponOffer = makeWeaponOffer(charId, weaponLv)
+  const weaponOffer = makeWeaponUpgradeOffer(charId, weaponLv)
   if (weaponOffer) offers.push(weaponOffer)
 
   const usedStats: CardStat[] = []

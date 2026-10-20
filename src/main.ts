@@ -66,9 +66,10 @@ const hud: HudV3 = createHud({
   onDiscardItem: (uid) => game?.discardItem(uid),
   onSave: (slot) => game?.manualSave(slot),
   onLoad: (slot) => game?.manualLoad(slot),
+  onToggleMute: (muted) => audio.setMuted(muted),
   onPauseToggle: () => game?.togglePausePublic(),
   onRetryLayer: () => game?.retryLayer(),
-  onRestart: () => game?.quitToTitle(),
+  onRestart: () => game?.restartRun(),
   onQuitToTitle: () => game?.quitToTitle(),
 })
 
@@ -128,7 +129,7 @@ async function boot(): Promise<void> {
         goblins: g.goblins?.length,
         total: g.layerTotal,
         killed: g.layerKilled,
-        timeLeft: Math.round(g.timeLeft ?? 0),
+        playTime: Math.round(g.run?.playTime ?? 0),
         char: g.run?.character,
         weapon: g.run?.weaponLv,
         gold: g.run?.gold,

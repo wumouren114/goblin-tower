@@ -219,7 +219,7 @@ export class Player {
   }
 
   /**
-   * 世界系定向突进（丛雨右键）：不占冲刺冷却，速度 = distance/duration。
+   * 世界系定向突进（丛雨右键/Q）：不占冲刺冷却，速度 = distance/duration。
    * game.ts 通过 CombatWorld.dashPlayer 转调；方向已归一化。
    */
   dashToward(dirX: number, dirZ: number, distance: number, duration: number): void {

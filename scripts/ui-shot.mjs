@@ -13,7 +13,6 @@ const screens = [
   'savesave',
   'saveload',
   'defeat-hp',
-  'defeat-timeout',
   'victory',
   'hud',
   'boss',

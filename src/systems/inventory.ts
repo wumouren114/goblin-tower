@@ -1,12 +1,11 @@
 /**
- * 12 格背包：添加 / 丢弃 / 使用 / 合成（同级同种 → 下一级，数值 ×2）。
- * 合成上限来自数据层：增益卡按 tier（backpack.maxMergeTier），
- * 专武券按 balance.weapons[char].tiers 的长度（数值表扩级时自动跟随，不写死）。
+ * 12 格背包：添加 / 丢弃 / 使用 / 合成（同名同级增益卡 → 下一级，数值 ×2）。
+ * 合成上限来自数据层：增益卡按 tier（backpack.maxMergeTier）。
  * 纯数据层：不 import three.js、不碰 DOM。卡片面板统一由 `cards` 汇总。
  */
-import type { CardStat, CharacterId, InventoryItem } from '../types'
+import type { CardStat, InventoryItem } from '../types'
 import { BALANCE } from '../data/balance'
-import { makeCardItem, makeWeaponItem } from './economy'
+import { makeCardItem } from './economy'
 
 interface BackpackCfg {
   slots: number
@@ -17,32 +16,6 @@ const BACKPACK = (BALANCE as unknown as { backpack: BackpackCfg }).backpack
 const DEFAULT_SLOTS = BACKPACK.slots
 const MAX_MERGE_TIER = BACKPACK.maxMergeTier
 
-const WEAPONS = (BALANCE as unknown as {
-  weapons: Record<string, { name: string; tiers: { lv: number }[] }>
-}).weapons
-
-/** 从专武券名字反查角色（三把专武名互不相同） */
-function weaponCharOf(item: InventoryItem): CharacterId | null {
-  for (const [charId, def] of Object.entries(WEAPONS)) {
-    if (item.name.startsWith(def.name)) return charId as CharacterId
-  }
-  return null
-}
-
-/**
- * 专武券可合成到的最高等级 = balance 里该角色 tiers 的长度。
- * 数值表从 5 级扩到 7 级时这里自动跟随（不要再写死 5）。
- */
-export function weaponMaxLevel(charId: CharacterId): number {
-  const def = WEAPONS[charId]
-  return Math.max(1, def?.tiers?.length ?? 1)
-}
-
-function weaponMaxLevelOf(item: InventoryItem): number {
-  const charId = weaponCharOf(item)
-  return charId ? weaponMaxLevel(charId) : 1
-}
-
 function tidy(v: number): number {
   return Number(v.toFixed(3))
 }
@@ -50,17 +23,12 @@ function tidy(v: number): number {
 /**
  * 两张物品能否合成（纯函数，HUD 与数据层共用同一份判定，避免两处规则漂移）。
  * - 增益卡：同 stat、同 tier，且 tier < backpack.maxMergeTier
- * - 专武券：同名、同等级，且等级 < 该角色专武表长度
  * - 消耗品：不合成
  */
 export function canMergeItems(a: InventoryItem, b: InventoryItem): boolean {
   if (a.uid === b.uid) return false
   if (a.kind !== b.kind) return false
-  if (a.kind === 'consumable') return false
-  if (a.kind === 'weapon') {
-    const lv = a.value ?? 0
-    return lv >= 1 && lv < weaponMaxLevelOf(a) && lv === b.value && a.name === b.name
-  }
+  if (a.kind !== 'buff-card') return false
   if (!a.stat || a.stat !== b.stat) return false
   if (a.tier !== b.tier) return false
   return a.tier < MAX_MERGE_TIER
@@ -87,7 +55,7 @@ export class Inventory {
     return this.capacity
   }
 
-  /** 五维汇总：只累计「已进背包」的增益卡（消耗品/专武券不进面板） */
+  /** 五维汇总：只累计「已进背包」的增益卡（消耗品不进面板） */
   get cards(): Record<CardStat, number> {
     const acc: Record<CardStat, number> = {
       magic: 0,
@@ -178,7 +146,7 @@ export class Inventory {
     return null
   }
 
-  /** 合成：消耗两张，在靠前格子生成下一级；数值按「同名同级两份 → ×2」结算 */
+  /** 合成：消耗两张增益卡，在靠前格子生成下一级；数值按「同名同级两份 → ×2」结算 */
   merge(uidA: string, uidB: string): InventoryItem | null {
     if (!this.canMerge(uidA, uidB)) return null
     const a = this.get(uidA)
@@ -193,11 +161,6 @@ export class Inventory {
       const nextTier = Math.min(MAX_MERGE_TIER, a.tier + 1) as 1 | 2 | 3
       merged = makeCardItem(a.stat ?? '', nextTier)
       merged.value = tidy((a.value ?? 0) * 2)
-    } else if (a.kind === 'weapon') {
-      const charId = weaponCharOf(a)
-      // 等级上限由 canMergeItems 按专武表 tiers 长度把关；制券交给 economy.makeWeaponItem，
-      // 它按 data/characterRuntime 的 MAX_WEAPON_LV 夹紧——两者都由 balance.weapons 推出，扩级自动同步
-      if (charId) merged = makeWeaponItem(charId, (a.value ?? 1) + 1)
     }
     if (!merged) return null
 

@@ -1,5 +1,5 @@
 // 哥布林之塔 · 数值蒙特卡洛模拟器 v3（对应 balance.json v3）
-// 规则：无经验/等级系统（一切金币购买）；每层怪物总数固定；限时内清完才算通关，超时判负。
+// 规则：无经验/等级系统（一切金币购买）；每层怪物总数固定；无倒计时，清完即过关。
 // 运行：node sim/simulate.mjs [--runs 400] [--difficulty hard] [--verbose]
 // 环境变量：SLOPPY=1 模拟乱买玩家
 import fs from 'node:fs'
@@ -235,8 +235,8 @@ function simulateRun(charId, diff, seed) {
     const warmTable = diff.id === 'hard' ? balance.warmup.hard : balance.warmup.easyNormal
     const W = warmTable[layer - 1] ?? null
     const mobHp = C.mobHpBase * (1 + C.mobHpPerLayer * (layer - 1)) * diff.hpMul * (W?.hpMul ?? 1)
-    const monsterCount = Math.round((C.quotaBase + C.quotaPerLayer * (layer - 1)) * (diff.countMul ?? 1) * (boss ? 0.6 : 1))
-    const timer = (boss ? balance.meta.bossTimerSeconds : balance.meta.layerTimerSeconds) * diff.timerMul + (boss ? 0 : (W?.timerBonus ?? 0))
+    const layerQuota = Math.round((C.quotaBase + C.quotaPerLayer * (layer - 1)) * (diff.countMul ?? 1))
+    const monsterCount = Math.round(layerQuota * (boss ? 0.6 : 1))
 
     const spawnRate = (C.spawnBatchBase / (Math.max(C.spawnIntervalMin, C.spawnIntervalBase - C.spawnIntervalDecay * (layer - 1)) * (W?.spawnMul ?? 1))) * diff.spawnMul
     let clearTime
@@ -248,13 +248,6 @@ function simulateRun(charId, diff, seed) {
       const dpsKillRate = out.crowdDps / mobHp
       const killRate = Math.min(dpsKillRate, spawnRate * 0.92)
       clearTime = monsterCount / killRate
-    }
-
-    // v3：超时直接判负
-    if (clearTime > timer) {
-      diedAt = layer
-      trace.push({ layer, boss, monsterCount, mobHp, clearTime, timer, timedOut: true, dead: true, hp: st.hp, maxHp: st.maxHp, gold: st.gold, weaponLv: st.weaponLv, singleDps: out.singleDps, crowdDps: out.crowdDps })
-      break
     }
 
     const clearDur = clearTime
@@ -276,7 +269,7 @@ function simulateRun(charId, diff, seed) {
 
     if (st.hp <= 0) {
       diedAt = layer
-      trace.push({ layer, boss, monsterCount, mobHp, clearTime, timer, dead: true, hp: 0, maxHp: st.maxHp, gold: st.gold, weaponLv: st.weaponLv, singleDps: out.singleDps, crowdDps: out.crowdDps })
+      trace.push({ layer, boss, monsterCount, mobHp, clearTime, dead: true, hp: 0, maxHp: st.maxHp, gold: st.gold, weaponLv: st.weaponLv, singleDps: out.singleDps, crowdDps: out.crowdDps })
       break
     }
 
@@ -295,7 +288,7 @@ function simulateRun(charId, diff, seed) {
     spendGold(st, layer, rand)
     st.hp = Math.min(st.maxHp, st.hp)
     cleared += 1
-    trace.push({ layer, boss, monsterCount, mobHp, clearTime, timer, hp: st.hp, maxHp: st.maxHp, gold: st.gold, weaponLv: st.weaponLv, singleDps: out.singleDps, crowdDps: out.crowdDps })
+    trace.push({ layer, boss, monsterCount, mobHp, clearTime, hp: st.hp, maxHp: st.maxHp, gold: st.gold, weaponLv: st.weaponLv, singleDps: out.singleDps, crowdDps: out.crowdDps })
   }
 
   return { charId, difficulty: diff.name, diedAt, survived: diedAt === null, cleared, trace, st }
@@ -310,35 +303,36 @@ for (const [id, diff] of diffs) {
     const wins = runs.filter((r) => r.survived).length
     const deaths = runs.filter((r) => !r.survived).map((r) => r.diedAt)
     const avgLayer = deaths.length ? deaths.reduce((a, b) => a + b, 0) / deaths.length : 0
-    const timeouts = runs.reduce((a, r) => a + r.trace.filter((t) => t.timedOut).length, 0)
     const clears = runs.flatMap((r) => r.trace.filter((t) => !t.boss && t.clearTime))
     const avgClear = clears.length ? clears.reduce((a, t) => a + t.clearTime, 0) / clears.length : 0
+    const combatTotals = runs.filter((r) => r.survived).map((r) => r.trace.reduce((a, t) => a + t.clearTime, 0))
+    const avgCombat = combatTotals.length ? combatTotals.reduce((a, b) => a + b, 0) / combatTotals.length : 0
     const sample = runs.find((r) => r.survived) ?? runs[0]
     results.push({
       id, name: diff.name, charId,
       winRate: wins / RUNS,
       avgDeathLayer: avgLayer,
-      timeoutRate: timeouts / RUNS,
       avgClear,
+      avgCombat,
       trace: sample.trace,
       finalSt: sample.st,
     })
   }
 }
 
-console.log(`\n=== 模拟结果 v3（每组合 ${RUNS} 局｜无经验·怪物数量固定·超时判负） ===\n`)
+console.log(`\n=== 模拟结果 v3（每组合 ${RUNS} 局｜无经验·怪物数量固定·无倒计时） ===\n`)
 for (const r of results) {
   console.log(
     `${r.name.padEnd(4)} ${r.charId.padEnd(9)} 通关率 ${(r.winRate * 100).toFixed(1)}%` +
     `   平均阵亡层 ${r.avgDeathLayer ? r.avgDeathLayer.toFixed(1) : '—'}` +
-    `   平均清层 ${r.avgClear.toFixed(1)}s   超时 ${r.timeoutRate.toFixed(2)} 次/局` +
+    `   平均清层 ${r.avgClear.toFixed(1)}s   纯战斗 ${(r.avgCombat / 60).toFixed(1)} 分` +
     `   终局专武 Lv${r.finalSt.weaponLv} 余金 ${Math.round(r.finalSt.gold)}`
   )
 }
 if (VERBOSE) {
   for (const r of results) {
     console.log(`\n--- ${r.name}/${r.charId} 逐层（通关样本）---`)
-    console.log('层  怪血  总数  单体DPS  群伤DPS  清层秒  限时  血量      金币  专武')
+    console.log('层  怪血  总数  单体DPS  群伤DPS  清层秒  血量      金币  专武')
     for (const t of r.trace) {
       console.log(
         String(t.layer).padStart(2) + '  ' +
@@ -347,10 +341,9 @@ if (VERBOSE) {
         (t.singleDps ? t.singleDps.toFixed(0).padStart(6) : '     -') + '  ' +
         (t.crowdDps ? t.crowdDps.toFixed(0).padStart(6) : '     -') + '  ' +
         (t.clearTime ? t.clearTime.toFixed(1).padStart(5) : '    -') + '  ' +
-        String(t.timer ?? '-').padStart(4) + '  ' +
         `${Math.round(t.hp ?? 0)}/${Math.round(t.maxHp ?? 0)}`.padStart(9) + '  ' +
         String(Math.round(t.gold ?? 0)).padStart(4) + '  ' +
-        String(t.weaponLv ?? '-').padStart(2) + (t.timedOut ? '  超时判负' : '') + (t.dead && !t.timedOut ? '  阵亡' : '')
+        String(t.weaponLv ?? '-').padStart(2) + (t.dead ? '  阵亡' : '')
       )
     }
   }

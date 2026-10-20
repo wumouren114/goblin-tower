@@ -199,6 +199,17 @@ export class PickupManager {
     }
   }
 
+  /**
+   * 立即结算并清空地面掉落。
+   * 清层/离开战斗时调用，避免下一层 enterLayer 的 clear() 吞掉未拾取收益。
+   */
+  drainAll(): { kind: PickupKindV3; value: number }[] {
+    if (this.items.length === 0) return []
+    const drops = this.items.map((it) => ({ kind: it.kind, value: it.value }))
+    this.clear()
+    return drops
+  }
+
   update(
     dt: number,
     px: number,
