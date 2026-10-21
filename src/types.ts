@@ -106,6 +106,8 @@ export interface TunnelPayload {
   altarCost?: number
   altarReward?: { stat: CardStat; value: number }
   enemyCount?: number
+  /** 精英房前几只敌人是精英；普通战斗房/Boss 房不填 */
+  eliteCount?: number
   bossLayer?: boolean
   rest?: { healRatio: number; chargeRatio: number }
 }

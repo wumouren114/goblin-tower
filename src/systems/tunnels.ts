@@ -59,8 +59,11 @@ const SKILL_CARDS = (BALANCE as unknown as { skillCards: SkillCardDef[] }).skill
 const BATTLE_GOLD_RATIO = 0.6
 /** balance 没有「房间怪量」字段：本层配额 × 比例派生（改这里即可调难度） */
 const MOB_WAVE_QUOTA_RATIO = 0.6
-const ELITE_GUARD_QUOTA_RATIO = 0.3
-const ELITE_COUNT = 2
+/** 精英房后置：前 3 层不出；4–6 层 1 精英，7 层起 2 精英 */
+const ELITE_FIGHT_MIN_LAYER = 4
+const ELITE_FIGHT_DOUBLE_LAYER = 7
+const ELITE_GUARDS_EARLY = 6
+const ELITE_GUARDS_LATE = 8
 /** 技能卡折算成五维卡片的数值口径（sim 同口径：crit/lifesteal→magic，其他→stamina，值 8） */
 const SKILL_CARD_STAT_VALUE = 8
 
@@ -136,8 +139,13 @@ function mobWaveCount(layer: number): number {
   return Math.max(6, Math.round(quotaFor(layer) * MOB_WAVE_QUOTA_RATIO))
 }
 
-function eliteFightCount(layer: number): number {
-  return ELITE_COUNT + Math.max(2, Math.round(quotaFor(layer) * ELITE_GUARD_QUOTA_RATIO))
+/** 精英房随层数的固定编成：先压早期压力，再在深层的 7 层后恢复双精英 */
+function eliteFightComposition(layer: number): { elite: number; count: number } {
+  const current = clampLayer(layer)
+  const late = current >= ELITE_FIGHT_DOUBLE_LAYER
+  const elite = late ? 2 : 1
+  const guards = late ? ELITE_GUARDS_LATE : ELITE_GUARDS_EARLY
+  return { elite, count: elite + guards }
 }
 
 function pickSkillCard(rng: Rng): SkillCardDef {
@@ -171,7 +179,7 @@ function rollAltarReward(layer: number, rng: Rng): { stat: CardStat; value: numb
   return { stat: def.stat, value: Number((def.value * quality.valueMul).toFixed(3)) }
 }
 
-function rollRoomType(rng: Rng): TunnelRoom {
+function rollRoomType(rng: Rng, layer: number): TunnelRoom {
   const weights = PORTALS.weights
   const roll = rng.next()
   const rewardEnd = weights.reward
@@ -181,7 +189,8 @@ function rollRoomType(rng: Rng): TunnelRoom {
   if (kind === 'rest') return 'rest'
   if (kind === 'reward') return rng.chance(PORTALS.reward.chest) ? 'chest' : 'skill-card'
   if (kind === 'trade') return rng.chance(PORTALS.trade.merchant) ? 'merchant' : 'altar'
-  return rng.chance(PORTALS.battle.mobWave) ? 'mob-wave' : 'elite-fight'
+  const elite = !rng.chance(PORTALS.battle.mobWave)
+  return elite && clampLayer(layer) >= ELITE_FIGHT_MIN_LAYER ? 'elite-fight' : 'mob-wave'
 }
 
 function makePayload(
@@ -208,8 +217,10 @@ function makePayload(
       return { altarCost: altarCost(layer), altarReward: rollAltarReward(layer, rng) }
     case 'mob-wave':
       return { gold: battleGold(layer, false), enemyCount: mobWaveCount(layer) }
-    case 'elite-fight':
-      return { gold: battleGold(layer, true), enemyCount: eliteFightCount(layer) }
+    case 'elite-fight': {
+      const comp = eliteFightComposition(layer)
+      return { gold: battleGold(layer, true), enemyCount: comp.count, eliteCount: comp.elite }
+    }
     case 'boss':
       return { gold: battleGold(layer, true), enemyCount: 1, bossLayer: true }
     case 'rest':
@@ -219,11 +230,7 @@ function makePayload(
   }
 }
 
-function describePayload(
-  room: TunnelRoom,
-  payload: TunnelPayload,
-  extra: { eliteCount: number },
-): { title: string; desc: string } {
+function describePayload(room: TunnelRoom, payload: TunnelPayload): { title: string; desc: string } {
   switch (room) {
     case 'chest': {
       const gold = payload.gold ?? 0
@@ -252,11 +259,14 @@ function describePayload(
         title: '怪潮',
         desc: `${payload.enemyCount ?? 0} 只哥布林涌来，金币 +${payload.gold ?? 0}`,
       }
-    case 'elite-fight':
+    case 'elite-fight': {
+      const elite = payload.eliteCount ?? 0
+      const guards = Math.max(0, (payload.enemyCount ?? elite) - elite)
       return {
         title: '精英伏击',
-        desc: `${extra.eliteCount} 精英 + ${(payload.enemyCount ?? extra.eliteCount) - extra.eliteCount} 随从，金币 +${payload.gold ?? 0}`,
+        desc: `${elite} 精英 + ${guards} 随从，金币 +${payload.gold ?? 0}`,
       }
+    }
     case 'boss':
       return { title: 'Boss 房间', desc: '正面击破最终阶段 Boss，锁定通关' }
     case 'rest':
@@ -283,9 +293,9 @@ export function rollTunnels(
   const count = Math.max(1, Math.round(PORTALS.count))
   const offers: TunnelOffer[] = []
   for (let index = 0; index < count; index += 1) {
-    const room: TunnelRoom = bossDoor ? 'boss' : rollRoomType(rng)
+    const room: TunnelRoom = bossDoor ? 'boss' : rollRoomType(rng, current)
     const payload = makePayload(room, current, charId, rng, weaponLv)
-    const text = describePayload(room, payload, { eliteCount: ELITE_COUNT })
+    const text = describePayload(room, payload)
     offers.push({
       id: `tunnel-${current}-${index}-${room}`,
       kind: ROOM_KIND[room],
@@ -329,14 +339,23 @@ export function resolveRoom(
         altarReward: payload.altarReward ?? rollAltarReward(current, rng),
       }
     case 'mob-wave':
-    case 'elite-fight':
       return {
-        gold: payload.gold ?? battleGold(current, offer.room === 'elite-fight'),
+        gold: payload.gold ?? battleGold(current, false),
         enemies: {
-          count: payload.enemyCount ?? (offer.room === 'mob-wave' ? mobWaveCount(current) : eliteFightCount(current)),
-          elite: offer.room === 'elite-fight' ? ELITE_COUNT : 0,
+          count: payload.enemyCount ?? mobWaveCount(current),
+          elite: 0,
         },
       }
+    case 'elite-fight': {
+      const comp = eliteFightComposition(current)
+      return {
+        gold: payload.gold ?? battleGold(current, true),
+        enemies: {
+          count: payload.enemyCount ?? comp.count,
+          elite: payload.eliteCount ?? comp.elite,
+        },
+      }
+    }
     case 'boss':
       return {
         gold: payload.gold ?? battleGold(current, true),

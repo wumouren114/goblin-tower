@@ -350,8 +350,9 @@ check('resolveRoom 产出可直接结算的结果', () => {
         break
       }
       case 'elite-fight': {
-        eq(result.enemies.elite, 2, '精英房 2 只精英')
-        ok(result.enemies.count > 2, '精英房应有随从')
+        eq(result.enemies.elite, offer.payload.eliteCount, '精英数与预览一致')
+        eq(result.enemies.count, offer.payload.enemyCount, '精英房数量与预览一致')
+        ok(result.enemies.count > result.enemies.elite, '精英房应有随从')
         break
       }
       case 'boss': {
@@ -365,6 +366,41 @@ check('resolveRoom 产出可直接结算的结果', () => {
   }
   for (const room of ['chest', 'skill-card', 'merchant', 'altar', 'mob-wave', 'elite-fight']) {
     ok(res[room], `抽样应覆盖 ${room}`)
+  }
+})
+
+check('精英房后置到第 4 层，并按层缩放编成', () => {
+  for (let layer = 1; layer <= 3; layer += 1) {
+    for (let seed = 1; seed <= 80; seed += 1) {
+      const offers = tunnels.rollTunnels(layer, TOTAL, false, 'mutsumi', new Rng(layer * 1000 + seed))
+      ok(offers.every((offer) => offer.room !== 'elite-fight'), `第 ${layer} 层不应出精英房`)
+    }
+  }
+
+  const findElite = (layer) => {
+    for (let seed = 1; seed <= 500; seed += 1) {
+      const offers = tunnels.rollTunnels(layer, TOTAL, false, 'mutsumi', new Rng(layer * 10000 + seed))
+      const offer = offers.find((entry) => entry.room === 'elite-fight')
+      if (offer) return offer
+    }
+    return null
+  }
+
+  for (const [layer, elite, guards] of [
+    [4, 1, 6],
+    [6, 1, 6],
+    [7, 2, 8],
+    [14, 2, 8],
+  ]) {
+    const offer = findElite(layer)
+    ok(offer, `第 ${layer} 层应能刷出精英房`)
+    if (!offer) continue
+    eq(offer.payload.eliteCount, elite, `第 ${layer} 层精英数`)
+    eq(offer.payload.enemyCount, elite + guards, `第 ${layer} 层总敌人数`)
+    ok(offer.desc.includes(`${elite} 精英`), `第 ${layer} 层门描述应显示实际精英数`)
+    const result = tunnels.resolveRoom(offer, layer, 'mutsumi', new Rng(999))
+    eq(result.enemies.elite, elite, `第 ${layer} 层结算精英数`)
+    eq(result.enemies.count, elite + guards, `第 ${layer} 层结算总敌人数`)
   }
 })
 

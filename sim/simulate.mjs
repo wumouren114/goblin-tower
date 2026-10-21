@@ -214,7 +214,9 @@ function portalReward(st, layer, diff, rand) {
         }
       }
     } else {
-      const mul = rand() < P.battle.mobWave ? P.mobWaveGoldMul : P.eliteFightGoldMul
+      // 精英房第 4 层起才出现；前 3 层抽到精英也按怪潮结算
+      const elite = layer >= 4 && rand() >= P.battle.mobWave
+      const mul = elite ? P.eliteFightGoldMul : P.mobWaveGoldMul
       gold += (P.chestGoldBase * 0.6 + P.chestGoldPerLayer * 0.6 * (layer - 1)) * mul
     }
   }
