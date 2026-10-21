@@ -1111,16 +1111,23 @@ export class Game {
       const q = qualityFor(this.run.layer, this.rng)
       const value = Number((card.value * q.valueMul).toFixed(3))
       const tierName = q.tier === 3 ? '臻品' : q.tier === 2 ? '精制' : ''
-      const bonusTag = q.tier > 1 ? `（${tierName} ×${q.valueMul}）` : ''
       this.bonusOffers.push({
         id: `bonus-${i}`,
         kind: 'reward',
         room: 'skill-card',
         title: `${tierName}${card.name}`,
-        desc: `${card.desc}${bonusTag}`,
+        desc: '选择后永久生效',
         icon: this.cardIcon(card.stat),
         payload: {
-          skillCard: { id: card.id, name: card.name, desc: card.desc, stat: card.stat as CardStat, value, tier: q.tier },
+          skillCard: {
+            id: card.id,
+            name: card.name,
+            desc: card.desc,
+            stat: card.stat as CardStat,
+            value,
+            tier: q.tier,
+            valueMul: q.valueMul,
+          },
         },
       })
     }

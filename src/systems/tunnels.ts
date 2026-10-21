@@ -241,7 +241,7 @@ function describePayload(room: TunnelRoom, payload: TunnelPayload): { title: str
       const skill = payload.skillCard
       return {
         title: '技能祭坛',
-        desc: skill ? `三选一技能卡：${skill.name} — ${skill.desc}` : '三选一技能卡',
+        desc: skill ? `获得技能卡：${skill.name}` : '获得一张技能卡',
       }
     }
     case 'merchant':

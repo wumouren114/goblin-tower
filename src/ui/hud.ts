@@ -1498,11 +1498,33 @@ class HudImpl implements HudV3 {
       lines.push({ text: `金币 +${fmtInt(payload.gold)}`, art: null })
     }
     if (payload.card) {
-      lines.push({ text: `卡牌 · ${payload.card.name}`, art: itemArtKey(payload.card) })
+      const card = payload.card
+      lines.push({ text: `卡牌 · ${card.name}`, art: itemArtKey(card) })
+      if (card.desc) lines.push({ text: `效果 · ${card.desc}`, art: null })
+      if (card.stat && typeof card.value === 'number') {
+        lines.push({
+          text: `数值 · ${STAT_LABEL[card.stat]} ${formatStatValue(card.stat, card.value)}`,
+          art: null,
+        })
+      }
+      if (card.tier > 1) lines.push({ text: `品质 · ${tierLabel(card.tier)}`, art: null })
     }
     if (payload.skillCard) {
+      const skill = payload.skillCard
       const label = mode === 'bonus' ? '增益卡' : '技能卡'
-      lines.push({ text: `${label} · ${payload.skillCard.name}`, art: cardArtKey(payload.skillCard.stat) })
+      lines.push({ text: `${label} · ${skill.name}`, art: cardArtKey(skill.stat) })
+      if (skill.desc) lines.push({ text: `效果 · ${skill.desc}`, art: null })
+      // 技能卡房的 stat/value 只是折算背包卡用的占位数值，不能当作实际增益展示
+      if (mode === 'bonus' && typeof skill.value === 'number') {
+        lines.push({
+          text: `数值 · ${STAT_LABEL[skill.stat]} ${formatStatValue(skill.stat, skill.value)}`,
+          art: null,
+        })
+      }
+      if (mode === 'bonus' && skill.tier && skill.tier > 1) {
+        const mul = typeof skill.valueMul === 'number' ? ` ×${skill.valueMul}` : ''
+        lines.push({ text: `品质 · ${tierLabel(skill.tier)}${mul}`, art: null })
+      }
     }
     if (payload.shopOffers && payload.shopOffers.length > 0) {
       lines.push({ text: `商会 · ${payload.shopOffers.length} 件商品`, art: null })

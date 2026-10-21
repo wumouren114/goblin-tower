@@ -100,7 +100,16 @@ export type TunnelScreenMode = 'bonus' | 'tunnel'
 export interface TunnelPayload {
   gold?: number
   card?: InventoryItem
-  skillCard?: { id: string; name: string; desc: string; stat: CardStat; value: number; tier?: 1 | 2 | 3 }
+  skillCard?: {
+    id: string
+    name: string
+    desc: string
+    stat: CardStat
+    value: number
+    tier?: 1 | 2 | 3
+    /** 清层奖励增益卡的品质数值倍率；技能卡房不填 */
+    valueMul?: number
+  }
   /** 商人/祭坛的报价（该房间内可购买的商品） */
   shopOffers?: ShopOffer[]
   altarCost?: number
