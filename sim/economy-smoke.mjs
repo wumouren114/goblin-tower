@@ -193,6 +193,26 @@ check('品质倍率抬高价格并放大卡值', () => {
   ok(tier2.name.startsWith(q2.name), 'tier2 名字应带品质前缀')
   ok(economy.priceOf(55, 1, q2.priceMul) > economy.priceOf(55, 1), '品质 priceMul 应抬高价格')
 })
+check('奖励卡折价 = 当前层商店价 50%', () => {
+  const def = BALANCE.buffCards.find((card) => card.id === 'magic')
+  const q2 = BALANCE.shop.quality.tier2
+  const q3 = BALANCE.shop.quality.tier3
+  const tier1 = economy.makeCardItem('magic', 1)
+  const tier2 = economy.makeCardItem('magic', 2)
+  const tier3 = economy.makeCardItem('magic', 3)
+  eq(economy.salvageGold(tier1, 1), Math.round(economy.priceOf(def.basePrice, 1) * 0.5), 'L1 普通折价')
+  eq(
+    economy.salvageGold(tier2, 5),
+    Math.round(economy.priceOf(def.basePrice, 5, q2.priceMul) * 0.5),
+    'L5 精制折价',
+  )
+  ok(
+    economy.salvageGold(tier3, 10) < economy.priceOf(def.basePrice, 10, q3.priceMul),
+    '折价应低于商店原价',
+  )
+  const potion = { uid: 'potion-salvage', kind: 'consumable', name: '药水', desc: '', icon: '🧪', tier: 1, value: 1 }
+  eq(economy.salvageGold(potion, 5), 1, '非卡牌兜底 1 金')
+})
 check('15 层总收入能承担专武 1→7 级的长线开销', () => {
   // 专武总价 = 各角色 tiers 2..MAX 的 price 之和（fish 与其他角色同价）
   const weaponCost = BALANCE.weapons.fish.tiers.slice(1).reduce((sum, t) => sum + (t.price ?? 0), 0)

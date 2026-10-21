@@ -101,6 +101,15 @@ export function priceOf(base: number, layer: number, qualityMul = 1): number {
   return Math.max(1, shopPriceFor(base, Math.max(1, Math.round(layer)), qualityMul))
 }
 
+/** 背包满时奖励卡的折价：当前层商店价的一半，至少 1 金 */
+export function salvageGold(item: InventoryItem, layer: number): number {
+  if (item.kind !== 'buff-card') return 1
+  const def = cardDefOf(item.stat ?? '')
+  const qualityMul =
+    item.tier === 2 ? QUALITY.tier2.priceMul : item.tier === 3 ? QUALITY.tier3.priceMul : 1
+  return Math.max(1, Math.round(priceOf(def.basePrice, layer, qualityMul) * 0.5))
+}
+
 /** 增益卡物品：value 已按品质档放大（tier 倍率见 balance.shop.quality.*.valueMul） */
 export function makeCardItem(cardId: string, tier: 1 | 2 | 3): InventoryItem {
   const def = cardDefOf(cardId)

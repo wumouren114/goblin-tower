@@ -43,6 +43,7 @@ import {
   killGold,
   makeCardItem,
   qualityFor,
+  salvageGold,
 } from './systems/economy'
 import type { HudV3 } from './ui/hud'
 import type {
@@ -961,7 +962,7 @@ export class Game {
       const stat = this.rng.pick(['magic', 'stamina', 'intelligence', 'hp', 'moveSpeed', 'armor']) as CardStat
       const q = qualityFor(this.run.layer, this.rng)
       const item = makeCardItem(stat, q.tier)
-      if (this.grantItem(item)) this.hud.toast(`拾取增益卡：${item.name}`, 'good')
+      if (this.grantRewardItem(item)) this.hud.toast(`拾取增益卡：${item.name}`, 'good')
     }
   }
 
@@ -1164,10 +1165,8 @@ export class Game {
       if (card) {
         const item = makeCardItem(card.stat as CardStat, card.tier ?? 1)
         item.value = card.value
-        if (this.grantItem(item)) {
+        if (this.grantRewardItem(item)) {
           this.hud.toast(`清层奖励：${item.name}`, 'good')
-        } else {
-          this.hud.toast('背包已满，奖励卡丢失（可先合成/丢弃）', 'bad')
         }
       }
       this.openTunnels()
@@ -1183,10 +1182,8 @@ export class Game {
       this.hud.toast(`+${res.gold} 金币`, 'good')
     }
     if (res.card) {
-      if (this.grantItem(res.card)) {
+      if (this.grantRewardItem(res.card)) {
         this.hud.toast(`${res.card.icon} ${res.card.name} 已放入背包`, 'good')
-      } else {
-        this.hud.toast('背包已满，卡牌丢失（可先合成/丢弃）', 'bad')
       }
     }
     if (res.rest) {
@@ -1370,10 +1367,10 @@ export class Game {
   }
 
   /** 把物品放进背包：满了先自动合成腾格子，合成后仍满才拒绝（不再直接卡进度） */
-  private grantItem(item: InventoryItem): boolean {
+  private grantItem(item: InventoryItem, notifyFull = true): boolean {
     if (this.inventory.isFull) this.inventory.autoMerge()
     if (this.inventory.isFull) {
-      this.hud.toast('背包已满：先合成或丢弃两张再买', 'bad')
+      if (notifyFull) this.hud.toast('背包已满：先合成或丢弃两张再买', 'bad')
       return false
     }
     if (!this.inventory.add(item)) return false
@@ -1385,6 +1382,16 @@ export class Game {
     this.syncCards()
     if (this.inventoryOpen()) this.hud.updateInventory(this.inventory.items, this.run.gold)
     return true
+  }
+
+  /** 奖励卡入口：背包满且无法自动合成时，按当前层商店价 50% 折算金币，避免奖励直接消失 */
+  private grantRewardItem(item: InventoryItem): boolean {
+    if (this.grantItem(item, false)) return true
+    const gold = salvageGold(item, this.run.layer)
+    this.run.gold += gold
+    this.hud.toast(`背包已满，「${item.name}」折算 +${gold} 金币`, 'good')
+    if (this.inventoryOpen()) this.hud.updateInventory(this.inventory.items, this.run.gold)
+    return false
   }
 
   discardItem(uid: string): void {
