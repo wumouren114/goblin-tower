@@ -440,15 +440,15 @@ check('隧道随机可复现（同 seed 同结果）', () => {
 // ═════════════════════════════════════════════════════════════════
 section('3. 背包：合成 / 满格 / 卡片汇总')
 
-check('12 格上限：第 13 件加不进', () => {
+check('18 格上限：第 19 件加不进', () => {
   const bag = new Inventory()
-  eq(bag.maxSlots, 12)
-  for (let index = 0; index < 12; index += 1) {
+  eq(bag.maxSlots, 18)
+  for (let index = 0; index < 18; index += 1) {
     ok(bag.add(economy.makeCardItem('magic', 1)), `第 ${index + 1} 件应加入`)
   }
-  eq(bag.count, 12)
+  eq(bag.count, 18)
   ok(bag.isFull)
-  eq(bag.add(economy.makeCardItem('magic', 1)), false, '第 13 件')
+  eq(bag.add(economy.makeCardItem('magic', 1)), false, '第 19 件')
 })
 
 check('同种同级合成：tier1→tier2，数值 ×2，占 1 格', () => {
@@ -588,6 +588,7 @@ function buildRun() {
   const bag = new Inventory()
   bag.add(economy.makeCardItem('magic', 1))
   bag.add(economy.makeCardItem('hp', 2))
+  bag.add(economy.makeCardItem('crit', 1))
   bag.add({ uid: 'potion-9', kind: 'consumable', name: '治疗药水', desc: '回血', icon: '🧪', tier: 1, value: 0.35 })
   return {
     version: 3,
@@ -605,6 +606,8 @@ function buildRun() {
     playTime: 123.5,
     seed: 777,
     savedAt: 0,
+    training: { magic: 16, armor: 0.03 },
+    trainingBuys: 4,
   }
 }
 
@@ -630,6 +633,20 @@ check('saveToSlot / loadFromSlot 完整往返', () => {
   ok(loaded.savedAt > 0, 'savedAt 应在存档时刷新')
   deepEqual(loaded.inventory, state.inventory, '背包物品')
   deepEqual(loaded.cards, state.cards, '五维')
+  deepEqual(loaded.training, state.training, '金币训练')
+  eq(loaded.trainingBuys, 4)
+})
+
+check('旧档缺少训练字段仍可读', () => {
+  const state = buildRun()
+  delete state.training
+  delete state.trainingBuys
+  ok(saveLoad.saveToSlot(2, state), '旧档应能写入')
+  const loaded = saveLoad.loadFromSlot(2)
+  ok(loaded, '缺少训练字段的旧档应可读')
+  eq(loaded.training, undefined)
+  eq(loaded.trainingBuys, undefined)
+  saveLoad.deleteSlot(2)
 })
 
 check('旧版专武物品读档时被过滤', () => {
@@ -727,6 +744,19 @@ check('商店随机可复现（同 seed 同货架）', () => {
   const cards = a.filter((offer) => offer.kind === 'buff-card')
   ok(cards.length >= 2, '至少 2 张增益卡')
   ok(shop.refreshOffers(6, 'fish', new Rng(1), 2).length === 4, 'refreshOffers 出 4 件')
+})
+
+check('金币训练：常驻、不占背包、价格随购买次数上涨', () => {
+  const offers = shop.generateOffers(6, 'fish', 200, new Rng(555), 4, 3, 2)
+  const training = offers.find((offer) => offer.kind === 'training')
+  ok(training, '货架应含金币训练')
+  eq(training.repeatable, true, '金币训练应可重复购买')
+  eq(training.price, shop.trainingPriceFor(6, 2), '训练价格应使用累计购买次数')
+  ok(shop.trainingPriceFor(6, 3) > shop.trainingPriceFor(6, 2), '购买次数越多价格越高')
+  ok(training.value > 0, '训练数值应为正')
+  const noWeapon = shop.generateOffers(10, 'murasame', 0, new Rng(1), 4, 7)
+  ok(noWeapon.some((offer) => offer.kind === 'training'), '专武满级后仍应有训练')
+  eq(noWeapon.length, 4)
 })
 
 check('商店专武升级到 7 级后不再出现', () => {

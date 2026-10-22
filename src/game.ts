@@ -33,7 +33,7 @@ import {
   BALANCE,
 } from './data/balance'
 import { Inventory } from './systems/inventory'
-import { generateOffers, REFRESH_COST } from './systems/shop'
+import { generateOffers, REFRESH_COST, trainingPriceFor } from './systems/shop'
 import { rollTunnels, resolveRoom } from './systems/tunnels'
 import { listSlots, loadFromSlot, saveToSlot } from './systems/saveLoad'
 import {
@@ -70,6 +70,16 @@ interface GameWorld extends CombatWorld {
   spawnPickup?: (x: number, z: number, kind: 'rice' | 'heart' | 'gold') => void
 }
 
+/** 普通怪的战术招式状态机（brute 冲撞 / elite 震地） */
+interface MobMove {
+  kind: 'charge-windup' | 'charge' | 'slam-windup'
+  timer: number
+  baseSpeed: number
+  /** 冲锋或震地的锁定落点 */
+  x: number
+  z: number
+}
+
 function makeRunState(character: CharacterId, difficulty: DifficultyId): RunState {
   return {
     version: 3,
@@ -87,6 +97,8 @@ function makeRunState(character: CharacterId, difficulty: DifficultyId): RunStat
     playTime: 0,
     seed: Math.floor(Math.random() * 1e9),
     savedAt: Date.now(),
+    training: {},
+    trainingBuys: 0,
   }
 }
 
@@ -108,8 +120,14 @@ export class Game {
   private boss: GoblinKing | null = null
   private goblinKinds = new Map<Goblin, 'small' | 'brute' | 'elite' | 'caster'>()
   private contactCd = new Map<Goblin, number>()
+  /** 普通怪的战术招式（冲撞 / 震地） */
+  private mobMoves = new Map<Goblin, MobMove>()
+  /** 普通怪下次可放招式的冷却 */
+  private mobMoveCd = new Map<Goblin, number>()
   /** 远程怪开火冷却 */
   private casterCd = new Map<Goblin, number>()
+  /** 术士开火次数：每第 3 发改为三连射 */
+  private casterVolleys = new Map<Goblin, number>()
   /** 敌方弹幕（紫球） */
   private enemyShots: { mesh: THREE.Mesh; x: number; z: number; vx: number; vz: number; life: number; damage: number }[] = []
   private bulletAnim: SpriteAnim | null = null
@@ -127,7 +145,7 @@ export class Game {
 
   private run: RunState = makeRunState('mutsumi', 'normal')
   private cards: Record<CardStat, number> = emptyCards()
-  private inventory = new Inventory(12)
+  private inventory = new Inventory()
   private prevMaxHp = 100
 
   private layerTotal = 0
@@ -158,6 +176,8 @@ export class Game {
   private layerSnapshot: RunState | null = null
   private riceStacks = 0
   private bossBarrageTimer = 4
+  /** Boss 身体接触伤害的冷却（避免每帧结算瞬间秒杀） */
+  private bossContactCd = 0
   private autoPlay = false
   private disposed = false
 
@@ -190,6 +210,11 @@ export class Game {
 
   startRun(character: CharacterId, difficulty: DifficultyId): void {
     this.cleanupFloor()
+    // 重新爬塔/调试跳层时旧角色不能只从场景逻辑里移除，否则会留下幽灵立绘
+    this.player?.dispose()
+    this.player = null
+    this.combat?.dispose()
+    this.combat = null
     this.riceStacks = 0
     this.run = makeRunState(character, difficulty)
     audio.resume()
@@ -197,7 +222,7 @@ export class Game {
     audio.setBgmIntensity(1)
     this.run.seed = this.debugSeedValue ?? Math.floor(Math.random() * 1e9)
     this.rng = new Rng(this.run.seed)
-    this.inventory = new Inventory(12)
+    this.inventory = new Inventory()
     this.cards = emptyCards()
     this.run.weaponLv = 1
     this.player = new Player(this.scene, 0, 0, character)
@@ -229,10 +254,18 @@ export class Game {
       return
     }
     this.cleanupFloor()
+    this.player?.dispose()
+    this.player = null
+    this.combat?.dispose()
+    this.combat = null
     this.run = state
+    // 旧档没有训练字段：读档时补默认值，避免版本号升级。
+    this.run.training = { ...(state.training ?? {}) }
+    this.run.trainingBuys = Math.max(0, Math.round(state.trainingBuys ?? 0))
     this.rng = new Rng(state.seed)
-    this.inventory = new Inventory(12)
+    this.inventory = new Inventory()
     for (const item of state.inventory) this.inventory.add(item)
+    this.cards = emptyCards()
     this.player = new Player(this.scene, 0, 0, state.character)
     this.combat = new Combat(this.scene, {
       onHit: (t, amount, crit, killed) => this.onCombatHit(t, amount, crit, killed),
@@ -277,6 +310,11 @@ export class Game {
     this.goblins.length = 0
     this.goblinKinds.clear()
     this.contactCd.clear()
+    this.mobMoves.clear()
+    this.mobMoveCd.clear()
+    this.casterCd.clear()
+    this.casterVolleys.clear()
+    this.bossContactCd = 0
     if (this.boss) {
       this.boss.dispose()
       this.boss = null
@@ -347,12 +385,14 @@ export class Game {
     this.hud.hideShop()
     this.hud.showLayerBanner(layer, sceneDef.name, STAGE_NAMES[this.run.stage - 1] ?? '', total)
     if (!restoring) this.hud.toast(bossLayer ? 'Boss 层：击杀哥布林之王！' : `第 ${layer} 层 · 清完 ${this.layerTotal} 只哥布林`, 'info')
-    this.recalcStats()
+    // 读档后也要先按背包 + 金币训练重算一次，否则第一层会漏掉卡片/训练属性。
+    this.syncCards()
     this.saveRun(AUTOSAVE_SLOT)
     this.layerSnapshot = {
       ...this.run,
       cards: { ...this.run.cards },
       inventory: this.run.inventory.map((item) => ({ ...item })),
+      training: { ...(this.run.training ?? {}) },
       hp: this.player?.hp ?? this.run.hp,
       maxHp: this.player?.stats.maxHp ?? this.run.maxHp,
     }
@@ -364,6 +404,11 @@ export class Game {
     this.goblins.length = 0
     this.goblinKinds.clear()
     this.contactCd.clear()
+    this.mobMoves.clear()
+    this.mobMoveCd.clear()
+    this.casterCd.clear()
+    this.casterVolleys.clear()
+    this.bossContactCd = 0
     if (this.boss) {
       this.boss.dispose()
       this.boss = null
@@ -374,7 +419,8 @@ export class Game {
   private spawnBoss(): void {
     const diff = this.run.difficulty
     const half = this.floor?.halfSize ?? 20
-    const boss = new GoblinKing(this.scene, 0, -half * 0.55, {
+    const bossZ = -half * 0.74
+    const boss = new GoblinKing(this.scene, 0, bossZ, {
       onSlam: (x, z, radius, damage) => {
         this.vfx.telegraph(x, z, radius, 0.2)
         this.vfx.burst(x, z, { color: 0xff5a2a, count: 26, speed: 7, life: 0.5, size: 1.0 })
@@ -400,12 +446,13 @@ export class Game {
     })
     boss.hp = bossHpFor(diff, this.run.layer)
     boss.maxHp = boss.hp
+    boss.setDormant(true)
     this.boss = boss
+    this.bossContactCd = 0
     this.hud.showBoss('哥布林之王', boss.hp, boss.maxHp)
     this.fx.setBossMode(true)
-    audio.bossRoar()
-    this.rig.shake(0.6)
-    this.vfx.ring(0, -half * 0.55, { color: 0xffb703, radius: 3, life: 0.9, grow: 2 })
+    this.hud.toast('哥布林之王在祭坛前沉睡，靠近后才会苏醒', 'info')
+    this.vfx.ring(0, bossZ, { color: 0xffb703, radius: 3, life: 0.9, grow: 2 })
   }
 
   // ---------- 帧 ----------
@@ -485,9 +532,10 @@ export class Game {
       ...snap,
       cards: { ...snap.cards },
       inventory: snap.inventory.map((item) => ({ ...item })),
+      training: { ...(snap.training ?? {}) },
     }
     this.cards = { ...snap.cards }
-    this.inventory = new Inventory(12)
+    this.inventory = new Inventory()
     for (const item of this.run.inventory) this.inventory.add({ ...item })
     if (!this.player) {
       this.startRun(this.run.character, this.run.difficulty)
@@ -691,16 +739,29 @@ export class Game {
     const def = kind === 'small' ? GOBLIN_SMALL : kind === 'brute' ? GOBLIN_BRUTE : kind === 'caster' ? GOBLIN_CASTER : GOBLIN_ELITE
     const hpMul = mobHpFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.hp
     const dmgMul = mobDamageFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.damage
-      const g = new Goblin(
-        this.scene,
-        def,
-        x,
-        z,
-        { hp: hpMul, damage: dmgMul, speed: 1, scale: 1, layerSpeed: mobSpeedMulFor(this.run.layer) },
-        kind === 'elite',
-      )
+    const g = new Goblin(
+      this.scene,
+      def,
+      x,
+      z,
+      { hp: hpMul, damage: dmgMul, speed: 1, scale: 1, layerSpeed: mobSpeedMulFor(this.run.layer) },
+      kind === 'elite',
+    )
     this.goblins.push(g)
     this.goblinKinds.set(g, kind)
+    this.mobMoves.delete(g)
+    this.casterVolleys.delete(g)
+    if (kind === 'brute' || kind === 'elite') {
+      // 错开首次招式，避免刚出生就贴脸冲撞/震地
+      this.mobMoveCd.set(g, 2.0 + this.rng.next() * 1.8)
+    } else {
+      this.mobMoveCd.delete(g)
+    }
+    if (kind === 'caster') {
+      this.casterCd.set(g, 1.2 + this.rng.next() * 1.4)
+    } else {
+      this.casterCd.delete(g)
+    }
   }
 
   private spawnEnemyShot(x: number, z: number, tx: number, tz: number, damage: number): void {
@@ -765,9 +826,12 @@ export class Game {
     const bounds = (this.floor?.halfSize ?? 20) - 0.5
     for (let i = this.goblins.length - 1; i >= 0; i -= 1) {
       const g = this.goblins[i]
-      const kind = this.goblinKinds.get(g)
+      const kind = this.goblinKinds.get(g) ?? 'small'
+      let targetX = p.x
+      let targetZ = p.z
+
       if (kind === 'caster') {
-        // 术士：保持 6~9m 距离，站定读条后向玩家丢紫球
+        // 术士：保持 6~10m 距离，站定读条后向玩家丢紫球；每第 3 发为三连射
         const dx = g.x - p.x
         const dz = g.z - p.z
         const d = Math.hypot(dx, dz) || 1
@@ -783,22 +847,121 @@ export class Game {
         g.update(dt, tx, tz, colliders, bounds)
         const cd = (this.casterCd.get(g) ?? 0) - dt
         if (cd <= 0 && d < 13) {
-          this.spawnEnemyShot(g.x, g.z, p.x, p.z, g.damage * 0.9)
-          this.casterCd.set(g, 2.6)
-          this.vfx.ring(g.x, g.z, { color: 0x9a5cff, radius: 0.7, life: 0.3, grow: 1.2 })
+          const volley = (this.casterVolleys.get(g) ?? 0) + 1
+          this.casterVolleys.set(g, volley)
+          if (volley % 3 === 0) {
+            const base = Math.atan2(p.z - g.z, p.x - g.x)
+            for (const off of [-0.24, 0, 0.24]) {
+              this.spawnEnemyShot(
+                g.x,
+                g.z,
+                g.x + Math.cos(base + off) * 11,
+                g.z + Math.sin(base + off) * 11,
+                g.damage * 0.72,
+              )
+            }
+            this.casterCd.set(g, 3.1)
+            this.hud.floatText(new THREE.Vector3(g.x, 1.5, g.z), '三连射', 'crit')
+            this.vfx.ring(g.x, g.z, { color: 0x9a5cff, radius: 1.1, life: 0.38, grow: 1.8 })
+          } else {
+            this.spawnEnemyShot(g.x, g.z, p.x, p.z, g.damage * 0.9)
+            this.casterCd.set(g, 2.6)
+            this.vfx.ring(g.x, g.z, { color: 0x9a5cff, radius: 0.7, life: 0.3, grow: 1.2 })
+          }
         } else {
           this.casterCd.set(g, cd)
         }
       } else {
-        g.update(dt, p.x, p.z, colliders, bounds)
+        const move = this.mobMoves.get(g)
+        if (move) {
+          move.timer -= dt
+          if (move.kind === 'charge-windup') {
+            // 冲撞前摇：站定蓄力，地面亮圈提示
+            targetX = g.x
+            targetZ = g.z
+            if (move.timer <= 0) {
+              move.kind = 'charge'
+              move.timer = 0.38
+              targetX = move.x
+              targetZ = move.z
+              g.speed = move.baseSpeed * 3.4
+              this.vfx.ring(g.x, g.z, { color: 0xff9f43, radius: 1.2, life: 0.3, grow: 2.1 })
+              this.rig.shake(0.08)
+            }
+          } else if (move.kind === 'charge') {
+            targetX = move.x
+            targetZ = move.z
+            if (move.timer <= 0) {
+              g.speed = move.baseSpeed
+              this.mobMoves.delete(g)
+              this.mobMoveCd.set(g, 4.8)
+            }
+          } else {
+            // 精英震地前摇：锁定玩家当前位置，0.72s 后结算范围伤害
+            targetX = g.x
+            targetZ = g.z
+            if (move.timer <= 0) {
+              this.mobMoves.delete(g)
+              g.speed = move.baseSpeed
+              this.mobMoveCd.set(g, 5.2)
+              this.contactCd.set(g, 0.9)
+              this.vfx.telegraph(move.x, move.z, 3.2, 0.18)
+              this.vfx.burst(move.x, move.z, { color: 0xffb703, count: 24, speed: 6, life: 0.5, size: 0.5 })
+              this.rig.shake(0.32)
+              const dx = p.x - move.x
+              const dz = p.z - move.z
+              if (dx * dx + dz * dz < 3.2 * 3.2) this.damagePlayer(g.damage * 1.35)
+            }
+          }
+        } else {
+          const cd = (this.mobMoveCd.get(g) ?? 0) - dt
+          this.mobMoveCd.set(g, cd)
+          if (cd <= 0) {
+            const dx = p.x - g.x
+            const dz = p.z - g.z
+            const d = Math.hypot(dx, dz) || 1
+            const baseSpeed = g.speed
+            if (kind === 'brute' && d > 2.2 && d < 8.5) {
+              // 蛮兵：锁定 8m 冲撞方向，给玩家侧移躲避的空间
+              this.mobMoves.set(g, {
+                kind: 'charge-windup',
+                timer: 0.5,
+                baseSpeed,
+                x: g.x + (dx / d) * 8,
+                z: g.z + (dz / d) * 8,
+              })
+              targetX = g.x
+              targetZ = g.z
+              this.hud.floatText(new THREE.Vector3(g.x, 1.4, g.z), '蓄力冲撞', 'crit')
+              this.vfx.ring(g.x, g.z, { color: 0xffc857, radius: 1.0, life: 0.45, grow: 1.9 })
+            } else if (kind === 'elite' && d < 6.2) {
+              this.mobMoves.set(g, {
+                kind: 'slam-windup',
+                timer: 0.72,
+                baseSpeed,
+                x: p.x,
+                z: p.z,
+              })
+              targetX = g.x
+              targetZ = g.z
+              this.vfx.telegraph(p.x, p.z, 3.2, 0.72)
+              this.hud.floatText(new THREE.Vector3(g.x, 1.6, g.z), '震地！', 'crit')
+            }
+          }
+        }
+        g.update(dt, targetX, targetZ, colliders, bounds)
       }
+
       if (!g.alive) {
+        this.mobMoves.delete(g)
+        this.mobMoveCd.delete(g)
         if (g.canRemove) {
           g.dispose()
           this.goblins.splice(i, 1)
           this.goblinKinds.delete(g)
           this.contactCd.delete(g)
           this.casterCd.delete(g)
+          this.casterVolleys.delete(g)
         }
         continue
       }
@@ -842,6 +1005,19 @@ export class Game {
     const p = this.player
     const boss = this.boss
     if (!p || !boss) return
+    // 沉睡的 Boss 待在后场，玩家靠近祭坛后才苏醒，不会一进场就追到门口。
+    if (boss.dormant) {
+      const dx = p.x - boss.x
+      const dz = p.z - boss.z
+      if (dx * dx + dz * dz < 9.5 * 9.5) {
+        boss.setDormant(false)
+        this.bossContactCd = 0.8
+        this.hud.toast('哥布林之王苏醒了！', 'bad')
+        this.vfx.ring(boss.x, boss.z, { color: 0xffb703, radius: 3, life: 0.8, grow: 2.2 })
+        this.rig.shake(0.45)
+        audio.bossRoar()
+      }
+    }
     boss.update(dt, p.x, p.z)
     // boss.update 不接收道具碰撞，这里补推挤，避免王钻进祭坛/木桶里看不见
     if (this.floor) {
@@ -878,10 +1054,14 @@ export class Game {
       this.onBossDefeated()
       return
     }
+    this.bossContactCd = Math.max(0, this.bossContactCd - dt)
     const dx = p.x - boss.x
     const dz = p.z - boss.z
     const rr = boss.radius + p.radius
-    if (dx * dx + dz * dz < rr * rr) this.damagePlayer(mobDamageFor(this.run.difficulty, this.run.layer) * 2.2)
+    if (dx * dx + dz * dz < rr * rr && this.bossContactCd <= 0) {
+      this.damagePlayer(mobDamageFor(this.run.difficulty, this.run.layer) * 2.2)
+      this.bossContactCd = 0.9
+    }
   }
 
   private damagePlayer(raw: number): void {
@@ -1155,6 +1335,7 @@ export class Game {
       this.run.character,
       this.rng,
       this.run.weaponLv,
+      this.run.trainingBuys ?? 0,
     )
     this.hud.showTunnelOffers(this.tunnelOffers, this.run.layer, 'tunnel')
   }
@@ -1183,7 +1364,7 @@ export class Game {
     if (!offer) return
     this.hud.hideTunnels()
     audio.click()
-    const res = resolveRoom(offer, this.run.layer, this.run.character, this.rng)
+    const res = resolveRoom(offer, this.run.layer, this.run.character, this.rng, this.run.trainingBuys ?? 0)
     if (res.gold) {
       this.run.gold += res.gold
       this.hud.toast(`+${res.gold} 金币`, 'good')
@@ -1259,7 +1440,15 @@ export class Game {
   }
 
   private proceedToShop(): void {
-    this.shopOffers = generateOffers(this.run.layer, this.run.character, this.run.gold, this.rng, 4, this.run.weaponLv)
+    this.shopOffers = generateOffers(
+      this.run.layer,
+      this.run.character,
+      this.run.gold,
+      this.rng,
+      4,
+      this.run.weaponLv,
+      this.run.trainingBuys ?? 0,
+    )
     this.shopMode = 'standard'
     this.phase = 'shop'
     audio.startBgm('shop')
@@ -1287,6 +1476,18 @@ export class Game {
       this.recalcStats()
       this.shopOffers.splice(idx, 1)
       this.hud.toast(`专武升级到 Lv${this.run.weaponLv}`, 'good')
+    } else if (offer.kind === 'training') {
+      if (!offer.stat || typeof offer.value !== 'number') return
+      const training = { ...(this.run.training ?? {}) }
+      training[offer.stat] = Number(((training[offer.stat] ?? 0) + offer.value).toFixed(3))
+      this.run.training = training
+      this.run.trainingBuys = (this.run.trainingBuys ?? 0) + 1
+      this.run.gold -= offer.price
+      this.syncCards()
+      // 可重复购买：不删格子，只更新价格与已训练次数。
+      offer.price = trainingPriceFor(this.run.layer, this.run.trainingBuys)
+      offer.desc = `永久 ${offer.trainingLabel ?? '属性'}强化，不占背包；可重复购买（已训练 ${this.run.trainingBuys} 次）`
+      this.hud.toast(`金币训练：${offer.name}`, 'good')
     } else if (offer.kind === 'buff-card') {
       const item = makeCardItem(offer.stat as CardStat, offer.tier)
       if (!this.grantItem(item)) return
@@ -1320,7 +1521,15 @@ export class Game {
       return
     }
     this.run.gold -= REFRESH_COST
-    this.shopOffers = generateOffers(this.run.layer, this.run.character, this.run.gold, this.rng, 4, this.run.weaponLv)
+    this.shopOffers = generateOffers(
+      this.run.layer,
+      this.run.character,
+      this.run.gold,
+      this.rng,
+      4,
+      this.run.weaponLv,
+      this.run.trainingBuys ?? 0,
+    )
     audio.coin()
     this.hud.updateShop(this.shopOffers, this.run.gold, REFRESH_COST)
   }
@@ -1348,6 +1557,7 @@ export class Game {
       ...this.run,
       cards: { ...this.run.cards },
       inventory: this.run.inventory.map((item) => ({ ...item })),
+      training: { ...(this.run.training ?? {}) },
       hp: this.player?.hp ?? this.run.hp,
       maxHp: this.player?.stats.maxHp ?? this.run.maxHp,
     }
@@ -1450,6 +1660,8 @@ export class Game {
     this.run.maxHp = this.player?.stats.maxHp ?? this.run.maxHp
     this.run.inventory = this.inventory.items.map((i) => ({ ...i }))
     this.run.cards = { ...this.cards }
+    this.run.training = { ...(this.run.training ?? {}) }
+    this.run.trainingBuys = Math.max(0, Math.round(this.run.trainingBuys ?? 0))
     this.run.savedAt = Date.now()
     saveToSlot(slot, this.run)
   }
@@ -1472,6 +1684,12 @@ export class Game {
     const cards = emptyCards()
     for (const item of this.inventory.items) {
       if (item.kind === 'buff-card') applyItemToCards(cards, item, 1)
+    }
+    // 金币训练属于「直接生效的永久属性」，不进背包，但与卡牌一起汇总。
+    for (const [stat, value] of Object.entries(this.run.training ?? {})) {
+      if (typeof value !== 'number' || !Number.isFinite(value)) continue
+      const key = stat as CardStat
+      if (key in cards) cards[key] = Number((cards[key] + value).toFixed(3))
     }
     this.cards = cards
     this.recalcStats()

@@ -199,6 +199,7 @@ function makePayload(
   charId: CharacterId,
   rng: Rng,
   weaponLv: number,
+  trainingBuys: number,
 ): TunnelPayload {
   switch (room) {
     case 'chest': {
@@ -212,7 +213,7 @@ function makePayload(
     case 'skill-card':
       return { skillCard: rollSkillCard(rng) }
     case 'merchant':
-      return { shopOffers: generateOffers(layer, charId, 0, rng, undefined, weaponLv) }
+      return { shopOffers: generateOffers(layer, charId, 0, rng, undefined, weaponLv, trainingBuys) }
     case 'altar':
       return { altarCost: altarCost(layer), altarReward: rollAltarReward(layer, rng) }
     case 'mob-wave':
@@ -278,7 +279,8 @@ function describePayload(room: TunnelRoom, payload: TunnelPayload): { title: str
 
 /**
  * 掷 3 扇门。isBossLayer 为 true（或即将进入最后一层）时三门全为 boss 房；
- * weaponLv 为角色当前专武等级（商人房货架需要），不传按 1 级算。
+ * weaponLv 为角色当前专武等级（商人房货架需要），trainingBuys 为已购训练次数，
+ * 两者不传时分别按 1 级 / 0 次算。
  */
 export function rollTunnels(
   layer: number,
@@ -287,6 +289,7 @@ export function rollTunnels(
   charId: CharacterId,
   rng: Rng,
   weaponLv = 1,
+  trainingBuys = 0,
 ): TunnelOffer[] {
   const current = clampLayer(layer)
   const bossDoor = isBossLayer || (totalLayers > 0 && current >= Math.round(totalLayers))
@@ -294,7 +297,7 @@ export function rollTunnels(
   const offers: TunnelOffer[] = []
   for (let index = 0; index < count; index += 1) {
     const room: TunnelRoom = bossDoor ? 'boss' : rollRoomType(rng, current)
-    const payload = makePayload(room, current, charId, rng, weaponLv)
+    const payload = makePayload(room, current, charId, rng, weaponLv, trainingBuys)
     const text = describePayload(room, payload)
     offers.push({
       id: `tunnel-${current}-${index}-${room}`,
@@ -315,6 +318,7 @@ export function resolveRoom(
   layer: number,
   charId: CharacterId,
   rng: Rng,
+  trainingBuys = 0,
 ): RoomResolution {
   const current = clampLayer(layer)
   const payload = offer.payload
@@ -332,7 +336,7 @@ export function resolveRoom(
       return { card: skillCardToItem(skill) }
     }
     case 'merchant':
-      return { shopOffers: payload.shopOffers ?? generateOffers(current, charId, 0, rng) }
+      return { shopOffers: payload.shopOffers ?? generateOffers(current, charId, 0, rng, undefined, 1, trainingBuys) }
     case 'altar':
       return {
         altarCost: payload.altarCost ?? altarCost(current),

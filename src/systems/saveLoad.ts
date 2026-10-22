@@ -34,6 +34,8 @@ const CARD_STAT_KEYS: CardStat[] = [
   'dodge',
   'armor',
 ]
+/** 存档物品/训练可出现的全部维度（crit 不参与旧档 cards 完整性必填） */
+const ALL_CARD_STAT_KEYS: CardStat[] = [...CARD_STAT_KEYS, 'crit']
 const NUMERIC_FIELDS = [
   'layer',
   'stage',
@@ -83,8 +85,17 @@ function isItem(value: unknown): value is InventoryItem {
     return false
   }
   if (item.tier !== 1 && item.tier !== 2 && item.tier !== 3) return false
-  if (item.stat !== undefined && !CARD_STAT_KEYS.includes(item.stat as CardStat)) return false
+  if (item.stat !== undefined && !ALL_CARD_STAT_KEYS.includes(item.stat as CardStat)) return false
   if (item.value !== undefined && !isNum(item.value)) return false
+  return true
+}
+
+function isTraining(value: unknown): value is Partial<Record<CardStat, number>> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  for (const [key, amount] of Object.entries(value)) {
+    if (!ALL_CARD_STAT_KEYS.includes(key as CardStat)) return false
+    if (!isNum(amount)) return false
+  }
   return true
 }
 
@@ -101,6 +112,8 @@ export function isRunState(value: unknown): value is RunState {
   if ((state.layer as number) < 1 || (state.stage as number) < 1) return false
   if (!isCards(state.cards)) return false
   if (!Array.isArray(state.inventory) || !state.inventory.every(isItem)) return false
+  if (state.training !== undefined && !isTraining(state.training)) return false
+  if (state.trainingBuys !== undefined && (!isNum(state.trainingBuys) || state.trainingBuys < 0)) return false
   return true
 }
 

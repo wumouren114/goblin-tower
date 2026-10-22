@@ -1,6 +1,6 @@
 /**
- * 12 格背包：添加 / 丢弃 / 使用 / 合成（同名同级增益卡 → 下一级，数值 ×2）。
- * 合成上限来自数据层：增益卡按 tier（backpack.maxMergeTier）。
+ * 基础 18 格背包：添加 / 丢弃 / 使用 / 合成（同名同级增益卡 → 下一级，数值 ×2）。
+ * 容量与合成上限来自数据层：backpack.slots / backpack.maxMergeTier。
  * 纯数据层：不 import three.js、不碰 DOM。卡片面板统一由 `cards` 汇总。
  */
 import type { CardStat, InventoryItem } from '../types'
@@ -13,7 +13,9 @@ interface BackpackCfg {
 }
 
 const BACKPACK = (BALANCE as unknown as { backpack: BackpackCfg }).backpack
-const DEFAULT_SLOTS = BACKPACK.slots
+/** 基础背包格数（balance.backpack.slots），HUD 与默认构造函数共用 */
+export const DEFAULT_BAG_SLOTS = BACKPACK.slots
+const DEFAULT_SLOTS = DEFAULT_BAG_SLOTS
 const MAX_MERGE_TIER = BACKPACK.maxMergeTier
 
 function tidy(v: number): number {
@@ -50,7 +52,7 @@ export class Inventory {
     return this.items.length >= this.capacity
   }
 
-  /** 格子上限（HUD 显示 x/12 用） */
+  /** 格子上限（HUD 显示 x/18 用） */
   get maxSlots(): number {
     return this.capacity
   }

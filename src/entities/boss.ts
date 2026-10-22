@@ -51,6 +51,8 @@ export class GoblinKing {
   radius: number = BOSS_TUNING.radius
   alive = true
   phase2 = false
+  /** 沉睡时待在后场，不追击、不攻击；玩家靠近后由 game.ts 唤醒 */
+  dormant = false
 
   private readonly scene: THREE.Scene
   private readonly anim: SpriteAnim
@@ -111,12 +113,49 @@ export class GoblinKing {
     scene.add(this.warn)
   }
 
+  setDormant(value: boolean): void {
+    if (this.dormant === value) return
+    this.dormant = value
+    this.state = 'chase'
+    this.stateTimer = 0
+    this.warn.visible = false
+    this.warnMat.opacity = 0
+    if (!value) {
+      // 苏醒后给玩家一点反应时间，不要立刻砸地/冲锋
+      this.slamCd = Math.max(this.slamCd, 1.2)
+      this.chargeCd = Math.max(this.chargeCd, 4)
+    }
+  }
+
   update(dt: number, targetX: number, targetZ: number): void {
     // 权威坐标回写
     this.group.position.set(this.x, 0, this.z)
     if (!this.alive) return
 
     this.clock += dt
+
+    // 沉睡：只做呼吸/朝向动画，绝不追击
+    if (this.dormant) {
+      const dx = targetX - this.x
+      const dz = targetZ - this.z
+      const dist = Math.hypot(dx, dz)
+      const nx = dist > 0.001 ? dx / dist : 0
+      const nz = dist > 0.001 ? dz / dist : 1
+      const screen = rotateInput(nx, nz, getBillboardYaw())
+      if (Math.abs(screen.x) > Math.abs(screen.z)) {
+        this.facing = screen.x > 0 ? 'right' : 'left'
+      } else {
+        this.facing = screen.z > 0 ? 'down' : 'up'
+      }
+      setSpriteFrame(this.sprite, this.anim, this.facing, Math.floor(this.clock * 1.2) % 2)
+      this.sprite.rotation.y = getBillboardYaw()
+      const breath = Math.sin(this.clock * 1.7)
+      this.sprite.position.y = breath * 0.025
+      this.sprite.scale.set(1 + breath * 0.012, 1 + breath * 0.02, 1)
+      this.updateFlash(dt)
+      return
+    }
+
     this.slamCd = Math.max(0, this.slamCd - dt)
     this.chargeCd = Math.max(0, this.chargeCd - dt)
 

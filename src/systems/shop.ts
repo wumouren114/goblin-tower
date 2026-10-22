@@ -1,5 +1,7 @@
 /**
- * 商店（4 格）：1 格角色专武升级（当前等级 +1）+ 2~3 张增益卡/消耗品。
+ * 商店（4 格）：1 格角色专武升级（当前等级 +1）+ 1 格金币训练
+ * + 2~3 张增益卡/消耗品。金币训练直接写入 RunState.training，不占背包，
+ * 每次购买后按 priceGrowth 涨价，给后期金币提供持续提升渠道。
  * 品质与增价随层数上涨（rollQuality / shopPriceFor），重掷 25 金。
  * 纯数据层：不 import three.js、不碰 DOM；随机走传入的 Rng。
  */
@@ -23,10 +25,25 @@ interface ConsumableCfg {
   desc: string
 }
 
+interface TrainingStatCfg {
+  stat: CardStat
+  name: string
+  value: number
+}
+
+interface TrainingCfg {
+  basePrice: number
+  priceGrowth: number
+  layerGrowth: number
+  valueGrowth: number
+  stats: TrainingStatCfg[]
+}
+
 interface ShopCfg {
   slots: number
   priceGrowthPerLayer: number
   rerollCost: number
+  training: TrainingCfg
   consumables: { heal: ConsumableCfg; charge: ConsumableCfg }
 }
 
@@ -52,6 +69,48 @@ function clampLayer(layer: number): number {
 
 function rollPrice(base: number, layer: number, qualityMul = 1): number {
   return priceOf(base, clampLayer(layer), qualityMul)
+}
+
+const TRAINING = SHOP.training
+
+function tidy(value: number): number {
+  return Number(value.toFixed(3))
+}
+
+function formatTrainingValue(stat: CardStat, value: number): string {
+  if (stat === 'armor' || stat === 'dodge' || stat === 'chargeGain' || stat === 'crit') {
+    return `${(value * 100).toFixed(1)}%`
+  }
+  if (stat === 'moveSpeed') return value.toFixed(2)
+  return String(Math.round(value))
+}
+
+/** 金币训练价格：层数越深基础价越高，购买次数越多越贵。 */
+export function trainingPriceFor(layer: number, buys: number): number {
+  const n = Math.max(0, Math.round(buys))
+  const base = TRAINING.basePrice * (1 + TRAINING.layerGrowth * (clampLayer(layer) - 1))
+  return Math.max(1, Math.round(base * Math.pow(TRAINING.priceGrowth, n)))
+}
+
+/** 金币训练的永久属性成长；同一次商店内重复购买价格会涨，但单次收益固定。 */
+function makeTrainingOffer(layer: number, rng: Rng, seq: number, buys: number): ShopOffer | null {
+  if (!TRAINING.stats || TRAINING.stats.length === 0) return null
+  const def = rng.pick(TRAINING.stats)
+  const value = tidy(def.value * (1 + TRAINING.valueGrowth * (clampLayer(layer) - 1)))
+  const label = def.name.replace('特训', '')
+  return {
+    id: `training-${seq}-${def.stat}`,
+    kind: 'training',
+    name: `${def.name} +${formatTrainingValue(def.stat, value)}`,
+    desc: `永久 ${label} +${formatTrainingValue(def.stat, value)}，不占背包；可重复购买（已训练 ${buys} 次）`,
+    icon: '📈',
+    price: trainingPriceFor(layer, buys),
+    tier: 1,
+    stat: def.stat,
+    value,
+    repeatable: true,
+    trainingLabel: label,
+  }
 }
 
 function makeWeaponUpgradeOffer(charId: CharacterId, weaponLv: number): ShopOffer | null {
@@ -124,6 +183,7 @@ function makeConsumableOffer(layer: number, rng: Rng, seq: number): ShopOffer {
 /**
  * 生成货架。gold 不筛货（只用于 HUD 是否买得起）；weaponLv 为角色当前专武等级，
  * 传入后专武升级 = 当前等级 +1（不传按 1 级算）。
+ * trainingBuys 为已购买训练次数，用于金币训练的累计涨价。
  */
 export function generateOffers(
   layer: number,
@@ -132,6 +192,7 @@ export function generateOffers(
   rng: Rng,
   count: number = SHOP.slots,
   weaponLv = 1,
+  trainingBuys = 0,
 ): ShopOffer[] {
   void gold
   const total = Math.max(0, Math.round(count))
@@ -140,6 +201,10 @@ export function generateOffers(
 
   const weaponOffer = makeWeaponUpgradeOffer(charId, weaponLv)
   if (weaponOffer) offers.push(weaponOffer)
+
+  // 固定塞一格金币训练：不占背包，是后期金币的主要去向。
+  const trainingOffer = makeTrainingOffer(clampLayer(layer), rng, offers.length, trainingBuys)
+  if (trainingOffer && offers.length < total) offers.push(trainingOffer)
 
   const usedStats: CardStat[] = []
   while (offers.length < total) {
@@ -160,6 +225,7 @@ export function refreshOffers(
   charId: CharacterId,
   rng: Rng,
   weaponLv = 1,
+  trainingBuys = 0,
 ): ShopOffer[] {
-  return generateOffers(layer, charId, 0, rng, SHOP.slots, weaponLv)
+  return generateOffers(layer, charId, 0, rng, SHOP.slots, weaponLv, trainingBuys)
 }

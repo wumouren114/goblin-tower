@@ -123,7 +123,7 @@ export interface TunnelPayload {
 
 export interface ShopOffer {
   id: string
-  kind: 'weapon' | 'buff-card' | 'consumable'
+  kind: 'weapon' | 'buff-card' | 'consumable' | 'training'
   name: string
   desc: string
   icon: string
@@ -133,6 +133,10 @@ export interface ShopOffer {
   value?: number
   /** kind==='weapon' 时，购买后专武到达的等级 */
   weaponLevel?: number
+  /** kind==='training' 时可持续购买，价格随购买次数上涨 */
+  repeatable?: boolean
+  /** kind==='training' 时展示用的属性名（如「魔力」） */
+  trainingLabel?: string
 }
 
 /** 商店来源：隧道商人的额外货架 / 每层固定的标准商店 */
@@ -168,6 +172,10 @@ export interface RunState {
   playTime: number
   seed: number
   savedAt: number
+  /** 商店金币训练的永久属性加成（不占背包） */
+  training?: Partial<Record<CardStat, number>>
+  /** 已购买训练次数：用于跨商店累计涨价 */
+  trainingBuys?: number
 }
 
 /** v3 场景定义：每一层从本阶段的 3 种场景里随机取一种 */

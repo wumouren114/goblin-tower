@@ -122,6 +122,24 @@
     "priceGrowthPerLayer": 0.14,
     "qualityStageStep": 1,
     "rerollCost": 25,
+    "training": {
+      "note": "金币直接永久强化，不占背包；每次购买后价格按 priceGrowth 上涨",
+      "basePrice": 60,
+      "priceGrowth": 1.35,
+      "layerGrowth": 0.1,
+      "valueGrowth": 0.08,
+      "stats": [
+        { "stat": "magic", "name": "魔力特训", "value": 8 },
+        { "stat": "stamina", "name": "耐力特训", "value": 7 },
+        { "stat": "intelligence", "name": "智力特训", "value": 5 },
+        { "stat": "hp", "name": "体魄特训", "value": 10 },
+        { "stat": "moveSpeed", "name": "疾行特训", "value": 0.08 },
+        { "stat": "armor", "name": "铁壁特训", "value": 0.015 },
+        { "stat": "dodge", "name": "闪避特训", "value": 0.008 },
+        { "stat": "chargeGain", "name": "回能特训", "value": 0.05 },
+        { "stat": "crit", "name": "锐眼特训", "value": 0.015 }
+      ]
+    },
     "consumables": {
       "heal": {
         "name": "治疗药水",
@@ -596,9 +614,9 @@
     }
   },
   "backpack": {
-    "slots": 12,
+    "slots": 18,
     "maxMergeTier": 3,
-    "note": "两张同级同种增益卡合成下一级（数值 ×2）；增益卡与消耗品共用格子"
+    "note": "两张同级同种增益卡合成下一级（数值 ×2）；增益卡与消耗品共用格子；v4.5 起基础 18 格"
   },
   "save": {
     "slots": 3,

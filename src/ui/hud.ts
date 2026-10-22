@@ -29,7 +29,7 @@ import type {
 import { CHARACTERS } from '../data/characters'
 import { artReady, artUrl, type ArtKey } from '../art/atlasImport'
 import { BALANCE, DIFFICULTIES, DIFFICULTY_IDS } from '../data/balance'
-import { canMergeItems } from '../systems/inventory'
+import { canMergeItems, DEFAULT_BAG_SLOTS } from '../systems/inventory'
 import {
   clamp01,
   div,
@@ -212,6 +212,7 @@ const SHOP_KIND_LABEL: Record<ShopOffer['kind'], string> = {
   weapon: '专武升级',
   'buff-card': '增益卡',
   consumable: '消耗品',
+  training: '金币训练',
 }
 
 /** 品质名从 balance 读取，读不到就回退 */
@@ -519,7 +520,7 @@ const UI_TEMPLATE = /* html */ `
           <h2 class="inv-title">背包</h2>
         </div>
         <div class="inv-head-right">
-          <div class="inv-count js-inv-count">0 / 12</div>
+          <div class="inv-count js-inv-count">0 / 18</div>
           <div class="shop-gold"><span class="shop-gold-label">金币</span><b class="js-inv-gold">0</b></div>
         </div>
       </header>
@@ -683,7 +684,7 @@ class HudImpl implements HudV3 {
   private readonly invCellRefs: InvCellRef[] = []
   private readonly invStatValueEls = new Map<CardStat, HTMLElement>()
   private invItems: InventoryItem[] = []
-  private invMaxSlots = 12
+  private invMaxSlots = DEFAULT_BAG_SLOTS
   private invSelected: string | null = null
   private invGold = 0
   /** 上次丢弃的时间戳：防连点把下一格物品也丢掉 */
@@ -948,7 +949,7 @@ class HudImpl implements HudV3 {
   }
 
   showInventory(items: InventoryItem[], gold: number, maxSlots: number): void {
-    this.invMaxSlots = Math.max(1, Math.min(24, Math.floor(maxSlots) || 12))
+    this.invMaxSlots = Math.max(1, Math.min(24, Math.floor(maxSlots) || DEFAULT_BAG_SLOTS))
     this.ensureInvCells(this.invMaxSlots)
     this.invSelected = null
     this.invItems = items.slice()
@@ -1598,7 +1599,7 @@ class HudImpl implements HudV3 {
   /** 商店条目 → 原画 key：专武按当前角色，增益卡按维度 */
   private shopOfferArt(offer: ShopOffer): ArtKey | null {
     if (offer.kind === 'weapon') return weaponArtKey(this.runCharacter)
-    if (offer.kind === 'buff-card') return cardArtKey(offer.stat)
+    if (offer.kind === 'buff-card' || offer.kind === 'training') return cardArtKey(offer.stat)
     return null
   }
 
@@ -1629,7 +1630,7 @@ class HudImpl implements HudV3 {
       setText(ref.name, offer.name)
       setText(ref.desc, offer.desc)
       setText(ref.price, fmtInt(offer.price))
-      setText(ref.buy, poor ? '金币不足' : '购买')
+      setText(ref.buy, poor ? '金币不足' : offer.repeatable ? '继续训练' : '购买')
     }
     this.syncArt()
   }

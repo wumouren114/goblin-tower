@@ -163,7 +163,8 @@ export class TowerFloor implements WorldV3 {
 
     /* ---------------- 地面 ---------------- */
     tex.floor.repeat.set(size / 4, size / 4)
-    tex.floor.anisotropy = 8
+    // 保持 TextureBook 的 16x 各向异性，斜视地面更稳，不再降回 8x
+    tex.floor.anisotropy = 16
     const floorMat = new THREE.MeshStandardMaterial({
       map: tex.floor,
       roughness: 0.95,
@@ -596,7 +597,8 @@ export class TowerFloor implements WorldV3 {
   private buildMotes(half: number, wallH: number, tex: TextureBook): void {
     const theme = this.theme
     if (!theme) return
-    const count = 40
+    // 浮尘改为低密度、低亮度，避免贴着地面看时像地板在闪星
+    const count = 22
     const pos = new Float32Array(count * 3)
     this.moteBase = new Float32Array(count * 3)
     this.motePhase = new Float32Array(count)
@@ -618,9 +620,9 @@ export class TowerFloor implements WorldV3 {
     const mat = new THREE.PointsMaterial({
       map: tex.mote,
       color: mixHex(theme.accentColor, 0xffffff, 0.6),
-      size: 0.1,
+      size: 0.075,
       transparent: true,
-      opacity: 0.3,
+      opacity: 0.2,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       sizeAttenuation: true,
@@ -806,26 +808,17 @@ export class TowerFloor implements WorldV3 {
     this.scene.background = null
   }
 
-  /** 相机退到墙外时直接隐藏那一面墙 */
+  /**
+   * 相机退到墙外时直接隐藏那一面墙。
+   * 注意：不要在这里刷新阴影贴图。阴影贴图冻结后如果跟着墙体显隐反复重算，
+   * 墙边地面就会在「有影/无影」之间跳动，看起来像地板一直闪。
+   * 保留静态墙面阴影，只隐藏颜色网格，是更稳的取舍。
+   */
   setWallHidden(side: 'south' | 'north' | 'east' | 'west', hidden: boolean): void {
     const m = this.wallMeshes[side]
     const c = this.corniceMeshes[side]
-    const wasVisible = (m ? m.visible : true) || (c ? c.visible : true)
     if (m) m.visible = !hidden
     if (c) c.visible = !hidden
-    const nowVisible = (m ? m.visible : true) || (c ? c.visible : true)
-    // 只在真的发生显隐变化时才补一帧阴影：每帧都置 needsUpdate 会退化成逐帧重算阴影，
-    // PCFSoft 的采样抖动会让地面出现细碎闪烁。
-    if (wasVisible !== nowVisible) this.refreshShadow()
-  }
-
-  /**
-   * 墙/柱显隐会改变它们投在地面上的影子：阴影贴图被冻结（防闪烁）时必须补一帧，
-   * 否则墙面隐藏后地板上还留着那道墙影，来回走动就像地板在闪。
-   */
-  private refreshShadow(): void {
-    const light = this.keyLight
-    if (light?.shadow) light.shadow.needsUpdate = true
   }
 
   /** 相机退到墙外时逐面隐藏 + 同时隐藏四角塔柱，避免任何方向挡视线 */
@@ -836,14 +829,9 @@ export class TowerFloor implements WorldV3 {
     for (const m of this.pillarMeshes) m.visible = !hidden
   }
 
-  /** 只隐藏塔柱（相机贴边时角柱最容易糊住角色） */
+  /** 只隐藏塔柱（相机贴边时角柱最容易糊住角色）；同样不触发阴影重算 */
   setPillarsHidden(hidden: boolean): void {
-    let changed = false
-    for (const m of this.pillarMeshes) {
-      if (m.visible === hidden) changed = true
-      m.visible = !hidden
-    }
-    if (changed) this.refreshShadow()
+    for (const m of this.pillarMeshes) m.visible = !hidden
   }
 
   /** 方向光阴影冻结（场景静态，避免每帧重算导致地面阴影闪烁） */
