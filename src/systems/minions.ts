@@ -28,6 +28,8 @@ export interface MinionSpec {
   taunt?: boolean
   /** 命中减速比例（lv4 起 0.2） */
   slow?: number
+  /** v4.6 鱼群：优先集火玩家最近命中的目标 */
+  focus?: Hittable
 }
 
 /**
@@ -52,6 +54,7 @@ export class Minion {
   readonly bubbleHitRadius: number
   readonly taunt: boolean
   readonly slow?: number
+  readonly focus?: Hittable
   life: number
   nextShot: number
   orbit: number
@@ -72,6 +75,7 @@ export class Minion {
     this.bubbleHitRadius = spec.bubbleHitRadius ?? 0.3
     this.taunt = spec.taunt ?? false
     this.slow = spec.slow
+    this.focus = spec.focus
     this.life = this.duration
     this.nextShot = this.interval * (0.4 + 0.2 * index)
     this.orbit = index * 1.7
@@ -98,6 +102,8 @@ export class Minion {
 
 export interface MinionHooks {
   burst(x: number, z: number, color: number, count?: number): void
+  /** v4.6 鲸落：召唤物到期/死亡时由 Combat 处理爆炸与回血 */
+  onExpire?(m: Minion): void
 }
 
 export class MinionSystem {
@@ -129,7 +135,10 @@ export class MinionSystem {
   /** 主动伤害某只召唤物（哥布林攻击） */
   damageAt(target: Minion, amount: number, kx = 0, kz = 0): boolean {
     const died = target.hit(amount, kx, kz)
-    if (died) this.remove(target)
+    if (died) {
+      this.hooks.onExpire?.(target)
+      this.remove(target)
+    }
     return died
   }
 
@@ -138,6 +147,7 @@ export class MinionSystem {
       const m = this.items[i]
       m.life -= dt
       if (m.life <= 0 || !m.alive) {
+        this.hooks.onExpire?.(m)
         this.remove(m)
         continue
       }
@@ -170,7 +180,11 @@ export class MinionSystem {
       // 射击：优先打最近的、玩家 5m 内的敌人
       m.nextShot -= dt
       if (m.nextShot <= 0) {
-        const target = nearestEnemy(world.enemies, m.x, m.z, m.range)
+        const focus = m.focus
+        const focusInRange = focus && focus.alive
+          ? Math.hypot(focus.x - m.x, focus.z - m.z) <= m.range + 2
+          : false
+        const target = focus && focus.alive && focusInRange ? focus : nearestEnemy(world.enemies, m.x, m.z, m.range)
         const withinPlayer = target ? Math.hypot(target.x - px, target.z - pz) <= m.range + 2 : false
         if (target && withinPlayer) {
           const dx = target.x - m.x
@@ -191,6 +205,7 @@ export class MinionSystem {
             color: 0x9fe8ff,
             canCrit: false,
             slow: m.slow,
+            source: 'minion',
           })
           m.nextShot = m.interval
         } else {

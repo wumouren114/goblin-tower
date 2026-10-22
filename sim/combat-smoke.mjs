@@ -62,6 +62,7 @@ const server = await createServer({
 const { Combat } = await server.ssrLoadModule('/src/systems/combat.ts')
 const chars = await server.ssrLoadModule('/src/data/characters.ts')
 const runtime = await server.ssrLoadModule('/src/data/characterRuntime.ts')
+const awakeningData = await server.ssrLoadModule('/src/data/awakenings.ts')
 
 let failed = 0
 const results = []
@@ -107,6 +108,16 @@ function makeWorld() {
     invulns: [],
     dashes: [],
     bursts: 0,
+    shield: 0,
+    shieldSeconds: 0,
+    hpRatio: 1,
+    playerHpRatio() {
+      return this.hpRatio
+    },
+    grantShield(amount, seconds) {
+      this.shield = Math.max(this.shield, amount)
+      this.shieldSeconds = Math.max(this.shieldSeconds, seconds)
+    },
     clamp(x, z) {
       const h = this.halfSize
       return { x: Math.max(-h, Math.min(h, x)), z: Math.max(-h, Math.min(h, z)) }
@@ -163,6 +174,7 @@ function makeCombat(events) {
   const hooks = {
     onHit(t, amount, crit, killed) {
       events.hits++
+      if (!events.firstAmount) events.firstAmount = amount
       events.lastAmount = amount
       events.lastCrit = crit
       events.killed += killed ? 1 : 0
@@ -188,7 +200,7 @@ function run(combat, world, seconds, opts = {}) {
 try {
   // ═════════════ A. 若叶睦：20 秒普攻 + Mortis 变身 ═════════════
   {
-    const events = { hits: 0, sfx: [], killed: 0, killList: [], lastAmount: 0, lastCrit: false }
+    const events = { hits: 0, sfx: [], killed: 0, killList: [], firstAmount: 0, lastAmount: 0, lastCrit: false }
     const { combat } = makeCombat(events)
     const world = makeWorld()
     combat.setCharacter('mutsumi')
@@ -207,10 +219,11 @@ try {
     }
     check('mutsumi 20s 普攻有命中', events.hits > 0, `hits=${events.hits}`)
     check('mutsumi 普攻发射黄瓜弹道', maxProjectiles > 0, `peak projectiles=${maxProjectiles}`)
-    check('mutsumi 伤害公式 20*100/100=20', near(events.lastAmount, 20, 1e-6), `last=${events.lastAmount}`)
+    check('mutsumi 伤害公式 20*100/100=20', near(events.firstAmount, 20, 1e-6), `first=${events.firstAmount}`)
     check('mutsumi 攻击音效已上报', events.sfx.filter((s) => s === 'attack').length > 0)
 
-    // 变身
+    // 变身：双重人格为完整 8s 变身（独奏会 -2s）
+    combat.setBuild('mutsumi-duet', {})
     world.enemies.length = 0
     const dummy = addEnemy(world, 0, -3, 100000)
     combat.grantCharge(1)
@@ -255,7 +268,7 @@ try {
 
   // ═════════════ B. 丛雨：扇形最多 8 目标 + 突进 ═════════════
   {
-    const events = { hits: 0, sfx: [], killed: 0, killList: [], lastAmount: 0, lastCrit: false }
+    const events = { hits: 0, sfx: [], killed: 0, killList: [], firstAmount: 0, lastAmount: 0, lastCrit: false }
     const { combat } = makeCombat(events)
     const world = makeWorld()
     combat.setCharacter('murasame')
@@ -309,7 +322,7 @@ try {
 
   // ═════════════ C. 肥鱼：召唤物 + 白米饭 ═════════════
   {
-    const events = { hits: 0, sfx: [], killed: 0, killList: [], lastAmount: 0, lastCrit: false }
+    const events = { hits: 0, sfx: [], killed: 0, killList: [], firstAmount: 0, lastAmount: 0, lastCrit: false }
     const { combat } = makeCombat(events)
     const world = makeWorld()
     combat.setCharacter('fish')
@@ -317,8 +330,8 @@ try {
     combat.setWeaponLv(5)
     combat.grantCharge(1)
     const summoned = combat.trySkill(0, 0, 0, -1, world)
-    check('fish 右键召唤', summoned && combat.minionCount === 5, `minions=${combat.minionCount}`)
-    check('召唤物继承 35% 生命', near(combat.minionsList[0].hp, 110 * 0.55, 1e-6), `hp=${combat.minionsList[0].hp}`)
+    check('fish 鱼群风格右键召唤 5+1', summoned && combat.minionCount === 6, `minions=${combat.minionCount}`)
+    check('召唤物继承 55% 生命 × 鱼群 85%', near(combat.minionsList[0].hp, 110 * 0.55 * 0.85, 1e-6), `hp=${combat.minionsList[0].hp}`)
     check('召唤物消耗 110 充能', combat.charge === 0, `charge=${combat.charge}`)
 
     const target = addEnemy(world, 0, -5, 100000)
@@ -328,7 +341,7 @@ try {
     // 重复释放刷新数量
     combat.grantCharge(1)
     combat.trySkill(0, 0, 0, -1, world)
-    check('重复召唤刷新为 5 只', combat.minionCount === 5)
+    check('重复召唤刷新为 6 只', combat.minionCount === 6)
     run(combat, world, 10.5, { px: 0, pz: 0 })
     check('召唤物 10s 后消失', combat.minionCount === 0, `minions=${combat.minionCount}`)
 
@@ -343,7 +356,7 @@ try {
 
   // ═════════════ D. 充能与层间起手 ═════════════
   {
-    const events = { hits: 0, sfx: [], killed: 0, killList: [], lastAmount: 0, lastCrit: false }
+    const events = { hits: 0, sfx: [], killed: 0, killList: [], firstAmount: 0, lastAmount: 0, lastCrit: false }
     const { combat } = makeCombat(events)
     combat.setCharacter('fish')
     combat.setStats(statsFor('fish', { chargeGain: 0.5, chargeMax: 110 }))
@@ -402,7 +415,7 @@ try {
 
   // ═════════════ F. 暴击与击杀 ═════════════
   {
-    const events = { hits: 0, sfx: [], killed: 0, killList: [], lastAmount: 0, lastCrit: false }
+    const events = { hits: 0, sfx: [], killed: 0, killList: [], firstAmount: 0, lastAmount: 0, lastCrit: false }
     const { combat } = makeCombat(events)
     const world = makeWorld()
     combat.setCharacter('mutsumi')
@@ -417,6 +430,176 @@ try {
     check('暴击音效', events.sfx.includes('crit'))
     check('击杀事件 killed=true', events.killed === 1, `kills=${events.killed}`)
     combat.dispose()
+  }
+
+  // ════════════�?G. v4.6 风格资源 / 觉醒 ════════════�?
+  {
+    const events = { hits: 0, sfx: [], killed: 0, killList: [], firstAmount: 0, lastAmount: 0, lastCrit: false }
+    const { combat } = makeCombat(events)
+    const world = makeWorld()
+    combat.setCharacter('mutsumi')
+    combat.setStats(statsFor('mutsumi'))
+    combat.setWeaponLv(1)
+    const attackOnce = (wait = 0.6) => {
+      const ok = combat.tryAttack(DT, 0, 0, 0, -1, world)
+      run(combat, world, wait, { px: 0, pz: 0 })
+      return ok
+    }
+
+    // 独奏：普攻积累节拍，满 4 层后下一发变穿透和弦
+    combat.setBuild('mutsumi-solo', {})
+    const chordTarget = addEnemy(world, 0, -4, 100000)
+    for (let i = 0; i < 4; i++) attackOnce()
+    check('v4.6 独奏节拍 4/4 且 ready', combat.resource.value === 4 && combat.resource.ready, JSON.stringify(combat.resource))
+    const beforeChord = chordTarget.taken
+    attackOnce()
+    check('v4.6 和弦消耗全部节拍', combat.resource.value === 0, `value=${combat.resource.value}`)
+    check('v4.6 独奏和弦 1.6 倍伤害', near(chordTarget.taken - beforeChord, 16 * 1.6, 1e-6), `delta=${chordTarget.taken - beforeChord}`)
+
+    // 共鸣：和弦标记后，2.5s 独奏层数已过期，下一发仍吃 18% 易伤
+    combat.setBuild('mutsumi-solo', { 'mutsumi-solo-resonance': 3 })
+    world.enemies.length = 0
+    const markTarget = addEnemy(world, 0, -4, 100000)
+    for (let i = 0; i < 4; i++) attackOnce()
+    attackOnce() // 和弦，挂共鸣
+    run(combat, world, 2.7, { px: 0, pz: 0 })
+    const beforeMarkHit = markTarget.taken
+    attackOnce()
+    check('v4.6 共鸣 Lv3 易伤 18%', near(markTarget.taken - beforeMarkHit, 16 * 1.18, 1e-6), `delta=${markTarget.taken - beforeMarkHit}`)
+
+    // 安魂曲：节拍上限 6，和弦 2.2 倍
+    combat.setBuild('mutsumi-requiem', {})
+    world.enemies.length = 0
+    const requiemTarget = addEnemy(world, 0, -4, 100000)
+    check('v4.6 安魂曲节拍上限 6', combat.resource.max === 6)
+    for (let i = 0; i < 6; i++) attackOnce(0.75)
+    check('v4.6 安魂曲 6/6 ready', combat.resource.ready, JSON.stringify(combat.resource))
+    const beforeRequiem = requiemTarget.taken
+    attackOnce(0.75)
+    check('v4.6 安魂曲和弦 2.2 倍伤害', near(requiemTarget.taken - beforeRequiem, 16 * 2.2, 1e-6), `delta=${requiemTarget.taken - beforeRequiem}`)
+    combat.dispose()
+  }
+
+  {
+    const events = { hits: 0, sfx: [], killed: 0, killList: [], firstAmount: 0, lastAmount: 0, lastCrit: false }
+    const { combat } = makeCombat(events)
+    const world = makeWorld()
+    combat.setCharacter('murasame')
+    combat.setStats(statsFor('murasame'))
+    combat.setWeaponLv(1)
+    const attackOnce = (wait = 0.6) => {
+      const ok = combat.tryAttack(DT, 0, 0, 0, -1, world)
+      run(combat, world, wait, { px: 0, pz: 0 })
+      return ok
+    }
+
+    // 居合：第 3 刀变成 4.2m（智力 70 × 6m）直线拔刀
+    combat.setBuild('murasame-iai', {})
+    const nearTarget = addEnemy(world, 0, -1.2, 100000)
+    const farTarget = addEnemy(world, 0, -4.0, 100000)
+    attackOnce()
+    attackOnce()
+    check('v4.6 居合前两刀不命中 4m 目标', farTarget.taken === 0, `taken=${farTarget.taken}`)
+    attackOnce()
+    check('v4.6 第 3 刀居合命中远处目标', farTarget.taken > 0, `taken=${farTarget.taken}`)
+    check('v4.6 居合叠满 3 层剑意', combat.resource.value === 3 && combat.resource.ready, JSON.stringify(combat.resource))
+    combat.grantCharge(1)
+    const beforeDash = nearTarget.taken
+    const dashed = combat.trySkill(0, 0, 0, -1, world)
+    check('v4.6 满剑意突进变燕返并清空剑意', dashed && combat.resource.value === 0, `value=${combat.resource.value}`)
+    check('v4.6 燕返命中路径目标', nearTarget.taken > beforeDash, `delta=${nearTarget.taken - beforeDash}`)
+
+    // 拔刀术：居合附加流血（先等燕返的 0.2s 硬直结束）
+    combat.setBuild('murasame-iai', { 'murasame-iai-bleed': 3 })
+    run(combat, world, 0.3, { px: 0, pz: 0 })
+    world.enemies.length = 0
+    attackOnce()
+    attackOnce()
+    const bleedTarget = addEnemy(world, 0, -3.2, 100000)
+    attackOnce()
+    const afterIai = bleedTarget.taken
+    run(combat, world, 1.6, { px: 0, pz: 0 })
+    check('v4.6 拔刀术 Lv3 流血持续伤害', bleedTarget.taken > afterIai + 5, `after=${bleedTarget.taken} first=${afterIai}`)
+
+    // 守护：突进护盾 + 铁壁额外护盾
+    combat.setCharacter('murasame')
+    combat.setStats(statsFor('murasame'))
+    combat.setWeaponLv(1)
+    combat.setBuild('murasame-guard', {})
+    combat.grantCharge(1)
+    combat.trySkill(0, 0, 0, -1, world)
+    check('v4.6 守护突进 12% 最大生命护盾', near(world.shield, 205 * 0.12, 1e-6), `shield=${world.shield}`)
+    combat.setBuild('murasame-guard', { 'murasame-guard-wall': 3 })
+    world.shield = 0
+    world.shieldSeconds = 0
+    combat.grantCharge(1)
+    combat.trySkill(0, 0, 0, -1, world)
+    check('v4.6 铁壁 Lv3 护盾提升到 27%', near(world.shield, 205 * 0.27, 1e-6), `shield=${world.shield}`)
+    check('v4.6 铁壁 Lv3 护盾持续 6s', near(world.shieldSeconds, 6, 1e-6), `seconds=${world.shieldSeconds}`)
+    combat.dispose()
+  }
+
+  {
+    const events = { hits: 0, sfx: [], killed: 0, killList: [], firstAmount: 0, lastAmount: 0, lastCrit: false }
+    const { combat } = makeCombat(events)
+    const world = makeWorld()
+    combat.setCharacter('fish')
+    combat.setStats(statsFor('fish'))
+    combat.setWeaponLv(1)
+    const attackOnce = (wait = 0.55) => {
+      const ok = combat.tryAttack(DT, 0, 0, 0, -1, world)
+      run(combat, world, wait, { px: 0, pz: 0 })
+      return ok
+    }
+
+    // 爆破：3 发普通泡泡后，第 4 发大泡泡爆炸
+    combat.setBuild('fish-burst', {})
+    const bubbleTarget = addEnemy(world, 0, -4, 100000)
+    const splashTarget = addEnemy(world, 1.6, -4, 100000)
+    for (let i = 0; i < 3; i++) attackOnce()
+    check('v4.6 泡泡 3/3 ready', combat.resource.value === 3 && combat.resource.ready, JSON.stringify(combat.resource))
+    attackOnce(0.7)
+    check('v4.6 大泡泡清空资源', combat.resource.value === 0, `value=${combat.resource.value}`)
+    check('v4.6 大泡泡爆炸命中周围目标', bubbleTarget.taken > 0 && splashTarget.taken > 0, `hit=${splashTarget.taken}`)
+
+    // 泡沫护盾：大泡泡命中给护盾
+    combat.setBuild('fish-burst', { 'fish-burst-shield': 3 })
+    world.shield = 0
+    world.shieldSeconds = 0
+    for (let i = 0; i < 3; i++) attackOnce()
+    attackOnce(0.7)
+    check('v4.6 泡沫护盾 Lv3 给 12% 护盾', near(world.shield, 110 * 0.12, 1e-6), `shield=${world.shield}`)
+    check('v4.6 泡沫护盾持续 5s', near(world.shieldSeconds, 5, 1e-6), `seconds=${world.shieldSeconds}`)
+
+    // 鱼群战术 Lv3：召唤数 +1（鱼群 +1、战术 +1，共 7）
+    combat.setBuild('fish-school', { 'fish-school-tactics': 3 })
+    combat.setWeaponLv(5)
+    combat.grantCharge(1)
+    combat.trySkill(0, 0, 0, -1, world)
+    check('v4.6 鱼群战术 Lv3 召唤 7 只', combat.minionCount === 7, `minions=${combat.minionCount}`)
+    combat.dispose()
+  }
+
+  {
+    // 风格/觉醒数据归一化：跨角色风格回退、等级夹取、层数去重
+    const fallback = awakeningData.styleForCharacter('fish', 'murasame-iai')
+    check('v4.6 非法风格回退到角色默认风格', fallback.id === 'fish-school', fallback.id)
+    check('v4.6 安魂曲资源上限 6', awakeningData.STYLES['mutsumi-requiem'].resourceMax === 6)
+    const normalized = awakeningData.normalizeAwakenings('mutsumi-solo', {
+      'mutsumi-solo-resonance': 2,
+      'mutsumi-solo-aftertone': 9,
+      'murasame-iai-bleed': 3,
+      bad: 'x',
+    })
+    check(
+      'v4.6 觉醒归一化：夹取 1..3 并过滤异风格',
+      normalized['mutsumi-solo-resonance'] === 2 &&
+        normalized['mutsumi-solo-aftertone'] === 3 &&
+        normalized['murasame-iai-bleed'] === undefined,
+      JSON.stringify(normalized),
+    )
+    const layers = awakeningData.normalizeAwakeningLayers([3, 3, 6, 7, '9'])
+    check('v4.6 觉醒层数只保留 3/6/9 且去重', JSON.stringify(layers) === JSON.stringify([3, 6]), JSON.stringify(layers))
   }
 } finally {
   await server.close()

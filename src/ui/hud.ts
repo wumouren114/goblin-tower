@@ -27,6 +27,7 @@ import type {
   TunnelType,
 } from '../types'
 import { CHARACTERS } from '../data/characters'
+import { STYLES_BY_CHARACTER, type StyleId } from '../data/awakenings'
 import { artReady, artUrl, type ArtKey } from '../art/atlasImport'
 import { BALANCE, DIFFICULTIES, DIFFICULTY_IDS } from '../data/balance'
 import { canMergeItems, DEFAULT_BAG_SLOTS } from '../systems/inventory'
@@ -153,6 +154,19 @@ const PORTRAIT_ART: Record<CharacterId, ArtKey> = {
   mutsumi: 'portrait_mutsumi',
   murasame: 'portrait_murasame',
   fish: 'portrait_fish',
+}
+
+/** v4.6 战斗风格图标：标题页风格卡 / 觉醒卡大图 */
+const STYLE_ART: Record<StyleId, ArtKey> = {
+  'mutsumi-solo': 'style_mutsumi_solo',
+  'mutsumi-duet': 'style_mutsumi_duet',
+  'mutsumi-requiem': 'style_mutsumi_requiem',
+  'murasame-iai': 'style_murasame_iai',
+  'murasame-blood': 'style_murasame_blood',
+  'murasame-guard': 'style_murasame_guard',
+  'fish-school': 'style_fish_school',
+  'fish-burst': 'style_fish_burst',
+  'fish-whale': 'style_fish_whale',
 }
 
 const DIFF_META: Record<DifficultyId, { icon: string; tag: string }> = {
@@ -377,6 +391,10 @@ const UI_TEMPLATE = /* html */ `
           <i class="js-hp-fill"></i>
           <span class="bar-ticks"></span>
         </div>
+        <div class="shield-row js-shield-row" hidden>
+          <span class="shield-icon" aria-hidden="true">🛡</span>
+          <span class="shield-text js-shield-text">护盾 0</span>
+        </div>
       </div>
       <div class="vital vital-skill js-skill-block">
         <div class="skill-badge">专武 <b class="js-weapon-lv">1</b></div>
@@ -386,6 +404,11 @@ const UI_TEMPLATE = /* html */ `
             <span class="vital-num js-charge-text">0 / 100</span>
           </div>
           <div class="bar bar-charge"><i class="js-charge-fill"></i><span class="bar-sheen"></span></div>
+          <div class="resource-row js-resource-row">
+            <span class="resource-style js-resource-style">风格</span>
+            <span class="resource-name js-resource-name">资源</span>
+            <span class="resource-pips js-resource-pips" aria-hidden="true"></span>
+          </div>
         </div>
       </div>
     </div>
@@ -446,6 +469,14 @@ const UI_TEMPLATE = /* html */ `
           <section class="title-panel panel-char">
             <h2 class="panel-label">选择角色</h2>
             <div class="char-cards js-char-cards"></div>
+            <div class="style-picker">
+              <div class="style-picker-head">
+                <span class="style-picker-label">战斗风格</span>
+                <span class="style-picker-note">开局选择 · 3/6/9 层觉醒</span>
+              </div>
+              <div class="style-cards js-style-cards"></div>
+              <p class="style-detail js-style-detail"></p>
+            </div>
           </section>
           <section class="title-panel panel-diff">
             <h2 class="panel-label">选择难度</h2>
@@ -607,10 +638,16 @@ class HudImpl implements HudV3 {
   private hpBlockEl!: HTMLElement
   private hpFillEl!: HTMLElement
   private hpTextEl!: HTMLElement
+  private shieldRowEl!: HTMLElement
+  private shieldTextEl!: HTMLElement
   private skillBlockEl!: HTMLElement
   private skillNameEl!: HTMLElement
   private chargeFillEl!: HTMLElement
   private chargeTextEl!: HTMLElement
+  private resourceRowEl!: HTMLElement
+  private resourceStyleEl!: HTMLElement
+  private resourceNameEl!: HTMLElement
+  private resourcePipsEl!: HTMLElement
   private weaponLvEl!: HTMLElement
   private objectiveEl!: HTMLElement
 
@@ -634,11 +671,15 @@ class HudImpl implements HudV3 {
   private diffCardsEl!: HTMLElement
   private readonly diffCardEls: HTMLButtonElement[] = []
   private diffTipEl!: HTMLElement
+  private styleCardsEl!: HTMLElement
+  private styleDetailEl!: HTMLElement
+  private readonly styleCardEls: HTMLButtonElement[] = []
   private startBtnEl!: HTMLButtonElement
   private continuePanelEl!: HTMLElement
   private continueListEl!: HTMLElement
   private selectedCharacter: CharacterId = 'mutsumi'
   private selectedDifficulty: DifficultyId = 'normal'
+  private selectedStyle: StyleId = 'mutsumi-solo'
   private startLocked = false
   private lastSlots: SaveSlotMeta[] = []
   /** 当前这局使用的角色：决定专武图标，随 snapshot.character 同步 */
@@ -718,6 +759,7 @@ class HudImpl implements HudV3 {
   private readonly barCache = new WeakMap<HTMLElement, number>()
   private bossPinned = false
   private bossRatio = -1
+  private resourcePipMax = -1
   private bannerTimer: number | null = null
   private artPollTimer: number | null = null
   private artPollTries = 0
@@ -800,6 +842,9 @@ class HudImpl implements HudV3 {
     setText(this.hpTextEl, `${Math.ceil(hp)} / ${Math.ceil(maxHp)}`)
     setBarFill(this.hpFillEl, clamp01(hp / maxHp), this.barCache)
     this.hpBlockEl.classList.toggle('is-danger', hp / maxHp <= 0.3)
+    const shield = Math.max(0, snapshot.shield ?? 0)
+    this.shieldRowEl.hidden = shield <= 0
+    if (shield > 0) setText(this.shieldTextEl, `护盾 ${Math.ceil(shield)}`)
 
     // 技能充能
     const chargeMax = Math.max(1, snapshot.chargeMax ?? 100)
@@ -809,6 +854,27 @@ class HudImpl implements HudV3 {
     setText(this.weaponLvEl, String(Math.max(1, Math.floor(snapshot.weaponLv ?? 1))))
     setBarFill(this.chargeFillEl, clamp01(charge / chargeMax), this.barCache)
     this.skillBlockEl.classList.toggle('is-ready', Boolean(snapshot.skillReady))
+
+    // 风格资源（节拍 / 剑意 / 泡泡）
+    const resource = snapshot.resource
+    this.resourceRowEl.hidden = !resource
+    if (resource) {
+      const max = Math.max(1, Math.floor(resource.max))
+      const value = Math.max(0, Math.min(Math.floor(resource.value), max))
+      setText(this.resourceStyleEl, resource.styleName)
+      setText(this.resourceNameEl, `${resource.name} ${value}/${max}`)
+      this.resourceRowEl.classList.toggle('is-ready', resource.ready)
+      this.resourceRowEl.title = resource.hint
+      if (this.resourcePipMax !== max) {
+        this.resourcePipMax = max
+        const pips: HTMLSpanElement[] = []
+        for (let i = 0; i < max; i += 1) pips.push(span('resource-pip'))
+        this.resourcePipsEl.replaceChildren(...pips)
+      }
+      for (let i = 0; i < this.resourcePipsEl.children.length; i += 1) {
+        this.resourcePipsEl.children[i].classList.toggle('is-filled', i < value)
+      }
+    }
 
     // 目标提示
     setText(
@@ -870,28 +936,42 @@ class HudImpl implements HudV3 {
   showTunnelOffers(offers: TunnelOffer[], layer: number, mode: TunnelScreenMode = 'tunnel'): void {
     const hasLayer = layer > 0
     const isBonus = mode === 'bonus'
+    const isAwakening = mode === 'awakening'
     this.tunnelMode = mode
     this.tunnelOffers = offers.slice(0, this.tunnelCardRefs.length)
     this.tunnelEl.classList.toggle('is-bonus', isBonus)
-    this.tunnelEl.classList.toggle('is-tunnel', !isBonus)
+    this.tunnelEl.classList.toggle('is-awakening', isAwakening)
+    this.tunnelEl.classList.toggle('is-tunnel', !isBonus && !isAwakening)
     this.tunnelEl.dataset.mode = mode
-    this.tunnelEl.setAttribute('aria-label', isBonus ? '清层奖励三选一' : '时空隧道路线选择')
-    setText(this.tunnelModeMarkEl, isBonus ? '🎁' : '🧭')
-    setText(this.tunnelKickerEl, isBonus ? 'STEP 1 / 2 · LAYER REWARD' : 'STEP 2 / 2 · TIME RIFT')
-    setText(this.tunnelTitleEl, isBonus ? '清层奖励 · 三选一' : '时空隧道 · 选择路线')
+    this.tunnelEl.setAttribute(
+      'aria-label',
+      isAwakening ? '角色觉醒二选一' : isBonus ? '清层奖励三选一' : '时空隧道路线选择',
+    )
+    setText(this.tunnelModeMarkEl, isAwakening ? '✦' : isBonus ? '🎁' : '🧭')
+    setText(
+      this.tunnelKickerEl,
+      isAwakening ? 'AWAKENING · LAYER 3 / 6 / 9' : isBonus ? 'STEP 1 / 2 · LAYER REWARD' : 'STEP 2 / 2 · TIME RIFT',
+    )
+    setText(this.tunnelTitleEl, isAwakening ? '角色觉醒 · 二选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道 · 选择路线')
     setText(
       this.tunnelSubEl,
-      isBonus
+      isAwakening
         ? hasLayer
-          ? `第 ${layer} 层清层奖励 · 领取后进入时空隧道选路线`
-          : '本层清层奖励 · 领取后进入时空隧道选路线'
-        : hasLayer
-          ? `第 ${layer} 层已清空 · 选择前进的路线`
-          : '选择前进的路线',
+          ? `第 ${layer} 层 · 获得新觉醒，或深化已有觉醒`
+          : '获得新觉醒，或深化已有觉醒'
+        : isBonus
+          ? hasLayer
+            ? `第 ${layer} 层清层奖励 · 领取后进入时空隧道选路线`
+            : '本层清层奖励 · 领取后进入时空隧道选路线'
+          : hasLayer
+            ? `第 ${layer} 层已清空 · 选择前进的路线`
+            : '选择前进的路线',
     )
-    this.tunnelHintEl.innerHTML = isBonus
-      ? '选中一张奖励卡，再点「领取奖励」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
-      : '选中一条路线，再点「确认路线」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
+    this.tunnelHintEl.innerHTML = isAwakening
+      ? '选中一个觉醒，再点「确认觉醒」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd> 可直接选中）'
+      : isBonus
+        ? '选中一张奖励卡，再点「领取奖励」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
+        : '选中一条路线，再点「确认路线」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
     for (let i = 0; i < this.tunnelCardRefs.length; i += 1) {
       const ref = this.tunnelCardRefs[i]
       const offer = this.tunnelOffers[i]
@@ -903,9 +983,16 @@ class HudImpl implements HudV3 {
       ref.card.disabled = false
       ref.card.dataset.offerId = offer.id
       ref.card.className = `tunnel-card kind-${offer.kind}`
-      setText(ref.band, isBonus ? '清层奖励' : TUNNEL_META[offer.kind]?.label ?? '未知')
+      setText(ref.band, isAwakening ? '角色觉醒' : isBonus ? '清层奖励' : TUNNEL_META[offer.kind]?.label ?? '未知')
       setArtIcon(ref.icon, this.tunnelIconArt(offer), offer.icon || '✦')
-      setText(ref.room, isBonus ? '本层奖励 · 增益卡' : ROOM_LABEL[offer.room] ?? '未知房间')
+      setText(
+        ref.room,
+        isAwakening
+          ? offer.payload.awakening?.styleName ?? '战斗风格'
+          : isBonus
+            ? '本层奖励 · 增益卡'
+            : ROOM_LABEL[offer.room] ?? '未知房间',
+      )
       setText(ref.title, offer.title)
       setText(ref.desc, offer.desc)
       const lines = this.tunnelPreviewLines(offer, mode)
@@ -1157,10 +1244,16 @@ class HudImpl implements HudV3 {
     this.hpBlockEl = this.q('.js-hp-block')
     this.hpFillEl = this.q('.js-hp-fill')
     this.hpTextEl = this.q('.js-hp-text')
+    this.shieldRowEl = this.q('.js-shield-row')
+    this.shieldTextEl = this.q('.js-shield-text')
     this.skillBlockEl = this.q('.js-skill-block')
     this.skillNameEl = this.q('.js-skill-name')
     this.chargeFillEl = this.q('.js-charge-fill')
     this.chargeTextEl = this.q('.js-charge-text')
+    this.resourceRowEl = this.q('.js-resource-row')
+    this.resourceStyleEl = this.q('.js-resource-style')
+    this.resourceNameEl = this.q('.js-resource-name')
+    this.resourcePipsEl = this.q('.js-resource-pips')
     this.weaponLvEl = this.q('.js-weapon-lv')
     this.objectiveEl = this.q('.js-objective')
     this.bossEl = this.q('.js-boss')
@@ -1181,6 +1274,8 @@ class HudImpl implements HudV3 {
     this.titleInnerEl = this.q('.js-title-inner')
     this.titleKeyartEl = this.q<HTMLImageElement>('.js-title-keyart')
     this.charCardsEl = this.q('.js-char-cards')
+    this.styleCardsEl = this.q('.js-style-cards')
+    this.styleDetailEl = this.q('.js-style-detail')
     this.diffCardsEl = this.q('.js-diff-cards')
     this.diffTipEl = this.q('.js-diff-tip')
     this.startBtnEl = this.q('.js-start')
@@ -1238,6 +1333,7 @@ class HudImpl implements HudV3 {
       this.diffCardEls.push(card)
     }
 
+    this.buildStyleCards(this.selectedCharacter)
     this.startBtnEl.addEventListener('click', () => this.startGame())
 
     this.q('.js-end-title-btn').addEventListener('click', () => {
@@ -1285,14 +1381,23 @@ class HudImpl implements HudV3 {
 
   private applyTunnelSelection(): void {
     const isBonus = this.tunnelMode === 'bonus'
+    const isAwakening = this.tunnelMode === 'awakening'
     for (let i = 0; i < this.tunnelCardRefs.length; i += 1) {
       this.tunnelCardRefs[i].card.classList.toggle('is-selected', i === this.tunnelSelected)
     }
     if (this.tunnelConfirmEl) {
       this.tunnelConfirmEl.disabled = this.tunnelSelected < 0
       this.tunnelConfirmEl.textContent = this.tunnelSelected >= 0
-        ? (isBonus ? '领取奖励' : '确认路线')
-        : (isBonus ? '请先选择一张奖励卡' : '请先选择一条路线')
+        ? isAwakening
+          ? '确认觉醒'
+          : isBonus
+            ? '领取奖励'
+            : '确认路线'
+        : isAwakening
+          ? '请先选择一个觉醒'
+          : isBonus
+            ? '请先选择一张奖励卡'
+            : '请先选择一条路线'
     }
   }
 
@@ -1414,11 +1519,52 @@ class HudImpl implements HudV3 {
   /* ================================================================ */
 
   private selectCharacter(id: CharacterId, silent = false): void {
+    const changed = this.selectedCharacter !== id
     this.selectedCharacter = id
     for (const card of this.charCardEls) {
       card.classList.toggle('is-active', card.dataset.char === id)
     }
+    if (changed || this.styleCardEls.length === 0) this.buildStyleCards(id)
     if (!silent) this.updateDiffTip()
+  }
+
+  /** 标题页战斗风格：3 张紧凑卡 + 下方完整机制/代价说明 */
+  private buildStyleCards(character: CharacterId): void {
+    const styles = STYLES_BY_CHARACTER[character] ?? []
+    if (!styles.some((style) => style.id === this.selectedStyle)) {
+      this.selectedStyle = styles[0]?.id ?? 'mutsumi-solo'
+    }
+    this.styleCardsEl.replaceChildren()
+    this.styleCardEls.length = 0
+    for (const style of styles) {
+      const card = el('button', 'style-card')
+      card.type = 'button'
+      card.dataset.style = style.id
+      const head = div('style-card-head')
+      const icon = span('style-card-icon')
+      setArtIcon(icon, STYLE_ART[style.id], style.icon)
+      head.append(icon, span('style-card-name', style.name))
+      card.append(head, span('style-card-tag', style.tagline))
+      card.title = `${style.desc}\n代价：${style.tradeoff}`
+      card.addEventListener('click', () => this.selectStyle(style.id))
+      this.styleCardsEl.appendChild(card)
+      this.styleCardEls.push(card)
+    }
+    this.selectStyle(this.selectedStyle, true)
+  }
+
+  private selectStyle(id: StyleId, silent = false): void {
+    const style = (STYLES_BY_CHARACTER[this.selectedCharacter] ?? []).find((s) => s.id === id)
+    if (!style) return
+    this.selectedStyle = style.id
+    for (const card of this.styleCardEls) {
+      card.classList.toggle('is-active', card.dataset.style === style.id)
+    }
+    setText(
+      this.styleDetailEl,
+      `${style.desc}  代价：${style.tradeoff}  资源·${style.resourceName}：${style.resourceHint}`,
+    )
+    void silent
   }
 
   private selectDifficulty(id: DifficultyId, silent = false): void {
@@ -1445,7 +1591,7 @@ class HudImpl implements HudV3 {
       this.startLocked = false
     }, PICK_DELAY_MS * 2)
     this.hideTitle()
-    this.handlers.onStart(this.selectedCharacter, this.selectedDifficulty)
+    this.handlers.onStart(this.selectedCharacter, this.selectedDifficulty, this.selectedStyle)
   }
 
   private renderContinueSlots(): void {
@@ -1475,6 +1621,7 @@ class HudImpl implements HudV3 {
   /** 隧道卡大图标：优先首领像 / 卡牌 / 专武，商人等保留 emoji */
   private tunnelIconArt(offer: TunnelOffer): ArtKey | null {
     const payload = offer.payload ?? {}
+    if (payload.awakening) return STYLE_ART[payload.awakening.styleId]
     if (payload.bossLayer) return 'portrait_boss'
     if (payload.card) return itemArtKey(payload.card)
     if (payload.skillCard) return cardArtKey(payload.skillCard.stat)
@@ -1495,6 +1642,17 @@ class HudImpl implements HudV3 {
   private tunnelPreviewLines(offer: TunnelOffer, mode: TunnelScreenMode = 'tunnel'): TunnelPreviewLine[] {
     const payload = offer.payload ?? {}
     const lines: TunnelPreviewLine[] = []
+    if (payload.awakening) {
+      const awakening = payload.awakening
+      lines.push({
+        text: `${awakening.action === 'acquire' ? '获得' : '深化'} · ${awakening.name} Lv${awakening.level}`,
+        art: null,
+      })
+      if (awakening.currentDesc) lines.push({ text: `当前 · ${awakening.currentDesc}`, art: null })
+      lines.push({ text: `${awakening.currentDesc ? '升级后' : '效果'} · ${awakening.desc}`, art: null })
+      lines.push({ text: `风格 · ${awakening.styleName}`, art: null })
+      return lines
+    }
     if (typeof payload.gold === 'number' && payload.gold > 0) {
       lines.push({ text: `金币 +${fmtInt(payload.gold)}`, art: null })
     }

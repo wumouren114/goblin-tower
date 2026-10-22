@@ -29,6 +29,12 @@ export interface ProjectileSpec {
   canCrit?: boolean
   /** 命中减速（0..1），敌人实现可选的 slow(mul, duration) */
   slow?: number
+  /** v4.6：伤害来源；召唤物弹道不产生玩家资源 */
+  source?: 'player' | 'minion'
+  /** v4.6：睦的穿透和弦 */
+  chord?: boolean
+  /** v4.6：肥鱼的大泡泡 */
+  big?: boolean
 }
 
 export interface ProjectileHitContext {
@@ -37,6 +43,9 @@ export interface ProjectileHitContext {
   dirZ: number
   canCrit: boolean
   slow?: number
+  source: 'player' | 'minion'
+  chord?: boolean
+  big?: boolean
 }
 
 export interface ProjectileHooks {
@@ -64,6 +73,9 @@ interface Projectile {
   bounceRange: number
   canCrit: boolean
   slow?: number
+  source: 'player' | 'minion'
+  chord: boolean
+  big: boolean
   color: number
   spin: number
   spinSpeed: number
@@ -127,6 +139,9 @@ export class ProjectileSystem {
       bounceRange: spec.bounceRange ?? 4.5,
       canCrit: spec.canCrit ?? true,
       slow: spec.slow,
+      source: spec.source ?? 'player',
+      chord: spec.chord ?? false,
+      big: spec.big ?? false,
       color,
       spin: spec.spin ?? 0,
       spinSpeed: spec.spin ?? 0,
@@ -179,6 +194,9 @@ export class ProjectileSystem {
         dirZ: p.dirZ,
         canCrit: p.canCrit,
         slow: p.slow,
+        source: p.source,
+        chord: p.chord,
+        big: p.big,
       })
       this.hooks.burst(t.x, t.z, p.color, p.kind === 'wave' ? 14 : 7)
       if (p.pierce > 0) {

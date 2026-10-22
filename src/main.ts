@@ -4,6 +4,7 @@ import { Game } from './game'
 import { preloadArt } from './art/atlasImport'
 import { audio } from './core/audio'
 import type { CharacterId, DifficultyId } from './types'
+import type { StyleId } from './data/awakenings'
 
 function fatal(message: string): void {
   let el = document.getElementById('fatal-overlay')
@@ -53,7 +54,7 @@ function showBootOverlay(): HTMLElement {
 let game: Game | null = null
 
 const hud: HudV3 = createHud({
-  onStart: (character, difficulty) => game?.startRun(character, difficulty),
+  onStart: (character, difficulty, styleId) => game?.startRun(character, difficulty, styleId),
   onContinue: (slot) => game?.continueRun(slot),
   onTunnelPick: (id) => game?.pickTunnel(id),
   onShopBuy: (id) => game?.buyOffer(id),
@@ -92,11 +93,12 @@ async function boot(): Promise<void> {
   const params = new URLSearchParams(location.search)
   const char = (params.get('char') ?? 'mutsumi') as CharacterId
   const diff = (params.get('autostart') ?? '') as DifficultyId | ''
+  const style = (params.get('style') ?? undefined) as StyleId | undefined
   const floor = Number(params.get('floor') ?? '1')
   const warmup = Number(params.get('warmup') ?? '0')
   if (params.get('seed') !== null) game.setDebugSeed(Number(params.get('seed')))
   if (diff) {
-    game.debugJump(Number.isFinite(floor) ? floor : 1, diff, char)
+    game.debugJump(Number.isFinite(floor) ? floor : 1, diff, char, style)
     if (params.get('px') || params.get('pz')) {
       const g = (window as any).__goblinTower
       if (g?.player) {
@@ -131,6 +133,11 @@ async function boot(): Promise<void> {
         killed: g.layerKilled,
         playTime: Math.round(g.run?.playTime ?? 0),
         char: g.run?.character,
+        style: g.run?.style,
+        awakenings: g.run?.awakenings,
+        awakeningLayers: g.run?.awakeningLayers,
+        resource: g.combat?.resource,
+        shield: g.shieldHp,
         weapon: g.run?.weaponLv,
         gold: g.run?.gold,
         hp: Math.round(g.player?.hp ?? 0),

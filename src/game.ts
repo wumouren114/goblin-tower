@@ -37,6 +37,14 @@ import { generateOffers, REFRESH_COST, trainingPriceFor } from './systems/shop'
 import { rollTunnels, resolveRoom } from './systems/tunnels'
 import { listSlots, loadFromSlot, saveToSlot } from './systems/saveLoad'
 import {
+  defaultStyle,
+  normalizeAwakenings,
+  normalizeAwakeningLayers,
+  styleForCharacter,
+  type AwakeningId,
+  type StyleId,
+} from './data/awakenings'
+import {
   applyItemToCards,
   clearGold,
   emptyCards,
@@ -47,6 +55,7 @@ import {
 } from './systems/economy'
 import type { HudV3 } from './ui/hud'
 import type {
+  AwakeningChoice,
   CardStat,
   CharacterId,
   DifficultyId,
@@ -68,6 +77,8 @@ const NEUTRAL_MODS = { staminaMul: 1, magicMul: 1, intelligenceMul: 1, moveSpeed
 /** CombatWorld 的可选扩展（combat 侧 duck-type 探测） */
 interface GameWorld extends CombatWorld {
   spawnPickup?: (x: number, z: number, kind: 'rice' | 'heart' | 'gold') => void
+  grantShield: (amount: number, seconds: number) => void
+  playerHpRatio: () => number
 }
 
 /** 普通怪的战术招式状态机（brute 冲撞 / elite 震地） */
@@ -173,6 +184,10 @@ export class Game {
   private mortisVisual = false
   private bonusOffers: TunnelOffer[] = []
   private bonusActive = false
+  private awakeningOffers: TunnelOffer[] = []
+  private awakeningActive = false
+  private shieldHp = 0
+  private shieldTime = 0
   private layerSnapshot: RunState | null = null
   private riceStacks = 0
   private bossBarrageTimer = 4
@@ -208,7 +223,7 @@ export class Game {
 
   // ---------- 生命周期 ----------
 
-  startRun(character: CharacterId, difficulty: DifficultyId): void {
+  startRun(character: CharacterId, difficulty: DifficultyId, styleId?: StyleId): void {
     this.cleanupFloor()
     // 重新爬塔/调试跳层时旧角色不能只从场景逻辑里移除，否则会留下幽灵立绘
     this.player?.dispose()
@@ -216,7 +231,17 @@ export class Game {
     this.combat?.dispose()
     this.combat = null
     this.riceStacks = 0
+    this.shieldHp = 0
+    this.shieldTime = 0
+    this.awakeningActive = false
+    this.awakeningOffers = []
+    this.bonusActive = false
+    this.bonusOffers = []
     this.run = makeRunState(character, difficulty)
+    const style = styleForCharacter(character, styleId)
+    this.run.style = style.id
+    this.run.awakenings = {}
+    this.run.awakeningLayers = []
     audio.resume()
     audio.startBgm('battle')
     audio.setBgmIntensity(1)
@@ -239,6 +264,7 @@ export class Game {
       },
     })
     this.combat.setCharacter(character)
+    this.combat.setBuild(style.id, this.run.awakenings)
     this.combat.setWeaponLv(1)
     this.rig.reset()
     this.hud.hideTitle()
@@ -259,9 +285,19 @@ export class Game {
     this.combat?.dispose()
     this.combat = null
     this.run = state
-    // 旧档没有训练字段：读档时补默认值，避免版本号升级。
+    // 旧档没有训练/风格字段：读档时补默认值，避免版本号升级。
     this.run.training = { ...(state.training ?? {}) }
     this.run.trainingBuys = Math.max(0, Math.round(state.trainingBuys ?? 0))
+    const style = styleForCharacter(state.character, state.style)
+    this.run.style = style.id
+    this.run.awakenings = normalizeAwakenings(style.id, state.awakenings)
+    this.run.awakeningLayers = normalizeAwakeningLayers(state.awakeningLayers)
+    this.shieldHp = 0
+    this.shieldTime = 0
+    this.awakeningActive = false
+    this.awakeningOffers = []
+    this.bonusActive = false
+    this.bonusOffers = []
     this.rng = new Rng(state.seed)
     this.inventory = new Inventory()
     for (const item of state.inventory) this.inventory.add(item)
@@ -278,6 +314,7 @@ export class Game {
       },
     })
     this.combat.setCharacter(state.character)
+    this.combat.setBuild(this.run.style, this.run.awakenings)
     this.combat.setWeaponLv(state.weaponLv)
     this.rig.reset()
     this.hud.hideTitle()
@@ -297,6 +334,12 @@ export class Game {
     this.combat = null
     this.phase = 'title'
     this.paused = false
+    this.shieldHp = 0
+    this.shieldTime = 0
+    this.awakeningActive = false
+    this.awakeningOffers = []
+    this.bonusActive = false
+    this.bonusOffers = []
     this.hud.hideShop()
     this.hud.hideInventory()
     this.hud.hideTunnels()
@@ -341,6 +384,8 @@ export class Game {
     this.run.stage = stageOfLayer(diff, layer)
     this.phase = 'playing'
     this.roomActive = false
+    this.shieldHp = 0
+    this.shieldTime = 0
     this.coreClean()
 
     const bossLayer = isBossLayer(diff, layer)
@@ -517,7 +562,7 @@ export class Game {
 
   /** 结算页「重新爬塔」/ R：用当前角色与难度立刻开新局 */
   restartRun(): void {
-    this.startRun(this.run.character, this.run.difficulty)
+    this.startRun(this.run.character, this.run.difficulty, this.run.style)
   }
 
   /** 失败后重试本层：回滚到进入本层时的状态 */
@@ -538,14 +583,17 @@ export class Game {
     this.inventory = new Inventory()
     for (const item of this.run.inventory) this.inventory.add({ ...item })
     if (!this.player) {
-      this.startRun(this.run.character, this.run.difficulty)
+      this.startRun(this.run.character, this.run.difficulty, this.run.style)
       return
     }
     this.player.alive = true
+    this.shieldHp = 0
+    this.shieldTime = 0
     this.syncCards()
     this.recalcStats()
     if (this.combat) {
       this.combat.setCharacter(this.run.character)
+      this.combat.setBuild(this.run.style, this.run.awakenings)
       this.combat.setWeaponLv(this.run.weaponLv)
     }
     this.player.setHp(Math.max(1, Math.min(this.player.stats.maxHp, snap.hp || this.player.stats.maxHp)))
@@ -624,6 +672,10 @@ export class Game {
     const p = this.player
     if (!p || !this.floor) return
     this.run.playTime += dt
+    if (this.shieldTime > 0) {
+      this.shieldTime = Math.max(0, this.shieldTime - dt)
+      if (this.shieldTime <= 0) this.shieldHp = 0
+    }
 
     const axis = this.input.moveAxis()
     const worldMove = axis.x === 0 && axis.z === 0 ? null : rotateInput(axis.x, axis.z, this.rig.yaw)
@@ -1073,8 +1125,19 @@ export class Game {
       this.vfx.ring(p.x, p.z, { color: 0x8fd8ff, radius: 0.9, life: 0.3, grow: 1.6 })
       return
     }
-    const dmg = raw * charTakeDamageMul(this.run.character) * (1 - Math.min(0.6, stats.armorRate))
-    const dealt = p.takeDamage(dmg)
+    let dmg = raw * charTakeDamageMul(this.run.character) * (1 - Math.min(0.6, stats.armorRate))
+    if (this.run.style === 'murasame-guard') dmg *= 0.9
+    let remaining = dmg
+    if (this.shieldHp > 0 && remaining > 0) {
+      const absorbed = Math.min(this.shieldHp, remaining)
+      this.shieldHp -= absorbed
+      remaining -= absorbed
+      this.hud.floatText(new THREE.Vector3(p.x, 1.8, p.z), `护盾 -${Math.round(absorbed)}`, 'dodge')
+      this.vfx.ring(p.x, p.z, { color: 0x8fd8ff, radius: 0.9, life: 0.3, grow: 1.6 })
+      if (this.shieldHp <= 0) this.shieldTime = 0
+    }
+    if (remaining <= 0) return
+    const dealt = p.takeDamage(remaining)
     if (dealt > 0) {
       this.fx.hurt(Math.min(1, dealt / Math.max(20, p.stats.maxHp * 0.2)))
       audio.hurt()
@@ -1108,7 +1171,7 @@ export class Game {
   private onGoblinKilled(g: Goblin, kind: 'small' | 'brute' | 'elite' | 'caster'): void {
     this.run.kills += 1
     this.layerKilled += 1
-    this.combat?.onKill(g)
+    this.combat?.onKill(g, this.buildWorld())
     const rewardKind = kind === 'caster' ? 'small' : kind
     const gold = killGold(this.run.layer, rewardKind)
     this.pickups.spawn('gold', g.x, g.z, gold)
@@ -1197,7 +1260,7 @@ export class Game {
     this.hud.toast(`第 ${this.run.layer} 层清空！+${gold} 金币${autoNote}`, 'good')
     audio.stairs()
     this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
-    this.openBonusCards()
+    this.openPostClearFlow()
   }
 
   private onBossDefeated(): void {
@@ -1223,7 +1286,7 @@ export class Game {
     if (this.run.layer >= layerCount(this.run.difficulty)) this.win()
     else {
       this.run.gold += clearGoldFor(this.run.difficulty, this.run.layer)
-      this.openBonusCards()
+      this.openPostClearFlow()
     }
   }
 
@@ -1280,9 +1343,80 @@ export class Game {
     return table[stat] ?? '🎴'
   }
 
+  /** 清层后的固定顺序：3/6/9 层先觉醒，再清层奖励卡，最后隧道门 */
+  private openPostClearFlow(): void {
+    const layer = this.run.layer
+    const claimed = this.run.awakeningLayers ?? []
+    if ((layer === 3 || layer === 6 || layer === 9) && !claimed.includes(layer)) {
+      this.openAwakening()
+      return
+    }
+    this.openBonusCards()
+  }
+
+  /**
+   * 觉醒二选一：风格的两个觉醒中，未拥有的「获得 Lv1」，已拥有的「深化 Lv+1」。
+   * 两个都满级时直接跳过，避免空界面。
+   */
+  private openAwakening(): void {
+    const style = styleForCharacter(this.run.character, this.run.style)
+    const current = normalizeAwakenings(style.id, this.run.awakenings)
+    const offers: TunnelOffer[] = []
+    for (const awakening of style.awakenings) {
+      const level = current[awakening.id] ?? 0
+      if (level >= 3) continue
+      const next = level + 1
+      const action: 'acquire' | 'upgrade' = level === 0 ? 'acquire' : 'upgrade'
+      const choice: AwakeningChoice = {
+        id: awakening.id,
+        styleId: style.id,
+        name: awakening.name,
+        icon: awakening.icon,
+        styleName: style.name,
+        action,
+        level: next,
+        desc: awakening.levels[next - 1],
+        currentDesc: level > 0 ? awakening.levels[level - 1] : undefined,
+      }
+      offers.push({
+        id: `awakening-${awakening.id}`,
+        kind: 'reward',
+        room: 'skill-card',
+        title: `${awakening.name} · Lv${next}`,
+        desc: action === 'acquire' ? `获得觉醒 · ${style.name}` : `深化觉醒 · ${style.name}`,
+        icon: awakening.icon,
+        payload: { awakening: choice },
+      })
+    }
+    if (offers.length === 0) {
+      this.addAwakeningLayer()
+      this.saveRun(AUTOSAVE_SLOT)
+      this.openBonusCards()
+      return
+    }
+    this.awakeningOffers = offers
+    this.awakeningActive = true
+    this.bonusActive = false
+    this.bonusOffers = []
+    this.phase = 'tunnel'
+    audio.startBgm('shop')
+    audio.duck(false)
+    this.hud.showTunnelOffers(offers, this.run.layer, 'awakening')
+    audio.levelUp()
+  }
+
+  private addAwakeningLayer(): void {
+    const layer = this.run.layer
+    const list = this.run.awakeningLayers ?? []
+    if (!list.includes(layer)) list.push(layer)
+    this.run.awakeningLayers = list
+  }
+
   /** 每层清空后：先三选一拿一张增益卡，再开时空隧道。
    *  高层按 balance.shop.quality 掷品质，出精制/臻品，后期不至于「选谁都一样」 */
   private openBonusCards(): void {
+    this.awakeningActive = false
+    this.awakeningOffers = []
     const pool = [...BALANCE.buffCards]
     this.bonusOffers = []
     for (let i = 0; i < 3 && pool.length > 0; i += 1) {
@@ -1324,6 +1458,8 @@ export class Game {
   }
 
   private openTunnels(): void {
+    this.awakeningActive = false
+    this.awakeningOffers = []
     this.phase = 'tunnel'
     audio.startBgm('shop')
     audio.duck(false)
@@ -1342,6 +1478,24 @@ export class Game {
 
   pickTunnel(id: string): void {
     if (this.phase !== 'tunnel') return
+    if (this.awakeningActive) {
+      const pick = this.awakeningOffers.find((o) => o.id === id)
+      const choice = pick?.payload.awakening
+      if (!choice) return
+      this.awakeningActive = false
+      this.awakeningOffers = []
+      this.hud.hideTunnels()
+      const next = normalizeAwakenings(choice.styleId, this.run.awakenings)
+      next[choice.id] = choice.level
+      this.run.awakenings = next
+      this.combat?.setBuild(this.run.style ?? choice.styleId, next)
+      this.addAwakeningLayer()
+      this.saveRun(AUTOSAVE_SLOT)
+      audio.levelUp()
+      this.hud.toast(`觉醒：${choice.name} Lv${choice.level}`, 'good')
+      this.openBonusCards()
+      return
+    }
     if (this.bonusActive) {
       const pick = this.bonusOffers.find((o) => o.id === id)
       if (!pick) return
@@ -1658,6 +1812,7 @@ export class Game {
   saveRun(slot: number): void {
     this.run.hp = this.player?.hp ?? this.run.hp
     this.run.maxHp = this.player?.stats.maxHp ?? this.run.maxHp
+    this.run.style = this.combat?.styleId ?? this.run.style
     this.run.inventory = this.inventory.items.map((i) => ({ ...i }))
     this.run.cards = { ...this.cards }
     this.run.training = { ...(this.run.training ?? {}) }
@@ -1703,7 +1858,8 @@ export class Game {
     const allStat = (tier.allStatMul ?? 1) * (1 + this.riceStacks * 0.07)
     const mods = this.combat?.modifiers ?? NEUTRAL_MODS
     const c = this.cards
-    const maxHp = Math.round((def.base.hp + (c.hp ?? 0)) * allStat)
+    const styleHpMul = this.run.style === 'murasame-blood' ? 0.9 : 1
+    const maxHp = Math.round((def.base.hp + (c.hp ?? 0)) * allStat * styleHpMul)
     const stats: PlayerStats = {
       ...p.stats,
       maxHp,
@@ -1756,7 +1912,21 @@ export class Game {
       grantInvuln: (s) => this.player?.grantInvuln(s),
       dashPlayer: (dx, dz, dist, dur) => this.player?.dashToward(dx, dz, dist, dur),
       burst: (x, z, color, count) => this.vfx.burst(x, z, { color, count: count ?? 8, speed: 4, life: 0.35, size: 0.25 }),
+      grantShield: (amount, seconds) => this.grantShield(amount, seconds),
+      playerHpRatio: () => {
+        const cur = this.player
+        if (!cur || cur.stats.maxHp <= 0) return 1
+        return Math.max(0, Math.min(1, cur.hp / cur.stats.maxHp))
+      },
     }
+  }
+
+  private grantShield(amount: number, seconds: number): void {
+    if (amount <= 0 || seconds <= 0) return
+    this.shieldHp = Math.max(this.shieldHp, amount)
+    this.shieldTime = Math.max(this.shieldTime, seconds)
+    const p = this.player
+    if (p) this.vfx.ring(p.x, p.z, { color: 0x8fd8ff, radius: 0.9, life: 0.35, grow: 1.8 })
   }
 
   // ---------- HUD ----------
@@ -1766,6 +1936,7 @@ export class Game {
     const snap: HudSnapshot = {
       hp: Math.max(0, Math.round(p?.hp ?? 0)),
       maxHp: Math.round(p?.stats.maxHp ?? 100),
+      shield: Math.round(this.shieldHp),
       gold: this.run.gold,
       floor: this.run.layer,
       floorName: this.sceneName,
@@ -1784,6 +1955,7 @@ export class Game {
       chargeMax: this.combat?.chargeMax ?? 100,
       skillName: this.combat?.skillName ?? '',
       skillReady: this.combat?.skillReady ?? false,
+      resource: this.combat?.resource,
       weaponLv: this.run.weaponLv,
       cardCount: this.inventory.count,
       difficulty: this.run.difficulty,
@@ -1802,8 +1974,13 @@ export class Game {
     this.debugSeedValue = seed !== null && Number.isFinite(seed) ? seed : null
   }
 
-  debugJump(layer: number, difficulty: DifficultyId = 'normal', character: CharacterId = 'mutsumi'): void {
-    this.startRun(character, difficulty)
+  debugJump(
+    layer: number,
+    difficulty: DifficultyId = 'normal',
+    character: CharacterId = 'mutsumi',
+    styleId?: StyleId,
+  ): void {
+    this.startRun(character, difficulty, styleId)
     for (let i = 0; i < 8; i += 1) {
       const gold = 400
       this.run.gold += gold
@@ -1860,7 +2037,8 @@ export class Game {
 
   /** 无头/联调：自动领取清层奖励卡（验证「先三选一，再传送门」） */
   debugPickFirstBonus(): void {
-    if (this.bonusActive && this.bonusOffers[0]) this.pickTunnel(this.bonusOffers[0].id)
+    if (this.awakeningActive && this.awakeningOffers[0]) this.pickTunnel(this.awakeningOffers[0].id)
+    else if (this.bonusActive && this.bonusOffers[0]) this.pickTunnel(this.bonusOffers[0].id)
   }
 
   /** 无头/联调：存档 → 回标题 → 读档，验证 continue 流程 */
@@ -1870,10 +2048,30 @@ export class Game {
     this.continueRun(1)
   }
 
+  /** 无头/联调：切换风格，验证 9 套玩法/资源条 */
+  debugSetStyle(styleId: StyleId): void {
+    this.run.style = styleForCharacter(this.run.character, styleId).id
+    this.run.awakenings = normalizeAwakenings(this.run.style, this.run.awakenings)
+    this.combat?.setBuild(this.run.style, this.run.awakenings)
+    this.syncCards()
+  }
+
+  /** 无头/联调：直接给某个觉醒等级（1..3），用于截图/验证效果 */
+  debugAwaken(id: AwakeningId, level = 1): void {
+    const style = styleForCharacter(this.run.character, this.run.style)
+    if (!style.awakenings.some((awakening) => awakening.id === id)) return
+    const next = normalizeAwakenings(style.id, this.run.awakenings)
+    next[id] = Math.max(1, Math.min(3, Math.round(level)))
+    this.run.awakenings = next
+    this.combat?.setBuild(style.id, next)
+  }
+
   /** 无头/联调：直接打开某个界面（title 之外的调试入口） */
   debugScreen(name: string): void {
     if (name === 'tunnel') {
       this.openTunnels()
+    } else if (name === 'awakening') {
+      this.openAwakening()
     } else if (name === 'shop') {
       this.proceedToShop()
     } else if (name === 'inventory') {

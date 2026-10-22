@@ -649,6 +649,39 @@ check('旧档缺少训练字段仍可读', () => {
   saveLoad.deleteSlot(2)
 })
 
+check('v4.6 风格/觉醒/领取层可往返', () => {
+  const state = {
+    ...buildRun(),
+    style: 'fish-burst',
+    awakenings: { 'fish-burst-shield': 3, 'fish-burst-radius': 1 },
+    awakeningLayers: [3, 6, 9],
+  }
+  ok(saveLoad.saveToSlot(2, state), 'v4.6 存档应成功')
+  const loaded = saveLoad.loadFromSlot(2)
+  ok(loaded, 'v4.6 存档应可读')
+  eq(loaded.style, 'fish-burst', '风格')
+  deepEqual(loaded.awakenings, state.awakenings, '觉醒等级')
+  deepEqual(loaded.awakeningLayers, [3, 6, 9], '觉醒领取层')
+  saveLoad.deleteSlot(2)
+})
+
+check('v4.6 非法觉醒字段：删档并返回 null', () => {
+  const badLevel = { ...buildRun(), style: 'fish-burst', awakenings: { 'fish-burst-shield': 4 } }
+  mem.set(`${BALANCE.save.storageKey}:3`, JSON.stringify(badLevel))
+  eq(saveLoad.loadFromSlot(3), null)
+  eq(mem.has(`${BALANCE.save.storageKey}:3`), false, '觉醒等级越界应删档')
+
+  const badLayer = { ...buildRun(), style: 'fish-burst', awakeningLayers: [5] }
+  mem.set(`${BALANCE.save.storageKey}:3`, JSON.stringify(badLayer))
+  eq(saveLoad.loadFromSlot(3), null)
+  eq(mem.has(`${BALANCE.save.storageKey}:3`), false, '非法觉醒层应删档')
+
+  const badStyle = { ...buildRun(), style: 123 }
+  mem.set(`${BALANCE.save.storageKey}:3`, JSON.stringify(badStyle))
+  eq(saveLoad.loadFromSlot(3), null)
+  eq(mem.has(`${BALANCE.save.storageKey}:3`), false, '非字符串风格应删档')
+})
+
 check('旧版专武物品读档时被过滤', () => {
   const state = buildRun()
   state.inventory.push({ uid: 'legacy-weapon', kind: 'weapon', name: '旧版专武', desc: '', icon: '⚔️', tier: 1 })

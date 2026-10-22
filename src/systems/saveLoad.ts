@@ -90,6 +90,21 @@ function isItem(value: unknown): value is InventoryItem {
   return true
 }
 
+/** v4.6 觉醒映射：键为字符串，等级 1..3；具体风格合法性由 game.ts 归一化 */
+function isAwakenings(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  for (const [key, level] of Object.entries(value)) {
+    if (!key || !isNum(level) || level < 1 || level > 3 || !Number.isInteger(level)) return false
+  }
+  return true
+}
+
+/** v4.6 已领取觉醒的层数：只允许 3/6/9 */
+function isAwakeningLayers(value: unknown): boolean {
+  if (!Array.isArray(value)) return false
+  return value.every((layer) => isNum(layer) && (layer === 3 || layer === 6 || layer === 9))
+}
+
 function isTraining(value: unknown): value is Partial<Record<CardStat, number>> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   for (const [key, amount] of Object.entries(value)) {
@@ -114,6 +129,9 @@ export function isRunState(value: unknown): value is RunState {
   if (!Array.isArray(state.inventory) || !state.inventory.every(isItem)) return false
   if (state.training !== undefined && !isTraining(state.training)) return false
   if (state.trainingBuys !== undefined && (!isNum(state.trainingBuys) || state.trainingBuys < 0)) return false
+  if (state.style !== undefined && typeof state.style !== 'string') return false
+  if (state.awakenings !== undefined && !isAwakenings(state.awakenings)) return false
+  if (state.awakeningLayers !== undefined && !isAwakeningLayers(state.awakeningLayers)) return false
   return true
 }
 

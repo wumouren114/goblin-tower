@@ -498,6 +498,32 @@ check('敌方弹幕图集 + enemyBulletSprite 缓存', () => {
   assert(sprites.goblinSprite('caster') === caster, 'goblinSprite(caster) 没有缓存')
 })
 
+check('v4.6 九张风格图标均为 128×128 透明 PNG', () => {
+  const names = [
+    'style_mutsumi_solo.png',
+    'style_mutsumi_duet.png',
+    'style_mutsumi_requiem.png',
+    'style_murasame_iai.png',
+    'style_murasame_blood.png',
+    'style_murasame_guard.png',
+    'style_fish_school.png',
+    'style_fish_burst.png',
+    'style_fish_whale.png',
+  ]
+  const dir = path.join(ROOT, 'assets/art_raw/v46/icons')
+  for (const name of names) {
+    const file = path.join(dir, name)
+    assert(existsSync(file), `缺少风格图标 ${name}`)
+    const buf = readFileSync(file)
+    assert(buf.length > 1024, `${name} 文件过小`)
+    assert(buf[0] === 0x89 && buf.toString('ascii', 1, 4) === 'PNG', `${name} 不是 PNG`)
+    assert(buf.toString('ascii', 12, 16) === 'IHDR', `${name} 缺少 IHDR`)
+    assert(buf.readUInt32BE(16) === 128 && buf.readUInt32BE(20) === 128, `${name} 不是 128×128`)
+    assert(buf[24] === 8, `${name} 位深不是 8`)
+    assert(buf[25] === 6, `${name} 不是 RGBA 透明 PNG`)
+  }
+})
+
 /* ------------------------------------------------------------------ */
 /*  5. 预览 PNG（仅 --preview）                                        */
 /* ------------------------------------------------------------------ */

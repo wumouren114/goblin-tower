@@ -20,12 +20,13 @@ npm run pack       # 额外产出 dist/哥布林之塔-单文件版.html（约 1
 
 **分享给用电脑的朋友**：`npm run pack` 生成的「哥布林之塔-单文件版.html」把 JS/CSS/PNG/WAV 全内联成 data URI，Windows 上双击用 Edge/Chrome 打开就能玩（微信/网盘直接传，不用装 Node、不用开服务器）。首次点击画面后音乐才会响（浏览器自动播放策略）。其他方式：`npm run build` 后把整个 `dist/` 交给对方用任意静态服务器跑，或 `npm run dev -- --host 0.0.0.0` 让同局域网的人访问 `http://你的IP:5173`。
 
-首次进入是标题页：左侧选角色（若叶睦 / 丛雨 / 蓝色大肥鱼），右侧选难度（简单 7 层 / 普通 5+7 层 / 困难 5+5+5 层），点「开始爬塔」。有存档时标题页会出现「继续游戏」。
+首次进入是标题页：左侧选角色（若叶睦 / 丛雨 / 蓝色大肥鱼）和该角色的 **3 个战斗风格之一**，右侧选难度（简单 7 层 / 普通 5+7 层 / 困难 5+5+5 层），点「开始爬塔」。有存档时标题页会出现「继续游戏」。
 
 ## 玩法循环
 
 1. **每层无倒计时**，清空本层固定数量的哥布林即可过关（HUD 左上角 `击杀 x / 总数`）。基础配额 `33 + 7.5×(N-1)`，普通/困难 ×1.2、简单 ×0.9；例如普通第 1 层 40 只、第 11 层约 130 只（第 12 层是 Boss 层，小怪为配额 ×0.6）。清层只取决于击杀，不会因拖时间判负。
 2. 清空后先**三选一拿一张增益卡**，再开启**时空隧道三选一**：奖励房（宝箱金币 / 随机增益卡）、交易房（流浪商人 / 祭坛献金）、对战房（怪潮 / 精英战）。类型可重复，权重 40 / 35 / 25。高层三选一会按品质掷出「精制 / 臻品」，数值更高。
+   - 第 **3 / 6 / 9** 层清空后，会先弹出紫金色的**角色觉醒二选一**，再进入清层奖励卡；第一次只能「获得」本风格的 2 个觉醒之一，之后可以「深化」已有觉醒（最高 Lv3）或补拿另一个。
 - 第 2 层起会出现**哥布林咒术师**：保持距离并发射紫色弹幕，每第 3 发改为三连射，优先点掉或绕开。
 - 第 2 层起**蛮兵**会蓄力冲撞（0.5s 前摇后锁定方向冲 8m），**精英**会锁定玩家位置震地（0.72s 红圈、3.2m 范围）；看到预警先侧移。
 - 哥布林移速随层数增长（第 15 层约 ×1.77），后期会明显追人。
@@ -47,6 +48,26 @@ npm run pack       # 额外产出 dist/哥布林之塔-单文件版.html（约 1
 | **蓝色大肥鱼** | 远程召唤 | 水枪泡泡，攻速高、伤害低 | 召唤小肥鱼协同攻击 10 秒（专武 5 级 5 只、7 级 6 只） |
 
 五维面板：生命值 / 技能所需充能 / 耐力（攻速）/ 魔力（伤害）/ 智力（范围）。伤害 = `武器基础伤害 × 魔力/100`，暴击 8% ×1.8；充能靠击杀获得，每层开局 50%。**专武 7 级**（1-5 级与旧版一致，6/7 级价格 900/1700），各级效果见 `src/data/balance.json` 的 `weapons`；上限由数据结构推导（`MAX_WEAPON_LV`），加档只改数据。
+
+## v4.6 角色觉醒
+
+每个角色 3 套**战斗风格**，开局选定后整局不变；每套风格有自己的短循环资源和 2 个专属觉醒。第 3/6/9 层清层后的觉醒二选一不新增按键，只改变已有的左键 / 右键 / 冲刺、召唤物或普攻形态。
+
+| 角色 | 风格 | 资源 | 核心变化 / 代价 |
+| --- | --- | --- | --- |
+| 若叶睦 | 独奏 | 节拍 0–4 | 同目标连续命中最多 +30%；Mortis 变身 -2s |
+| 若叶睦 | 双重人格 | 节拍 0–4 | Mortis 期间节拍获取翻倍；非变身普攻 -10% |
+| 若叶睦 | 安魂曲 | 节拍 0–6 | 和弦伤害 +120%、范围 +40%、穿透 5 目标；普攻间隔 +10% |
+| 丛雨 | 居合 | 剑意 0–3 | 每第 3 次普攻变 6m 直线拔刀 +40%；普通拔刀范围 -10% |
+| 丛雨 | 血刃 | 剑意 0–3 | 6% 吸血、残血最多 +20% 伤害；最大生命 -10% |
+| 丛雨 | 守护 | 剑意 0–3 | 突进给 12% 最大生命护盾、受伤 -10%；普攻间隔 +8% |
+| 肥鱼 | 鱼群 | 泡泡 0–3 | 召唤物 +1 并集火最近命中目标；召唤物生命 -15% |
+| 肥鱼 | 爆破 | 泡泡 0–3 | 大泡泡爆炸半径 +30%；召唤物 -1 |
+| 肥鱼 | 鲸落 | 泡泡 0–3 | 召唤物生命 +30%、伤害 +20%，消失时爆炸回血；召唤物 -1 |
+
+- **节拍**：普攻/脉冲积累，满层后下一发变成金色穿透「和弦」；**剑意**：普攻命中积累，满层后下一次突进变「燕返」；**泡泡**：普通泡泡命中积累，满层后下一发变会爆炸的大泡泡。资源只显示在 HUD 左下角，不需要额外操作。
+- 觉醒最多同时拥有 2 个，单个最高 Lv3；已拥有的觉醒再次出现时会显示「深化 Lv2 / Lv3」，并预览当前与下一等级效果。
+- 风格与觉醒会写入 v3 存档的可选字段；旧档没有这些字段时自动回退到角色默认风格，不会因版本不符删档。
 
 ## 操作
 
@@ -70,7 +91,8 @@ npm run pack       # 额外产出 dist/哥布林之塔-单文件版.html（约 1
   v3.1 手感调整（按试玩反馈）：整体下调约 30% 难度、攻速与充能加快、道具数量 -45%、单体角色弹速提高。
   v4.3 后期压力（本轮试玩反馈）：专武 5→7 级、每层怪 5→7 只/层、单只血量增长放缓、刷怪更快、小怪移速随层最高 ×1.9、睦音波半径 -23%、高层商店品质提前/更强、三选一与地面卡按品质出货。
   v4.4 无倒计时：移除层限时/超时判负；基础配额 30→33、每层增长 7→7.5（普通整局总怪量约 +9%），不提高小怪血量/伤害/同屏上限。
-  v4.5 后期反馈（本轮）：背包 12→18 格；商店新增可重复「金币训练」，直接永久加属性、不占背包，价格随购买次数 ×1.35；蛮兵冲撞/精英震地/术士三连射；Boss 改为后场沉睡、靠近 9.5m 苏醒，并给身体接触伤害加 0.9s 冷却；地板移除墙体显隐时的阴影重算、各向异性提到 16x、浮尘 40→22。
+  v4.5 后期反馈：背包 12→18 格；商店新增可重复「金币训练」，直接永久加属性、不占背包，价格随购买次数 ×1.35；蛮兵冲撞/精英震地/术士三连射；Boss 改为后场沉睡、靠近 9.5m 苏醒，并给身体接触伤害加 0.9s 冷却；地板移除墙体显隐时的阴影重算、各向异性提到 16x、浮尘 40→22。
+  v4.6 角色觉醒（本轮）：9 套风格 + 18 个觉醒，第 3/6/9 层先觉醒二选一再拿清层奖励；三资源短循环（节拍/剑意/泡泡）改变普攻、脉冲、突进与召唤物行为，不新增战斗按键；标题页 3 卡风格选择 + 紫色觉醒界面；风格图标从 3×3 品红底总览图裁切为 128px 透明 PNG。
 - 平衡基线（`node sim/simulate.mjs --runs 300`）：简单 100%、普通 99.7–100%、困难最低 95.0%（睦）/丛雨 100%/肥鱼 98.0%，平均清层 23–31s，纯战斗约 2.4–6.1 分钟；实际单局含选卡/商店/路线约 8–12 分钟。
 - 前期发育保护：简单/普通前 3 层小怪更脆更少、刷新更慢、同屏更少；困难只保第 1 层。详见 `docs/06-v3规则与实现.md` §8。
 - 关卡/经济设计：`docs/04-关卡与经济系统设计.md`（v2 存档）+ `docs/06-v3规则与实现.md`（v3 权威规则）。
@@ -83,7 +105,7 @@ src/
   main.ts            入口 + 原画预加载 + URL 调试参数 + 全局报错兜底
   types.ts           全局契约（HudV3 / WorldV3 / RunState / HUD 快照…）
   core/              input / audio（wav 优先 + 合成回退）/ rng / math / events
-  data/              balance.json(+ts) / characters.ts / characterRuntime.ts / stages.ts / gameConfig.ts
+  data/              balance.json(+ts) / characters.ts / characterRuntime.ts / awakenings.ts / stages.ts / gameConfig.ts
   art/               pixels.ts（像素画布）/ characters.ts（程序化图集）/ atlasImport.ts（原画加载切图）/ sprites.ts / projectiles.ts / minions.ts
   entities/          player / goblin / boss / pickups
   systems/           combat / attack / projectiles / minions / charge / economy / inventory / shop / tunnels / saveLoad / cameraRig / vfx / screenFx
@@ -92,9 +114,10 @@ src/
 assets/
   art_pack/          AI 原画原始交付（豆包出图，勿直接改）
   art_raw/           scripts/art-normalize.py 归一化后的图集/单图（游戏实际读这里）
+  art_raw/v46/       3×3 风格图标总览图 + icons/ 9 张透明 PNG（标题风格卡/觉醒卡）
   audio/             scripts/make-audio.mjs 生成的 5 BGM + 18 SFX（22050Hz 单声道 16bit）
 sim/                 simulate.mjs（整局平衡）/ world-smoke / combat-smoke / economy-smoke / art-smoke
-scripts/             art-normalize.py / make-audio.mjs / check-art.mjs / check-audio.mjs / shot.mjs / ui-audit.mjs
+scripts/             art-normalize.py / crop-style-sheet.py / make-audio.mjs / check-art.mjs / check-audio.mjs / shot.mjs / cdp-check.mjs / ui-audit.mjs
 docs/                01 框架 / 02 角色数值 / 03 角色美术规格 / 04 关卡经济 / 05 实现契约 / 06 v3 规则 / 07 美术需求 / 08 音频提示词
 ```
 
@@ -111,6 +134,8 @@ npm run art:check    # 校验 37 张图尺寸/图集等分（只读 PNG 头，CI
 
 > 已知小瑕疵：`char_fish.png` 有 3~4 帧边缘残留一小块水花/刀光残片（出图时特效越过格子），不影响操作；重出该行即可消失。
 
+**v4.6 风格图标**：原始 3×3 总览图在 `assets/art_raw/v46/style_sheet.png`（384×384，品红底）。`python scripts/crop-style-sheet.py` 会按格裁切、按背景色距离生成透明 alpha、清掉右下角豆包水印，输出 9 张 128×128 PNG 到 `assets/art_raw/v46/icons/`。`src/art/atlasImport.ts` 会自动 glob 这组图，缺失时标题风格卡回退到 emoji，不影响启动。
+
 **音频**：`assets/audio/` 里的 5 首 BGM（title / battle / boss / shop / victory）和 18 个音效全部由 `scripts/make-audio.mjs` 离线合成（零依赖、固定种子、逐字节可复现），运行时按曲目切歌、暂停压音量，缺文件自动回退旧程序化音效。
 ```bash
 npm run audio        # 重新渲染全部 WAV（约 1 秒，6.5MB）
@@ -123,9 +148,9 @@ npm run audio:check  # 格式/哈希/时长/电平/循环接缝/源码接线自�
 npx tsc --noEmit
 npm run smoke                 # 依次跑下面四套
 node sim/world-smoke.mjs      # 492 断言：9 场景构建/碰撞/撒点/drawcall/dispose
-node sim/combat-smoke.mjs     # 51 断言：普攻/暴击/技能/变身/召唤物/专武
-node sim/economy-smoke.mjs    # 41 断言：金币曲线/商店/训练/隧道权重/背包合成/三槽存档
-node sim/art-smoke.mjs        # 18 断言：程序化图集 50 格/描边/色相区分/缓存
+node sim/combat-smoke.mjs     # 77 断言：普攻/暴击/技能/变身/召唤物/专武 + v4.6 资源与觉醒
+node sim/economy-smoke.mjs    # 43 断言：金币曲线/商店/训练/隧道权重/背包合成/三槽存档 + v4.6 字段
+node sim/art-smoke.mjs        # 19 断言：程序化图集 50 格/描边/色相区分/缓存 + 9 张风格图标 PNG
 npm run art:check             # 37 张原画尺寸/等分
 npm run audio:check           # 23 个 WAV 格式/电平/循环接缝
 node sim/simulate.mjs --runs 500 --difficulty hard
@@ -136,15 +161,16 @@ node sim/simulate.mjs --runs 500 --difficulty hard
 
 ## 调试参数
 
-- `?autostart=easy|normal|hard` 直接开局；`&char=mutsumi|murasame|fish`；`&floor=N` 跳层。
+- `?autostart=easy|normal|hard` 直接开局；`&char=mutsumi|murasame|fish`；`&style=<styleId>` 指定风格；`&floor=N` 跳层。
 - `&warmup=秒` 以固定步长快进（不依赖真实时间）；`&autoattack=1` 自动驾驶（自动瞄准普攻、满充能放技能）。
-- `&screen=tunnel|shop|inventory|pause|victory|defeat|save|skill` 直接打开对应界面。
-- `&debug=1` 左下角打印运行期状态叠层（相位/Boss/怪物/血条 DOM 等）。
+- `&screen=tunnel|awakening|shop|inventory|pause|victory|defeat|save|skill` 直接打开对应界面。
+- `&debug=1` 左下角打印运行期状态叠层（相位/Boss/怪物/血条 DOM 等）；控制台可用 `__goblinTower.debugSetStyle(id)` / `debugAwaken(id, lv)` 验证 9 套风格与觉醒效果。
 
 ## 已知限制
 
 - 仅支持桌面浏览器 + 键鼠；不做触屏/虚拟摇杆。手机/平板打开只能浏览 UI，无法移动、攻击或释放技能。
 - 小怪（哥布林 small/brute/elite/caster）没有原画，仍用程序化像素图集；角色/王/道具/拾取物/弹道/UI 已用 AI 原画。
+- v4.6 已接入 9 张风格图标；资源条/护盾用 CSS 图形，觉醒卡暂时复用所属风格图标，18 个觉醒图标与觉醒背景仍可用同一流程后续替换。
 - AI 原画切图已做逐格抠残影 + 脚底对齐，个别帧边缘仍有 ~10px 头发残片（原始出图每帧比格子宽），不影响操作。
 - BGM/SFX 为脚本离线合成（chiptune 风格），不是人工作曲；删掉 `assets/audio/` 会静默回退到旧的 WebAudio 合成音。
 - 难度平衡来自模拟模型（非真人操作数据）；游戏没有倒计时，失败只来自血量归零。

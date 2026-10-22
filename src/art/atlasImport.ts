@@ -50,6 +50,15 @@ export type ArtKey =
   | 'icon_card_armor'
   | 'icon_card_dodge'
   | 'icon_card_crit'
+  | 'style_mutsumi_solo'
+  | 'style_mutsumi_duet'
+  | 'style_mutsumi_requiem'
+  | 'style_murasame_iai'
+  | 'style_murasame_blood'
+  | 'style_murasame_guard'
+  | 'style_fish_school'
+  | 'style_fish_burst'
+  | 'style_fish_whale'
 
 const ROW_OF: Record<Facing, number> = { down: 0, up: 1, left: 2, right: 3 }
 
@@ -60,11 +69,19 @@ const ROW_OF: Record<Facing, number> = { down: 0, up: 1, left: 2, right: 3 }
  */
 function collectUrls(): Record<string, string> {
   try {
-    return import.meta.glob('/assets/art_raw/*.png', {
-      eager: true,
-      query: '?url',
-      import: 'default',
-    }) as Record<string, string>
+    return {
+      ...(import.meta.glob('/assets/art_raw/*.png', {
+        eager: true,
+        query: '?url',
+        import: 'default',
+      }) as Record<string, string>),
+      // v4.6：画图 AI 风格图标单独放 v46/icons，避免和旧图集混在一起
+      ...(import.meta.glob('/assets/art_raw/v46/icons/*.png', {
+        eager: true,
+        query: '?url',
+        import: 'default',
+      }) as Record<string, string>),
+    }
   } catch {
     return {}
   }

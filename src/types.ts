@@ -1,4 +1,5 @@
 import type * as THREE from 'three'
+import type { AwakeningId, StyleId } from './data/awakenings'
 
 export type DifficultyId = 'easy' | 'normal' | 'hard'
 export type GamePhase = 'title' | 'select' | 'playing' | 'tunnel' | 'shop' | 'dead' | 'victory'
@@ -94,10 +95,28 @@ export interface TunnelOffer {
   payload: TunnelPayload
 }
 
-/** 层末三选一的两个阶段：先领清层奖励卡，再选时空隧道门 */
-export type TunnelScreenMode = 'bonus' | 'tunnel'
+/** 层末流程：清层奖励卡 → 时空隧道门；v4.6 在 3/6/9 层插入角色觉醒 */
+export type TunnelScreenMode = 'bonus' | 'tunnel' | 'awakening'
+
+/** 一次觉醒二选一：获得新觉醒，或深化已有觉醒 */
+export interface AwakeningChoice {
+  id: AwakeningId
+  styleId: StyleId
+  name: string
+  icon: string
+  styleName: string
+  action: 'acquire' | 'upgrade'
+  /** 选择后达到的等级（1..3） */
+  level: number
+  /** 选择后的效果描述 */
+  desc: string
+  /** 深化前的效果描述；acquire 时为空 */
+  currentDesc?: string
+}
 
 export interface TunnelPayload {
+  /** v4.6 角色觉醒二选一（复用隧道卡 UI） */
+  awakening?: AwakeningChoice
   gold?: number
   card?: InventoryItem
   skillCard?: {
@@ -176,6 +195,12 @@ export interface RunState {
   training?: Partial<Record<CardStat, number>>
   /** 已购买训练次数：用于跨商店累计涨价 */
   trainingBuys?: number
+  /** v4.6 战斗风格；旧档缺省时按角色默认风格补齐 */
+  style?: StyleId
+  /** v4.6 已拥有觉醒 → 等级（1..3）；旧档缺省为空 */
+  awakenings?: Partial<Record<AwakeningId, number>>
+  /** 已经领取过觉醒的层数（3/6/9），防止读档后重复领取 */
+  awakeningLayers?: number[]
 }
 
 /** v3 场景定义：每一层从本阶段的 3 种场景里随机取一种 */
@@ -289,9 +314,23 @@ export interface EnemyDef {
   model: 'goblin' | 'goblin-big' | 'king' | 'caster'
 }
 
+/** 角色风格资源（节拍 / 剑意 / 泡泡） */
+export interface ResourceSnapshot {
+  name: string
+  value: number
+  max: number
+  ready: boolean
+  styleName: string
+  hint: string
+}
+
 export interface HudSnapshot {
   hp: number
   maxHp: number
+  /** v4.6 护盾值（吸收伤害后归零） */
+  shield?: number
+  /** v4.6 当前风格资源 */
+  resource?: ResourceSnapshot
   gold: number
   kills: number
   floor: number
@@ -363,7 +402,7 @@ export interface HudV3 {
 }
 
 export interface HudV3Handlers {
-  onStart(character: CharacterId, difficulty: DifficultyId): void
+  onStart(character: CharacterId, difficulty: DifficultyId, styleId: StyleId): void
   onContinue(slot: number): void
   onTunnelPick(offerId: string): void
   onShopBuy(offerId: string): void

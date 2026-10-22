@@ -511,6 +511,35 @@ button:focus-visible {
   background: linear-gradient(90deg, #c2101c 0%, #ff3b30 55%, #ffb0a0 100%);
 }
 
+/* v4.6 护盾：血条下方的小蓝条 */
+.shield-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  font-family: var(--font-num);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #9fe8ff;
+}
+
+.shield-row[hidden] {
+  display: none;
+}
+
+.shield-icon {
+  font-size: 12px;
+  line-height: 1;
+  filter: drop-shadow(0 0 6px rgba(143, 216, 255, 0.6));
+}
+
+.shield-text {
+  padding: 1px 6px;
+  border: 1px solid rgba(143, 216, 255, 0.35);
+  background: rgba(24, 62, 82, 0.45);
+}
+
 /* v3：专武技能充能（替代旧 XP 条，无经验/等级） */
 .vital-skill {
   display: flex;
@@ -598,6 +627,72 @@ button:focus-visible {
 }
 
 .vital-skill.is-ready .vital-label {
+  color: #ffe6ad;
+}
+
+/* v4.6 风格资源：节拍 / 剑意 / 泡泡 */
+.resource-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  min-height: 13px;
+  font-size: 9.5px;
+  line-height: 1;
+  color: var(--text-dim);
+}
+
+.resource-row[hidden] {
+  display: none;
+}
+
+.resource-style {
+  flex: 0 0 auto;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #e8b25a;
+}
+
+.resource-name {
+  flex: 0 0 auto;
+  font-family: var(--font-num);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #cfd8ce;
+}
+
+.resource-pips {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+}
+
+.resource-pip {
+  width: 12px;
+  height: 5px;
+  transform: skewX(-18deg);
+  background: rgba(24, 38, 33, 0.9);
+  border: 1px solid rgba(120, 150, 135, 0.35);
+  box-shadow: inset 0 0 4px rgba(0, 0, 0, 0.5);
+  transition: background 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+
+.resource-pip.is-filled {
+  background: linear-gradient(90deg, #1d7a6d, #46d8c2);
+  border-color: rgba(141, 240, 224, 0.7);
+  box-shadow: 0 0 8px rgba(70, 216, 194, 0.35);
+}
+
+.resource-row.is-ready .resource-pip.is-filled {
+  background: linear-gradient(90deg, #b98623, #ffd166);
+  border-color: #fff2c4;
+  box-shadow: 0 0 10px rgba(255, 209, 102, 0.6);
+  animation: readyPulse 1.15s ease-in-out infinite;
+}
+
+.resource-row.is-ready .resource-name {
   color: #ffe6ad;
 }
 
@@ -2476,6 +2571,116 @@ button:focus-visible {
   color: var(--text-dim);
 }
 
+/* v4.6 标题页：战斗风格三选一（紧凑卡 + 完整说明） */
+.style-picker {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed rgba(232, 178, 90, 0.2);
+}
+
+.style-picker-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.style-picker-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--amber);
+}
+
+.style-picker-note {
+  font-size: 9px;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+}
+
+.style-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.style-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 6px 8px 7px;
+  text-align: left;
+  background: rgba(12, 22, 18, 0.78);
+  border: 1px solid rgba(122, 148, 132, 0.3);
+  transition: border-color 0.12s ease, background 0.12s ease, transform 0.12s ease;
+}
+
+.style-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(232, 178, 90, 0.6);
+}
+
+.style-card.is-active {
+  border-color: var(--amber);
+  background: linear-gradient(180deg, rgba(46, 34, 14, 0.8), rgba(15, 20, 15, 0.86));
+  box-shadow: inset 0 0 16px rgba(232, 178, 90, 0.08);
+}
+
+.style-card-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.style-card-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.style-card-icon .art-img {
+  image-rendering: auto;
+}
+
+.style-card-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #f3ecdc;
+}
+
+.style-card.is-active .style-card-name {
+  color: #ffe6ad;
+}
+
+.style-card-tag {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+.style-detail {
+  margin: 6px 0 0;
+  min-height: 28px;
+  font-size: 9.5px;
+  line-height: 1.5;
+  color: #aebfb6;
+}
+
 .title-start-row {
   display: flex;
   flex-direction: column;
@@ -2610,6 +2815,47 @@ button:focus-visible {
   background:
     radial-gradient(70% 58% at 50% 28%, rgba(70, 216, 194, 0.1), transparent 72%),
     radial-gradient(80% 72% at 50% 44%, rgba(8, 26, 23, 0.78), rgba(2, 6, 5, 0.9));
+}
+
+/* v4.6 角色觉醒：紫色星辉，与奖励金 / 隧道青区分 */
+.tunnel-screen.is-awakening {
+  --mode-accent: #d7b6ff;
+  --mode-glow: rgba(154, 123, 255, 0.45);
+  background:
+    radial-gradient(70% 58% at 50% 28%, rgba(154, 123, 255, 0.16), transparent 72%),
+    radial-gradient(80% 72% at 50% 44%, rgba(27, 14, 44, 0.82), rgba(6, 3, 12, 0.93));
+}
+
+.tunnel-screen.is-awakening .tunnel-title {
+  color: #f0e2ff;
+  text-shadow: 4px 4px 0 rgba(0, 0, 0, 0.65), 0 0 34px rgba(154, 123, 255, 0.45);
+}
+
+.tunnel-screen.is-awakening .tunnel-sub {
+  color: #cdbde8;
+}
+
+.tunnel-screen.is-awakening .tunnel-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 860px;
+  margin-inline: auto;
+}
+
+.tunnel-screen.is-awakening .tunnel-card {
+  --tunnel-border: rgba(166, 132, 255, 0.62);
+  --tunnel-bright: #f0e2ff;
+  --tunnel-glow: rgba(154, 123, 255, 0.35);
+  --tunnel-ink: #d7b6ff;
+  background: linear-gradient(180deg, rgba(31, 22, 46, 0.95), rgba(10, 7, 16, 0.97));
+}
+
+.tunnel-screen.is-awakening .tc-band {
+  background: #d7b6ff;
+}
+
+.tunnel-screen.is-awakening .tc-key {
+  color: #d7b6ff;
+  border-color: rgba(166, 132, 255, 0.62);
 }
 
 .tunnel-mode-head {
