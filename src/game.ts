@@ -73,6 +73,8 @@ import type {
 /** 自动存档槽：每层开始/离开商店时覆盖；手动存档 UI 里也会列出，因此要标注 */
 const AUTOSAVE_SLOT = 1
 const NEUTRAL_MODS = { staminaMul: 1, magicMul: 1, intelligenceMul: 1, moveSpeedMul: 1, damageReduction: 0 }
+/** Boss 层：玩家越过入场线（半场比例）后才生成 Boss，避免在入口提前看到 Boss/血条 */
+const BOSS_ROOM_TRIGGER_RATIO = 0.12
 
 /** CombatWorld 的可选扩展（combat 侧 duck-type 探测） */
 interface GameWorld extends CombatWorld {
@@ -191,6 +193,8 @@ export class Game {
   private layerSnapshot: RunState | null = null
   private riceStacks = 0
   private bossBarrageTimer = 4
+  /** Boss 层尚未走到祭坛区域时挂起生成，防止 Boss 在入口提前出现 */
+  private bossSpawnPending = false
   /** Boss 身体接触伤害的冷却（避免每帧结算瞬间秒杀） */
   private bossContactCd = 0
   private autoPlay = false
@@ -358,6 +362,7 @@ export class Game {
     this.casterCd.clear()
     this.casterVolleys.clear()
     this.bossContactCd = 0
+    this.bossSpawnPending = false
     if (this.boss) {
       this.boss.dispose()
       this.boss = null
@@ -386,7 +391,9 @@ export class Game {
     this.roomActive = false
     this.shieldHp = 0
     this.shieldTime = 0
-    this.coreClean()
+    // 必须连同旧楼层一起销毁：只清小怪会留下上一层的 TowerFloor，
+    // 多层地面共面后从第 2 层起就会持续 z-fighting（表现为地板闪烁）。
+    this.cleanupFloor()
 
     const bossLayer = isBossLayer(diff, layer)
     // BGM：Boss 层切 boss 曲并拉满强度，普通层回战斗曲
@@ -420,16 +427,19 @@ export class Game {
     this.casterCd.clear()
     this.spawnTimer = bossLayer ? 2.0 : 0.4
     this.combat?.resetLayer(CHARGE_FLOOR_START_RATIO)
+    this.bossSpawnPending = false
 
     if (bossLayer) {
       this.layerTotal = Math.round(quotaFor(this.run.difficulty, layer) * 0.6)
-      this.spawnBoss()
+      // 不在这里直接生成 Boss：先让玩家走进祭坛区域，避免一进 Boss 层
+      // 就在入口看到远处的 Boss 和首领血条。
+      this.bossSpawnPending = true
     }
 
     this.hud.hideTunnels()
     this.hud.hideShop()
     this.hud.showLayerBanner(layer, sceneDef.name, STAGE_NAMES[this.run.stage - 1] ?? '', total)
-    if (!restoring) this.hud.toast(bossLayer ? 'Boss 层：击杀哥布林之王！' : `第 ${layer} 层 · 清完 ${this.layerTotal} 只哥布林`, 'info')
+    if (!restoring) this.hud.toast(bossLayer ? 'Boss 层：前往祭坛，唤醒哥布林之王！' : `第 ${layer} 层 · 清完 ${this.layerTotal} 只哥布林`, 'info')
     // 读档后也要先按背包 + 金币训练重算一次，否则第一层会漏掉卡片/训练属性。
     this.syncCards()
     this.saveRun(AUTOSAVE_SLOT)
@@ -443,27 +453,11 @@ export class Game {
     }
   }
 
-  /** 清掉非场景实体的临时对象（保留下层可复用的池） */
-  private coreClean(): void {
-    for (const g of this.goblins) g.dispose()
-    this.goblins.length = 0
-    this.goblinKinds.clear()
-    this.contactCd.clear()
-    this.mobMoves.clear()
-    this.mobMoveCd.clear()
-    this.casterCd.clear()
-    this.casterVolleys.clear()
-    this.bossContactCd = 0
-    if (this.boss) {
-      this.boss.dispose()
-      this.boss = null
-    }
-    this.pickups.clear()
-  }
-
   private spawnBoss(): void {
+    // 防御性校验：Boss 只能生成在真正的阶段 Boss 层，避免任何清理残留/调试调用把它带到普通层。
+    if (!isBossLayer(this.run.difficulty, this.run.layer) || !this.floor) return
     const diff = this.run.difficulty
-    const half = this.floor?.halfSize ?? 20
+    const half = this.floor.halfSize
     const bossZ = -half * 0.74
     const boss = new GoblinKing(this.scene, 0, bossZ, {
       onSlam: (x, z, radius, damage) => {
@@ -692,6 +686,13 @@ export class Game {
     const drag = this.input.consumeDrag()
     this.rig.addYaw(drag.x * 0.005)
     this.rig.zoom(this.input.consumeWheel() * 0.9)
+
+    // Boss 层：越过入场线才生成 Boss。此时与祭坛仍有 >9.5m，
+    // 所以生成后仍会保持沉睡，玩家继续靠近才苏醒。
+    if (this.bossSpawnPending && p.z <= this.floor.halfSize * BOSS_ROOM_TRIGGER_RATIO) {
+      this.bossSpawnPending = false
+      this.spawnBoss()
+    }
 
     this.updateSpawner(dt)
     this.updateEnemies(dt)
@@ -1463,7 +1464,9 @@ export class Game {
     this.phase = 'tunnel'
     audio.startBgm('shop')
     audio.duck(false)
-    const boss = isBossLayer(this.run.difficulty, this.run.layer)
+    // 阶段 Boss 已被击杀时才继续留在 Boss 层结算；此时不能再刷「Boss 房间」门，
+    // 否则会重复进入 Boss 房并刷出 1 只小怪冒充 Boss 房。Boss 战本身在 enterLayer 直接开始。
+    const boss = isBossLayer(this.run.difficulty, this.run.layer) && this.boss !== null
     this.tunnelOffers = rollTunnels(
       this.run.layer,
       layerCount(this.run.difficulty),
