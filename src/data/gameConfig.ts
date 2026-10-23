@@ -283,3 +283,31 @@ export const GOBLIN_CASTER: EnemyDef = {
   scale: 1.05,
   model: 'caster',
 }
+
+/** v4.8 长矛手：中距离锁定一条直线突刺，逼迫玩家横向走位 */
+export const GOBLIN_SPEAR: EnemyDef = {
+  id: 'goblin-spear',
+  name: '哥布林长矛手',
+  hp: 40,
+  speed: 3.05,
+  damage: 8,
+  radius: 0.44,
+  xp: 2,
+  goldChance: 0.7,
+  scale: 1.02,
+  model: 'goblin-spear',
+}
+
+/** v4.8 爆破手：保持距离，把冒烟炸弹抛到玩家脚下 */
+export const GOBLIN_BOMBER: EnemyDef = {
+  id: 'goblin-bomber',
+  name: '哥布林爆破手',
+  hp: 34,
+  speed: 2.5,
+  damage: 6,
+  radius: 0.45,
+  xp: 2,
+  goldChance: 0.8,
+  scale: 1.02,
+  model: 'goblin-bomber',
+}

@@ -109,6 +109,19 @@ const STYLE_PALETTE: Record<StyleId, StylePalette> = {
 
 const DEFAULT_PALETTE = STYLE_PALETTE['mutsumi-solo']
 
+/** Mortis 变身期的暗色舞台：深紫、酒红、影色，只保留少量亮紫/暗金保证可读性 */
+const MORTIS_DARK = {
+  shadow: 0x120616,
+  violet: 0x572a86,
+  wine: 0x8f2748,
+  bone: 0xb9a5e6,
+  gold: 0xa87f34,
+} as const
+
+function isMortisStyle(styleId: StyleId): boolean {
+  return styleId.startsWith('mutsumi')
+}
+
 function paletteFor(styleId: StyleId): StylePalette {
   return STYLE_PALETTE[styleId] ?? DEFAULT_PALETTE
 }
@@ -354,29 +367,42 @@ export class CharacterFx {
     }
   }
 
-  /** Mortis 变身：五线谱领域展开 + 音符螺旋上升，不再使用通用月牙。 */
+  /** Mortis 变身：暗色五线谱领域展开 + 黑紫音符螺旋上升，保留极少量亮紫高光。 */
   mutsumiCast(x: number, z: number, radius: number, styleId: StyleId): void {
-    const p = paletteFor(styleId)
     const duet = styleId === 'mutsumi-duet'
     const requiem = styleId === 'mutsumi-requiem'
     const size = Math.max(2.8, radius * 2.25)
+    const main = duet ? 0x6e2349 : requiem ? 0x5a2a66 : MORTIS_DARK.violet
+    const accent = duet ? 0x9b3455 : requiem ? MORTIS_DARK.gold : MORTIS_DARK.wine
+    // 先压一层暗影地纹，再叠音律法阵；这是「Mortis 变身」和普通技能最大的区别
+    this.ground('hex', x, z, {
+      width: size * 1.08,
+      length: size * 1.08,
+      life: 1.0,
+      color: MORTIS_DARK.shadow,
+      startScale: 0.3,
+      endScale: 1.08,
+      opacity: 0.64,
+      spin: duet ? -0.34 : 0.28,
+      y: 0.05,
+    })
     this.ground('staff', x, z, {
       width: size,
       life: requiem ? 1.05 : 0.9,
-      color: p.main,
+      color: main,
       startScale: 0.42,
       endScale: 1.04,
-      opacity: 0.95,
+      opacity: 0.96,
       spin: duet ? -0.9 : 0.55,
       y: 0.075,
     })
     this.ground('ring', x, z, {
       width: size * 0.88,
       life: 0.62,
-      color: p.accent,
+      color: accent,
       startScale: 0.3,
       endScale: 1.12,
-      opacity: 0.8,
+      opacity: 0.82,
       delay: 0.04,
       spin: duet ? 1.2 : -0.5,
       y: 0.065,
@@ -385,10 +411,10 @@ export class CharacterFx {
       this.ground('staff', x, z, {
         width: size * 0.82,
         life: 0.72,
-        color: p.accent,
+        color: accent,
         startScale: 0.4,
         endScale: 1.05,
-        opacity: 0.55,
+        opacity: 0.52,
         delay: 0.08,
         spin: 1.1,
         y: 0.08,
@@ -399,7 +425,7 @@ export class CharacterFx {
     for (let i = 0; i < notes; i++) {
       const a = (i / notes) * TAU + rand(-0.18, 0.18)
       const r = rand(0.25, 1.15)
-      const color = i % 3 === 0 ? p.accent : p.main
+      const color = i % 5 === 0 ? MORTIS_DARK.bone : i % 3 === 0 ? accent : main
       this.spawnParticle('note', x + Math.cos(a) * r, rand(0.35, 1.06), z + Math.sin(a) * r, color, rand(0.24, 0.46), {
         vx: Math.cos(a) * rand(2.4, 5.4),
         vy: rand(0.7, 2.4),
@@ -412,29 +438,29 @@ export class CharacterFx {
       })
     }
 
-    // 纵向音浪：强化「音波爆发」而不是刀光爆发。
-    for (let i = 0; i < 20; i++) {
+    // 纵向暗影音浪：暗紫烟尘向上翻涌，只保留少量亮紫火星。
+    for (let i = 0; i < 26; i++) {
       const a = rand(0, TAU)
-      const r = rand(0, 0.9)
-      this.spawnParticle('spark', x + Math.cos(a) * r, rand(0.15, 0.65), z + Math.sin(a) * r, i % 2 ? p.accent : 0xffffff, rand(0.16, 0.3), {
-        vx: Math.cos(a) * rand(0.2, 1.2),
-        vy: rand(1.4, 3.8),
-        vz: Math.sin(a) * rand(0.2, 1.2),
-        gravity: -3,
-        drag: 2.4,
-        life: rand(0.35, 0.7),
+      const r = rand(0, 0.95)
+      const color = i % 7 === 0 ? MORTIS_DARK.bone : i % 3 === 0 ? MORTIS_DARK.wine : i % 2 ? 0x3a174d : MORTIS_DARK.shadow
+      this.spawnParticle('spark', x + Math.cos(a) * r, rand(0.12, 0.62), z + Math.sin(a) * r, color, rand(0.2, 0.38), {
+        vx: Math.cos(a) * rand(0.18, 1.05),
+        vy: rand(1.2, 3.4),
+        vz: Math.sin(a) * rand(0.18, 1.05),
+        gravity: -2.4,
+        drag: 2.2,
+        life: rand(0.42, 0.82),
         spin: 0,
         size1: 0.01,
       })
     }
-    this.hooksPulseRing(x, z, radius, p.main, p.accent)
+    this.hooksPulseRing(x, z, radius, main, accent)
   }
 
-  /** Mortis 脉冲：每一下都是同心音波 + 外扩音符，不再共用 slash。 */
+  /** Mortis 脉冲：暗紫同心音波 + 酒红外扩音符；和弦保留一点暗金。 */
   mutsumiPulse(x: number, z: number, radius: number, chord: boolean, styleId: StyleId): void {
-    const p = paletteFor(styleId)
-    const main = chord ? 0xffd166 : p.main
-    const accent = chord ? 0xfff0bd : p.accent
+    const main = chord ? MORTIS_DARK.gold : MORTIS_DARK.violet
+    const accent = chord ? 0xffe0a0 : MORTIS_DARK.wine
     const size = Math.max(1.4, radius * 2.15)
     this.ground('ring', x, z, {
       width: size,
@@ -442,7 +468,7 @@ export class CharacterFx {
       color: main,
       startScale: 0.18,
       endScale: 1.02,
-      opacity: chord ? 0.95 : 0.72,
+      opacity: chord ? 0.95 : 0.74,
       spin: styleId === 'mutsumi-duet' ? 0.8 : -0.55,
       y: 0.07,
     })
@@ -452,19 +478,30 @@ export class CharacterFx {
       color: accent,
       startScale: 0.25,
       endScale: 0.9,
-      opacity: 0.55,
+      opacity: 0.58,
       delay: 0.025,
       spin: 0.9,
       y: 0.075,
     })
     if (chord) {
+      this.ground('hex', x, z, {
+        width: size * 1.02,
+        length: size * 1.02,
+        life: 0.5,
+        color: MORTIS_DARK.shadow,
+        startScale: 0.34,
+        endScale: 1.05,
+        opacity: 0.42,
+        spin: 0.3,
+        y: 0.055,
+      })
       this.ground('staff', x, z, {
         width: size * 0.95,
         life: 0.52,
-        color: 0xffd166,
+        color: MORTIS_DARK.gold,
         startScale: 0.42,
         endScale: 1.0,
-        opacity: 0.62,
+        opacity: 0.58,
         spin: 0.5,
         y: 0.078,
       })
@@ -474,7 +511,7 @@ export class CharacterFx {
     for (let i = 0; i < count; i++) {
       const a = (i / count) * TAU + this.auraTime * 0.2
       const r = radius * rand(0.28, 0.52)
-      const color = i % 2 === 0 ? main : accent
+      const color = i % 4 === 0 ? MORTIS_DARK.bone : i % 2 === 0 ? main : accent
       this.spawnParticle(chord && i === 0 ? 'ring' : 'note', x + Math.cos(a) * r, rand(0.4, 0.92), z + Math.sin(a) * r, color, chord && i === 0 ? 0.85 : rand(0.22, 0.38), {
         vx: Math.cos(a) * rand(1.7, 3.6),
         vy: rand(0.5, 1.6),
@@ -487,9 +524,9 @@ export class CharacterFx {
       })
     }
     if (chord) {
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 10; i++) {
         const a = rand(0, TAU)
-        this.spawnParticle('spark', x, rand(0.3, 1.0), z, 0xfff0bd, rand(0.14, 0.26), {
+        this.spawnParticle('spark', x, rand(0.3, 1.0), z, i % 3 === 0 ? 0xffe0a0 : MORTIS_DARK.wine, rand(0.14, 0.26), {
           vx: Math.cos(a) * rand(1.5, 4),
           vy: rand(1, 3),
           vz: Math.sin(a) * rand(1.5, 4),
@@ -1094,7 +1131,8 @@ export class CharacterFx {
   private updateAura(dt: number, px: number, pz: number, ctx: StyleFxContext): void {
     this.auraTime += dt
     const power = Object.values(ctx.awakenings).reduce((sum, level) => sum + Math.max(0, level ?? 0), 0)
-    const visible = power > 0
+    // 变身期即使没有觉醒也亮起暗色光环：这是 Mortis 形态的轮廓，不额外增加对象
+    const visible = power > 0 || ctx.transformActive
     this.aura.visible = visible
     if (!visible) {
       this.auraReady = false
@@ -1102,14 +1140,29 @@ export class CharacterFx {
     }
 
     const p = paletteFor(ctx.styleId)
+    const mortisDark = ctx.transformActive && isMortisStyle(ctx.styleId)
+    const auraMain = mortisDark
+      ? ctx.styleId === 'mutsumi-duet'
+        ? 0x7a2348
+        : ctx.styleId === 'mutsumi-requiem'
+          ? 0x5a2438
+          : 0x55247a
+      : p.main
+    const auraAccent = mortisDark
+      ? ctx.styleId === 'mutsumi-duet'
+        ? 0xa63e62
+        : ctx.styleId === 'mutsumi-requiem'
+          ? 0x9a7433
+          : MORTIS_DARK.wine
+      : p.accent
     const guardWall = awakeningLevel(ctx.awakenings, 'murasame-guard-wall')
     const key = `${ctx.styleId}:${Math.round(power)}:${guardWall}:${ctx.transformActive ? 1 : 0}`
     const ready = ctx.resourceRatio >= 0.999
     this.auraReady = ready
     if (key !== this.auraKey) {
       this.auraKey = key
-      this.auraMain = p.main
-      this.auraAccent = p.accent
+      this.auraMain = auraMain
+      this.auraAccent = auraAccent
       this.auraMoteKind = p.mote
       this.auraCount = Math.min(10, 4 + Math.round(power) + (ctx.transformActive ? 2 : 0))
       for (const mote of this.auraMotes) {
@@ -1124,7 +1177,7 @@ export class CharacterFx {
           mat.map = ringMap
           mat.needsUpdate = true
         }
-        mat.color.setHex(i === 1 ? p.accent : p.main)
+        mat.color.setHex(i === 1 ? auraAccent : auraMain)
       }
       this.auraHex.visible = ctx.styleId === 'murasame-guard' && guardWall > 0
       this.auraWhale.visible = ctx.styleId === 'fish-whale'

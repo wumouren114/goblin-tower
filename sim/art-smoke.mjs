@@ -206,8 +206,7 @@ function cellStats(atlas, col, row) {
   return { opaque, borderSolid, footRowSolid }
 }
 
-function colorsOf(atlas) {
-  const seen = new Map()
+function colorsOf(atlas) {  const seen = new Map()
   const d = atlas.canvas.data
   for (let i = 0; i < d.length; i += 4) {
     if (d[i + 3] === 0) continue
@@ -284,6 +283,8 @@ function countColors(atlas, colors, minSaturation = 0) {
 
 const chars = await loadCharacters()
 const sprites = await import(pathToFileURL(path.join(ROOT, 'src/art/sprites.ts')).href)
+const roomNpc = await import(pathToFileURL(path.join(ROOT, 'src/entities/roomNpc.ts')).href)
+const THREE = await import('three')
 const preview = process.argv.includes('--preview')
 const scaleArg = process.argv.find((a) => a.startsWith('--scale='))
 const previewScale = scaleArg ? Math.max(1, Math.min(8, Number(scaleArg.slice(8)) || 2)) : 2
@@ -467,6 +468,104 @@ check('caster 图集：4×4 非空、紫色兜帽/水晶、比 small 高', () =>
   const st = topRow(small)
   assert(ct < st, `caster 头顶 y=${ct} 没有比 small y=${st} 更高`)
 })
+
+check('v4.8 长矛手 / 爆破手图集与本体、彼此可区分', () => {
+  const small = chars.buildGoblinAtlas('small')
+  const spear = chars.buildGoblinAtlas('spear')
+  const bomber = chars.buildGoblinAtlas('bomber')
+  for (const [name, atlas] of [
+    ['spear', spear],
+    ['bomber', bomber],
+  ]) {
+    assert(atlas.cols === 4 && atlas.rows === 4, `${name} 图集尺寸 ${atlas.cols}x${atlas.rows}`)
+    assert(atlas.cellW === 28 && atlas.cellH === 32, `${name} 单元格 ${atlas.cellW}x${atlas.cellH}`)
+    assert(atlas.worldW === 0.9 && atlas.worldH === 1.0, `${name} 世界尺寸 ${atlas.worldW}x${atlas.worldH}`)
+    for (let row = 0; row < atlas.rows; row++) {
+      for (let col = 0; col < atlas.cols; col++) {
+        const s = cellStats(atlas, col, row)
+        assert(s.opaque > 0, `${name} row${row} col${col} 空格子`)
+        assert(s.footRowSolid > 0, `${name} row${row} col${col} 脚底无像素`)
+      }
+    }
+  }
+  const bytes = (a) => Buffer.from(a.canvas.data.buffer, a.canvas.data.byteOffset, a.canvas.data.byteLength)
+  assert(Buffer.compare(bytes(spear), bytes(small)) !== 0, '长矛手仍是小怪旧图集')
+  assert(Buffer.compare(bytes(bomber), bytes(small)) !== 0, '爆破手仍是小怪旧图集')
+  assert(Buffer.compare(bytes(spear), bytes(bomber)) !== 0, '长矛手与爆破手图集完全相同')
+  assert(countColors(spear, [0xb0b6c0, 0x676d78, 0xa23a2f]) >= 30, '长矛手缺少枪头/红布条像素')
+  assert(countColors(bomber, [0xb0b6c0, 0x676d78, 0xffd166, 0x1a1714]) >= 30, '爆破手缺少炸弹/引线像素')
+})
+
+check('v4.8 哥布林之王三变体图集：尺寸 / 调色 / 像素互异', () => {
+  const king = chars.buildKingAtlas('king')
+  const warlord = chars.buildKingAtlas('warlord')
+  const witch = chars.buildKingAtlas('witch')
+  for (const [name, atlas, worldW, worldH] of [
+    ['king', king, 1.9, 2.2],
+    ['warlord', warlord, 2.08, 2.38],
+    ['witch', witch, 1.86, 2.16],
+  ]) {
+    assert(atlas.cols === 4 && atlas.rows === 4, `${name} 图集尺寸 ${atlas.cols}x${atlas.rows}`)
+    assert(atlas.cellW === 52 && atlas.cellH === 60, `${name} 单元格 ${atlas.cellW}x${atlas.cellH}`)
+    assert(atlas.worldW === worldW && atlas.worldH === worldH, `${name} 世界尺寸 ${atlas.worldW}x${atlas.worldH}`)
+    for (let row = 0; row < atlas.rows; row++) {
+      for (let col = 0; col < atlas.cols; col++) {
+        assert(cellStats(atlas, col, row).opaque > 0, `${name} row${row} col${col} 空格子`)
+      }
+    }
+  }
+  const bytes = (a) => Buffer.from(a.canvas.data.buffer, a.canvas.data.byteOffset, a.canvas.data.byteLength)
+  assert(Buffer.compare(bytes(king), bytes(warlord)) !== 0, '督军与旧王图集完全相同')
+  assert(Buffer.compare(bytes(king), bytes(witch)) !== 0, '巫王与旧王图集完全相同')
+  assert(Buffer.compare(bytes(warlord), bytes(witch)) !== 0, '督军与巫王图集完全相同')
+  assert(countColors(warlord, [0x8a7a3f, 0x5a4e25, 0x8f2024, 0x4c0e11]) >= 200, '督军缺少赤褐/暗红配色像素')
+  assert(countColors(witch, [0x8d77b7, 0x5b477f, 0x4d2170, 0x92ddc8]) >= 200, '巫王缺少紫皮/青金配色像素')
+  assert(countColors(warlord, [0x6c9640, 0x93bb58]) < 20, '督军仍大量残留旧绿色皮肤')
+  assert(countColors(witch, [0x6c9640, 0x93bb58]) < 20, '巫王仍大量残留旧绿色皮肤')
+})
+
+check('v4.8 Boss 精灵缓存：三变体互不共享', () => {
+  const king = sprites.kingSprite('king')
+  const warlord = sprites.kingSprite('warlord')
+  const witch = sprites.kingSprite('witch')
+  assert(king !== warlord && king !== witch && warlord !== witch, 'Boss 变体共享了同一精灵对象')
+  assert(sprites.kingSprite('warlord') === warlord, '督军精灵没有缓存')
+  assert(warlord.worldW === 2.08 && warlord.worldH === 2.38, `督军精灵世界尺寸 ${warlord.worldW}x${warlord.worldH}`)
+  assert(witch.worldW === 1.86 && witch.worldH === 2.16, `巫王精灵世界尺寸 ${witch.worldW}x${witch.worldH}`)
+})
+
+check('v4.8 炸弹纹理 24×24 且缓存复用', () => {
+  const tex = sprites.bombTexture()
+  assert(tex.image.width === 24 && tex.image.height === 24, `炸弹纹理 ${tex.image.width}x${tex.image.height}`)
+  assert(sprites.bombTexture() === tex, '炸弹纹理没有缓存')
+  assert(tex.magFilter === 1003 && tex.minFilter === 1003, '炸弹纹理不是最近邻采样')
+})
+
+check('v4.8 房间 NPC 信息 / 模型结构与出口裂隙清理', () => {
+  const rooms = ['chest', 'skill-card', 'merchant', 'altar', 'mob-wave', 'elite-fight', 'boss', 'rest']
+  for (const room of rooms) {
+    const info = roomNpc.roomNpcInfo(room)
+    assert(info.kind.length > 0 && info.title.length > 0 && info.hint.length > 0, `${room} NPC 信息不完整`)
+  }
+  assert(roomNpc.roomNpcInfo('chest').kind === 'guide', '宝箱房 NPC 不是引路人')
+  assert(roomNpc.roomNpcInfo('merchant').kind === 'merchant', '商人房 NPC 不是商人')
+  assert(roomNpc.roomNpcInfo('rest').kind === 'guide', '休憩房 NPC 不是引路人')
+
+  const scene = new THREE.Scene()
+  const npc = new roomNpc.RoomNpc(scene, 'chest', 0, 0)
+  assert(scene.children.length === 1 && npc.group.children.length === 3, '房间 NPC 结构不是 group(精灵+影子+地环)')
+  npc.update(0.5)
+  npc.dispose()
+  assert(scene.children.length === 0, '房间 NPC dispose 后仍留在场景')
+
+  const portal = new roomNpc.RoomPortal(scene, 0, 0)
+  assert(scene.children.length === 1 && portal.group.children.length === 2, '出口裂隙结构不是 group(传送门+地面符文)')
+  assert(portal.title.length > 0 && portal.hint.length > 0, '出口裂隙缺少标题/提示')
+  portal.update(0.5)
+  portal.dispose()
+  assert(scene.children.length === 0, '出口裂隙 dispose 后仍留在场景')
+})
+
 
 check('敌方弹幕图集 + enemyBulletSprite 缓存', () => {
   const atlas = chars.buildEnemyBulletAtlas()

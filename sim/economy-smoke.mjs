@@ -226,7 +226,7 @@ section('2. 隧道 1000 次抽样分布')
 const SAMPLE_LAYER = 5
 const SAMPLE_RUNS = 1000
 const rng = new Rng(424242)
-const kindCount = { reward: 0, trade: 0, battle: 0 }
+const kindCount = { reward: 0, trade: 0, battle: 0, rest: 0 }
 const roomCount = {
   chest: 0,
   'skill-card': 0,
@@ -235,6 +235,7 @@ const roomCount = {
   'mob-wave': 0,
   'elite-fight': 0,
   boss: 0,
+  rest: 0,
 }
 let repeatedKindRolls = 0
 let offersTotal = 0
@@ -259,10 +260,13 @@ for (let run = 0; run < SAMPLE_RUNS; run += 1) {
 }
 
 console.log(`  抽样 ${SAMPLE_RUNS} 次 × ${BALANCE.portals.count} 门 = ${offersTotal} 扇`)
+const weightPct = (key) => `${(BALANCE.portals.weights[key] * 100).toFixed(0)}%`
 console.log(
   `  类型占比：reward ${(kindCount.reward / offersTotal * 100).toFixed(1)}%  ` +
     `trade ${(kindCount.trade / offersTotal * 100).toFixed(1)}%  ` +
-    `battle ${(kindCount.battle / offersTotal * 100).toFixed(1)}%（权重 40/35/25）`,
+    `battle ${(kindCount.battle / offersTotal * 100).toFixed(1)}%  ` +
+    `rest ${(kindCount.rest / offersTotal * 100).toFixed(1)}%` +
+    `（权重 ${weightPct('reward')}/${weightPct('trade')}/${weightPct('battle')}/${weightPct('rest')}）`,
 )
 for (const [room, count] of Object.entries(roomCount)) {
   console.log(`  ${room.padEnd(11)} ${(count / offersTotal * 100).toFixed(2)}%  (${count})`)
@@ -273,6 +277,7 @@ check('类型分布接近 balance.portals.weights（±4%）', () => {
   approx(kindCount.reward / offersTotal, BALANCE.portals.weights.reward, 0.04, 'reward')
   approx(kindCount.trade / offersTotal, BALANCE.portals.weights.trade, 0.04, 'trade')
   approx(kindCount.battle / offersTotal, BALANCE.portals.weights.battle, 0.04, 'battle')
+  approx(kindCount.rest / offersTotal, BALANCE.portals.weights.rest, 0.04, 'rest')
 })
 check('房间分布接近 balance.portals 子概率（±4%）', () => {
   const p = BALANCE.portals
@@ -292,6 +297,7 @@ check('房间分布接近 balance.portals 子概率（±4%）', () => {
     0.04,
     'elite-fight',
   )
+  approx(roomCount.rest / offersTotal, p.weights.rest, 0.04, 'rest')
   eq(roomCount.boss, 0, '非 Boss 层不应出现 boss 房')
 })
 check('类别可重复（同一轮出现两扇同类门）', () => ok(repeatedKindRolls > 0))

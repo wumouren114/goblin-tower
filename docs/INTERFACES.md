@@ -32,9 +32,10 @@ export interface SpriteAnim {
   worldW: number
   worldH: number
 }
-export function playerSprite(): SpriteAnim
-export function goblinSprite(kind: 'small' | 'brute' | 'elite'): SpriteAnim
-export function kingSprite(): SpriteAnim
+export function playerSprite(id?: CharacterId | 'mortis'): SpriteAnim
+export function goblinSprite(kind: 'small' | 'brute' | 'elite' | 'caster' | 'spear' | 'bomber'): SpriteAnim
+export function kingSprite(kind?: 'king' | 'warlord' | 'witch'): SpriteAnim
+export function bombTexture(): THREE.CanvasTexture
 export function particleTexture(kind: 'spark' | 'ring' | 'glow' | 'shard'): THREE.CanvasTexture
 ```
 
@@ -212,7 +213,8 @@ export interface Hud {
 ```
 要求：
 - **标题页**：游戏名「残响高塔 / ECHO SPIRE」，像素风标题、难度三选（休闲/标准/噩梦，调用 `handlers.onStart(difficulty)`）、操作说明、开始按钮；首次点击触发 `Audio` 解锁由 Lead 处理。
-- **HUD**：左上楼层与目标进度（击杀 quota / 计时），右上金币/等级/击杀；底部左侧 HP 条（数字）+ 经验条（等级）、底部右侧回旋刃/属性小提示；中央下方 `showPrompt`（"走到阶梯旁按 E"）。
+- **HUD**：左上楼层与目标进度（击杀 quota / 计时）。`HudSnapshot.room === true` 时，左上角改为「时空房间 · 探索」并显示 `roomName` / `roomObjective`，不显示本层击杀配额；Boss 血条仍由 `snapshot.boss` 驱动。
+- 右上金币/等级/击杀；底部左侧 HP 条（数字）+ 经验条（等级）、底部右侧回旋刃/属性小提示；中央下方 `showPrompt`（"走到阶梯旁按 E"）。
 - **升级三选一**：卡片展示图标、名称、描述、稀有度配色（common/rare/epic），点击或按 1/2/3 选择，回调 `handlers.onUpgradePick(id)`；面板出现时暂停感（模糊背景）。
 - **Boss 血条**：屏幕上方横向血条 + 名字 + 阶段标记。
 - **飘字**：世界坐标 → 屏幕坐标投影，普通白、暴击黄大红字、金币金、回血绿；向上飘 + 淡出，DOM 实现，同屏上限 40。
@@ -227,3 +229,112 @@ export interface Hud {
 - 所有模块 `dispose()` 必须真正释放 geometry/material/texture 并从场景移除。
 - Lead 会在最后统一 `tsc --noEmit`，请保证类型正确（strict）。
 - 不要改 `src/types.ts`、`src/data/*`、`src/core/*`、`src/main.ts`、`package.json`。需要新字段先告诉 Lead。
+
+---
+
+## 6. v4.8 增量契约（房间 / 新敌人 / Boss 变体）
+
+### 6.1 类型
+
+```ts
+export type EnemyKind = 'small' | 'brute' | 'elite' | 'caster' | 'spear' | 'bomber'
+export type BossKind = 'king' | 'warlord' | 'witch'
+export type RoomNpcKind = 'merchant' | 'oracle' | 'warden' | 'guide'
+
+export interface HudSnapshot {
+  // ...既有字段
+  /** 玩家当前处于时空房间；为 true 时 HUD 隐藏本层击杀配额 */
+  room?: boolean
+  /** 例：「荒弃庭院 · 宝藏密室」 */
+  roomName?: string
+  /** 例：「宝藏守卫 · 按 E 打开房间宝箱」/「从出口裂隙离开房间」 */
+  roomObjective?: string
+}
+```
+
+- `TunnelOffer` / `TunnelPayload` 结构不变；`TunnelRoom` 仍为
+  `chest | skill-card | merchant | altar | mob-wave | elite-fight | rest | boss`。
+- `TunnelType` 的权重来自 `balance.portals.weights`：
+  `reward 0.32 / trade 0.28 / battle 0.20 / rest 0.20`，合计 1。
+  `rest` 是独立兜底类别，不是“空门”。
+
+### 6.2 房间流程（`src/game.ts`）
+
+1. 清层 → 弹层末奖励/觉醒 → 时空隧道三选一（`pickTunnel(id)`）。
+2. `pickTunnel` 选中后调用内部 `enterRoomMap(offer)`：
+   - 清空场上残留敌人、弹幕、炸弹、待刷列表；
+   - 玩家落在房间入口侧，生成 `RoomNpc`，`layerTotal=0`，HUD 进入 `room` 模式；
+   - **不**直接结算奖励，必须走到 NPC 前按 E。
+3. `interactRoomNpc()` 按 `offer.room` 分派：
+   - `chest` / `skill-card`：立即结算，`completeRoomMap()`；
+   - `rest`：回血 + 充能，`completeRoomMap()`；
+   - `merchant`：进入房间商店 `shopMode='room'`，离开商店后回到房间并生成裂隙；
+   - `altar`：扣金换祝福，随后生成裂隙；
+   - `mob-wave` / `elite-fight`：`startRoomBattle(count, elite)`，分批刷怪；
+   - `boss`：`startRoomBossBattle()`，生成当前阶段 Boss。
+4. `completeRoomMap(message)`：
+   - 标记 `room.resolved = true`，清空房间战斗配额；
+   - 在入口侧生成 `RoomPortal`（`时空裂隙`），提示「按 E 离开房间」。
+5. 玩家靠近裂隙按 E → `leaveRoomMap()`：
+   - dispose NPC / 裂隙 → `proceedToShop()` → 标准商店 → 下一层/阶段循环。
+6. 房间怪潮使用 `roomSpawnRemaining/roomSpawnIndex/roomSpawnTimer` 分批进场：
+   场上约 12 只上限，约每 0.42s 补一批，避免 30+ 只同帧生成。
+
+### 6.3 `src/entities/roomNpc.ts`
+
+```ts
+export class RoomNpc {
+  readonly group: THREE.Group   // 精灵 + 影子 + 地环，共 3 个对象
+  readonly kind: RoomNpcKind
+  readonly title: string
+  readonly hint: string
+  x: number
+  z: number
+  constructor(scene: THREE.Scene, room: TunnelRoom, x: number, z: number)
+  update(dt: number): void
+  dispose(): void
+}
+
+export class RoomPortal {
+  readonly group: THREE.Group   // 传送门精灵 + 地面符文，共 2 个对象
+  readonly title: string        // 时空裂隙
+  readonly hint: string         // 按 E 离开房间
+  x: number
+  z: number
+  constructor(scene: THREE.Scene, x: number, z: number)
+  update(dt: number): void
+  dispose(): void
+}
+
+export function roomNpcInfo(room: TunnelRoom): { kind: RoomNpcKind; title: string; hint: string }
+```
+
+- 全部程序化 `CanvasTexture` / `Sprite` / `MeshBasicMaterial`，**不新增光源**。
+- `RoomPortal` 固定 2 个 drawcall；`RoomNpc` 固定 3 个。
+- `dispose()` 必须把 group 从场景移除并释放 geometry/material/texture。
+
+### 6.4 敌人 & Boss
+
+- `spear`：长矛手，蓄力突刺；预警 `spear-windup` 约 0.55s，冷却约 4.2s。
+- `bomber`：爆破手，抛物线炸弹 + 落点预警圈；炸弹纹理 `bombTexture()` 为 24×24 像素图，
+  世界尺寸 0.98，最多 10 枚同屏。
+- `createBoss(kind, x, z, elite, stage)` / 内部 `startRoomBossBattle()`：
+  - 阶段 1：`king` 哥布林之王；
+  - 阶段 2：`warlord` 哥布林督军（赤褐/暗红，血量更高，召唤更凶）；
+  - 阶段 3：`witch` 巫王（紫皮/青金，弹幕更密，预警偏紫）。
+- Boss 复用 `assets/art_raw/boss_king.png` 图集做调色变体；缺图时自动回退
+  `buildKingAtlas(kind)` 程序化图集。`kingSprite(kind)` 按 `king|warlord|witch` 缓存。
+- Boss HUD 名字来自 `boss.title`（`HudSnapshot.boss.name`），房间 Boss 目标写在
+  `roomObjective`（例：「房间首领 · 哥布林之王」）。
+
+### 6.5 HUD / 调试
+
+- 房间 HUD 的 `is-boss-layer` 类只在**非房间** Boss 层出现；
+  房间 Boss 用血条 + `roomObjective` 表达，避免与「时空房间 · 探索」冲突。
+- 测试/调试入口保持：
+  - `window.__goblinTower`：`roomMap`、`tunnelOffers`、`shopMode`、`goblins`、
+    `goblinKinds`、`bombShots`、`mobMoves`、`layerTotal`、`layerKilled`；
+  - `debugJump(layer, difficulty, character, style)`、`debugScreen('tunnel'|'shop'|...)`、
+    `debugAdvance(seconds)`、`debugAutoAttack(on)`、`pickTunnel(id)`。
+- 世界契约不变：静态场景 drawcall < 80、实时点光 ≤ 6；新特效/敌人在高负载下
+  允许短时超过静态预算，但不得新增光源或未池化对象。

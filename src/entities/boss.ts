@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { Facing } from '../types'
+import type { BossKind, EnemyKind, Facing } from '../types'
 import { rotateInput } from '../core/math'
 import { kingSprite } from '../art/sprites'
 import {
@@ -13,16 +13,32 @@ import {
 
 export interface BossCallbacks {
   onSlam(x: number, z: number, radius: number, damage: number): void
-  onSummon(count: number): void
+  onSummon(count: number, kind: EnemyKind): void
   onRoar(): void
 }
 
 type BossState = 'chase' | 'windup' | 'recover' | 'charge'
 
-/**
- * Boss 手感参数（旧 gameConfig.CONFIG.boss 的本地化，v3 不再依赖全局配置）。
- * 血量最终由 game 按 balance.bossHpFor(difficulty, layer) 覆写 boss.hp / maxHp。
- */
+export interface BossTuning {
+  hp: number
+  damage: number
+  speed: number
+  radius: number
+  slamRadius: number
+  slamWindup: number
+  slamCooldown: number
+  summonCount: number
+  summonEvery: number
+  chargeSpeed: number
+  chargeDuration: number
+  chargeCooldown: number
+  phase2At: number
+  barrageEvery: number
+  barrageCount: number
+  summonKind: EnemyKind
+}
+
+/** 兼容旧导出：默认王的数值；实际按 kind 从 BOSS_VARIANTS 取。 */
 export const BOSS_TUNING = {
   hp: 2600,
   damage: 18,
@@ -36,7 +52,59 @@ export const BOSS_TUNING = {
   phase2At: 0.55,
 } as const
 
-const WINDUP = BOSS_TUNING.slamWindup
+const BOSS_VARIANTS: Record<BossKind, BossTuning> = {
+  king: {
+    ...BOSS_TUNING,
+    slamCooldown: 3.4,
+    chargeDuration: 0.75,
+    chargeCooldown: 4.5,
+    barrageEvery: 6.5,
+    barrageCount: 12,
+    summonKind: 'small',
+  },
+  warlord: {
+    hp: 3200,
+    damage: 22,
+    speed: 2.9,
+    radius: 1.62,
+    slamRadius: 5.1,
+    slamWindup: 0.7,
+    slamCooldown: 2.7,
+    summonCount: 3,
+    summonEvery: 8,
+    chargeSpeed: 13.5,
+    chargeDuration: 0.85,
+    chargeCooldown: 3.2,
+    phase2At: 0.6,
+    barrageEvery: 9,
+    barrageCount: 8,
+    summonKind: 'brute',
+  },
+  witch: {
+    hp: 2800,
+    damage: 16,
+    speed: 2.15,
+    radius: 1.45,
+    slamRadius: 4.3,
+    slamWindup: 1.0,
+    slamCooldown: 3.9,
+    summonCount: 4,
+    summonEvery: 7,
+    chargeSpeed: 9.5,
+    chargeDuration: 0.65,
+    chargeCooldown: 5.5,
+    phase2At: 0.62,
+    barrageEvery: 4.6,
+    barrageCount: 16,
+    summonKind: 'caster',
+  },
+}
+
+export const BOSS_TITLES: Record<BossKind, string> = {
+  king: '哥布林之王',
+  warlord: '哥布林督军',
+  witch: '哥布林巫王',
+}
 
 /**
  * 哥布林之王：追击 → 蓄力砸地（0.85s 红圈预警）→ 硬直 → 追击。
@@ -44,17 +112,23 @@ const WINDUP = BOSS_TUNING.slamWindup
  */
 export class GoblinKing {
   readonly group: THREE.Group
+  readonly kind: BossKind
+  readonly title: string
+  readonly barrageEvery: number
+  readonly barrageCount: number
+  readonly summonKind: EnemyKind
   x: number
   z: number
-  hp: number = BOSS_TUNING.hp
-  maxHp: number = BOSS_TUNING.hp
-  radius: number = BOSS_TUNING.radius
+  hp: number = BOSS_VARIANTS.king.hp
+  maxHp: number = BOSS_VARIANTS.king.hp
+  radius: number = BOSS_VARIANTS.king.radius
   alive = true
   phase2 = false
   /** 沉睡时待在后场，不追击、不攻击；玩家靠近后由 game.ts 唤醒 */
   dormant = false
 
   private readonly scene: THREE.Scene
+  private readonly tuning: BossTuning
   private readonly anim: SpriteAnim
   private readonly sprite: THREE.Mesh
   private readonly mat: THREE.MeshBasicMaterial
@@ -75,13 +149,23 @@ export class GoblinKing {
   private facing: Facing = 'down'
   private clock = 0
 
-  constructor(scene: THREE.Scene, x: number, z: number, callbacks: BossCallbacks) {
+  constructor(scene: THREE.Scene, x: number, z: number, callbacks: BossCallbacks, kind: BossKind = 'king') {
     this.scene = scene
     this.x = x
     this.z = z
     this.callbacks = callbacks
+    this.kind = kind
+    this.title = BOSS_TITLES[kind]
+    this.tuning = BOSS_VARIANTS[kind]
+    this.hp = this.tuning.hp
+    this.maxHp = this.tuning.hp
+    this.radius = this.tuning.radius
+    this.barrageEvery = this.tuning.barrageEvery
+    this.barrageCount = this.tuning.barrageCount
+    this.summonKind = this.tuning.summonKind
+    this.slamCd = this.tuning.slamCooldown * 0.65
 
-    this.anim = kingSprite()
+    this.anim = kingSprite(kind)
     this.group = new THREE.Group()
     this.group.position.set(x, 0, z)
     scene.add(this.group)
@@ -90,10 +174,11 @@ export class GoblinKing {
     this.mat = this.sprite.material as THREE.MeshBasicMaterial
     this.group.add(this.sprite)
 
-    this.shadow = createShadowMesh(1.65, 1.3)
+    this.shadow = createShadowMesh(this.anim.worldW * 0.92, this.anim.worldW * 0.72)
     this.group.add(this.shadow)
 
-    // 砸地预警红圈：放在场景根节点，位置是世界绝对坐标
+    // 砸地预警圈：放在场景根节点，位置是世界绝对坐标；巫王用紫色，督军用橙红
+    const warnColor = kind === 'witch' ? 0xb46bff : kind === 'warlord' ? 0xff5a36 : 0xff3b4b
     const warnGeo = new THREE.PlaneGeometry(1, 1)
     this.warnMat = new THREE.MeshBasicMaterial({
       map: particleTexture('ring'),
@@ -101,13 +186,13 @@ export class GoblinKing {
       opacity: 0,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      color: 0xff3b4b,
+      color: warnColor,
       toneMapped: false,
     })
     this.warn = new THREE.Mesh(warnGeo, this.warnMat)
     this.warn.rotation.x = -Math.PI / 2
     this.warn.position.set(x, 0.045, z)
-    this.warn.scale.setScalar(BOSS_TUNING.slamRadius * 2)
+    this.warn.scale.setScalar(this.tuning.slamRadius * 2)
     this.warn.visible = false
     this.warn.renderOrder = 2
     scene.add(this.warn)
@@ -160,19 +245,19 @@ export class GoblinKing {
     this.chargeCd = Math.max(0, this.chargeCd - dt)
 
     // 进入二阶段
-    if (!this.phase2 && this.hp <= this.maxHp * BOSS_TUNING.phase2At) {
+    if (!this.phase2 && this.hp <= this.maxHp * this.tuning.phase2At) {
       this.phase2 = true
-      this.summonTimer = BOSS_TUNING.summonEvery
+      this.summonTimer = this.tuning.summonEvery
       this.callbacks.onRoar()
-      this.callbacks.onSummon(BOSS_TUNING.summonCount)
+      this.callbacks.onSummon(this.tuning.summonCount, this.tuning.summonKind)
     }
 
     // 二阶段定期召唤
     if (this.phase2) {
       this.summonTimer -= dt
       if (this.summonTimer <= 0) {
-        this.summonTimer = BOSS_TUNING.summonEvery
-        this.callbacks.onSummon(BOSS_TUNING.summonCount)
+        this.summonTimer = this.tuning.summonEvery
+        this.callbacks.onSummon(this.tuning.summonCount, this.tuning.summonKind)
       }
     }
 
@@ -191,10 +276,10 @@ export class GoblinKing {
         if (this.stateTimer <= 0) {
           this.warn.visible = false
           this.warnMat.opacity = 0
-          this.callbacks.onSlam(this.slamX, this.slamZ, BOSS_TUNING.slamRadius, BOSS_TUNING.damage)
+          this.callbacks.onSlam(this.slamX, this.slamZ, this.tuning.slamRadius, this.tuning.damage)
           this.state = 'recover'
           this.stateTimer = 1.1
-          this.slamCd = 3.4
+          this.slamCd = this.tuning.slamCooldown
         }
         break
       }
@@ -205,7 +290,7 @@ export class GoblinKing {
       }
       case 'charge': {
         this.stateTimer -= dt
-        const sp = BOSS_TUNING.chargeSpeed * dt
+        const sp = this.tuning.chargeSpeed * dt
         this.x += this.chargeX * sp
         this.z += this.chargeZ * sp
         moving = true
@@ -219,25 +304,25 @@ export class GoblinKing {
       default: {
         // 追击玩家
         if (dist > 0.001) {
-          this.x += nx * BOSS_TUNING.speed * dt
-          this.z += nz * BOSS_TUNING.speed * dt
+          this.x += nx * this.tuning.speed * dt
+          this.z += nz * this.tuning.speed * dt
           moving = true
         }
         if (this.slamCd <= 0 && dist < 8.5) {
           this.state = 'windup'
-          this.stateTimer = WINDUP
+          this.stateTimer = this.tuning.slamWindup
           this.slamX = targetX
           this.slamZ = targetZ
           this.warn.position.set(this.slamX, 0.045, this.slamZ)
-          this.warn.scale.setScalar(BOSS_TUNING.slamRadius * 2)
+          this.warn.scale.setScalar(this.tuning.slamRadius * 2)
           this.warn.visible = true
           this.warnMat.opacity = 0.35
         } else if (this.phase2 && this.chargeCd <= 0 && dist > 6.5) {
           this.state = 'charge'
-          this.stateTimer = 0.75
+          this.stateTimer = this.tuning.chargeDuration
           this.chargeX = nx
           this.chargeZ = nz
-          this.chargeCd = 4.5
+          this.chargeCd = this.tuning.chargeCooldown
         }
         break
       }
@@ -245,7 +330,7 @@ export class GoblinKing {
 
     // 预警圈随 Boss 动画保持可见性
     this.warn.position.y = 0.045
-    this.warn.scale.setScalar(BOSS_TUNING.slamRadius * 2)
+    this.warn.scale.setScalar(this.tuning.slamRadius * 2)
 
     // 朝向按相机转屏幕系
     const screen = rotateInput(nx, nz, getBillboardYaw())

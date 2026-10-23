@@ -8,7 +8,7 @@
  * 每格先独立绘制，再统一加 1px 深色外描边，最后由 sprites.ts 最近邻放大成纹理。
  */
 import { PixelCanvas, FRAME_COLS, FRAME_ROWS, type AtlasData } from './pixels.ts'
-import type { CharacterId } from '../types.ts'
+import type { BossKind, CharacterId } from '../types.ts'
 
 /* ============================================================
  * 主角：红黑长发冒险者少女（chibi 比例）
@@ -2155,7 +2155,12 @@ export function buildCharacterAtlas(id: CharacterId | 'mortis'): AtlasData {
  * 哥布林：small / brute / elite / caster
  * 28×32 逻辑像素 / 世界高度 1.0m（实体再乘 def.scale × mul.scale）
  * ============================================================ */
-export type GoblinKind = 'small' | 'brute' | 'elite' | 'caster'
+export type GoblinKind = 'small' | 'brute' | 'elite' | 'caster' | 'spear' | 'bomber'
+
+/** 只有蛮兵与勇士使用宽体格；长矛手/爆破手沿用普通哥布林的瘦小骨架 */
+function isWideGoblin(kind: GoblinKind): boolean {
+  return kind === 'brute' || kind === 'elite'
+}
 
 const GOBLIN = {
   outline: 0x0f130c,
@@ -2211,7 +2216,7 @@ function drawGoblinLeg(cell: PixelCanvas, x: number, w: number, lifted: boolean,
 }
 
 function drawGoblinLegs(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose): void {
-  const wide = kind !== 'small'
+  const wide = isWideGoblin(kind)
   const lx = wide ? 8 : 10
   const rx = 16
   const lw = wide ? 5 : 4
@@ -2221,7 +2226,7 @@ function drawGoblinLegs(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose): voi
 
 function drawGoblinTorso(cell: PixelCanvas, kind: GoblinKind, back: boolean, oy: number): void {
   const c = GOBLIN
-  const wide = kind !== 'small'
+  const wide = isWideGoblin(kind)
   const rows: [number, number, number][] = wide
     ? [[17, 9, 10], [18, 7, 14], [19, 6, 16], [20, 6, 16], [21, 7, 14], [22, 8, 12]]
     : [[17, 10, 8], [18, 9, 10], [19, 8, 12], [20, 8, 12], [21, 8, 12], [22, 9, 10]]
@@ -2242,7 +2247,7 @@ function drawGoblinTorso(cell: PixelCanvas, kind: GoblinKind, back: boolean, oy:
 
 function drawGoblinCloth(cell: PixelCanvas, kind: GoblinKind, oy: number): void {
   const c = GOBLIN
-  const wide = kind !== 'small'
+  const wide = isWideGoblin(kind)
   const rows: [number, number, number][] = wide
     ? [[21, 7, 14], [22, 7, 14], [23, 8, 12], [24, 9, 10]]
     : [[22, 8, 12], [23, 8, 12], [24, 9, 10]]
@@ -2253,6 +2258,26 @@ function drawGoblinCloth(cell: PixelCanvas, kind: GoblinKind, oy: number): void 
   const tips = wide ? [8, 11, 14, 17, 20] : [9, 12, 15, 18]
   for (const x of tips) cell.set(x, 25 + oy, c.cloth)
   cell.set(wide ? 13 : 14, 26 + oy, c.cloth)
+
+  // v4.8：蛮兵/长矛手的骨珠项链，爆破手的备用炸弹袋
+  if (kind === 'brute' || kind === 'spear') {
+    for (const [x, y] of [[9, 17], [11, 18], [13, 18], [15, 18], [17, 17]] as const) {
+      cell.set(x, y + oy, c.tooth)
+      cell.set(x, y + 1 + oy, c.woodDark)
+    }
+  }
+  if (kind === 'bomber') {
+    cell.fillRect(18, 21 + oy, 4, 4, c.clothDark)
+    cell.hLine(18, 21, 21 + oy, c.woodDark)
+    cell.set(20, 23 + oy, c.metalDark)
+    cell.set(19, 22 + oy, c.metal)
+  }
+  if (kind === 'elite') {
+    // 勇士的金属腰扣
+    cell.fillRect(13, 22 + oy, 3, 2, c.metal)
+    cell.set(14, 22 + oy, c.tooth)
+    cell.set(13, 23 + oy, c.metalDark)
+  }
 }
 
 /** 哥布林的木棒：up = 斜举过头顶；down = 拄在身前地上（侧面用） */
@@ -2279,9 +2304,45 @@ function drawGoblinClub(cell: PixelCanvas, hx: number, hy: number, big: boolean,
   cell.set(cx, cy - r - 1, c.woodDark)
 }
 
+/** v4.8 长矛：斜持在身体右侧，矛尖用冷铁色，红布条增加辨识度 */
+function drawGoblinSpear(cell: PixelCanvas, hx: number, hy: number, mode: 'down' | 'side'): void {
+  const c = GOBLIN
+  const tipX = mode === 'side' ? 25 : 24
+  const tipY = 3
+  // 木柄 + 高光
+  cell.line(hx, hy, tipX, tipY + 2, c.woodDark)
+  cell.line(hx + 1, hy, tipX, tipY + 3, c.wood)
+  // 缠柄布
+  cell.set(hx + 1, hy - 3, c.clothDark)
+  cell.set(hx + 2, hy - 5, c.clothDark)
+  // 枪头（右缘留 1px，避免贴边/镜像后被裁）
+  cell.triangle(tipX - 2, tipY + 4, tipX, tipY - 1, tipX, tipY + 4, c.metal)
+  cell.line(tipX, tipY - 1, tipX, tipY + 3, c.metalDark)
+  cell.set(tipX - 1, tipY + 2, c.tooth)
+  // 红布条 / 矛尾铁箍
+  cell.set(tipX - 2, tipY + 5, c.accent)
+  cell.set(tipX - 3, tipY + 6, c.accent)
+  cell.set(tipX - 2, tipY + 7, c.accent)
+  cell.set(hx, hy + 2, c.metalDark)
+}
+
+/** v4.8 爆破手：圆铁炸弹 + 燃烧引线，背带上挂备用弹 */
+function drawGoblinBomb(cell: PixelCanvas, hx: number, hy: number): void {
+  const c = GOBLIN
+  const bx = hx + 1
+  const by = hy - 1
+  cell.ellipse(bx, by, 2, 2, 0x1a1714)
+  cell.ellipse(bx, by - 1, 1, 1, c.metalDark)
+  cell.set(bx - 1, by - 2, c.metal)
+  cell.line(bx + 2, by - 2, bx + 3, by - 4, c.woodDark)
+  cell.set(bx + 3, by - 5, c.accent)
+  cell.set(bx + 4, by - 6, 0xffd166)
+  cell.set(bx + 2, by + 2, c.clothDark)
+}
+
 function drawGoblinArms(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose, withClub: boolean): void {
   const c = GOBLIN
-  const wide = kind !== 'small'
+  const wide = isWideGoblin(kind)
   const oy = p.bob
   const swing = p.armSwing
   if (wide) {
@@ -2301,13 +2362,85 @@ function drawGoblinArms(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose, with
     cell.fillRect(20, 18 + oy, 2, 5, c.skin)
     cell.fillRect(20, 23 + oy + swing, 3, 2, c.skin)
     cell.set(22, 24 + oy + swing, c.skinDark)
-    if (withClub) drawGoblinClub(cell, 21, 24 + oy + swing, false)
+    if (withClub) {
+      if (kind === 'spear') drawGoblinSpear(cell, 21, 24 + oy + swing, 'down')
+      else if (kind === 'bomber') drawGoblinBomb(cell, 21, 24 + oy + swing)
+      else drawGoblinClub(cell, 21, 24 + oy + swing, false)
+    }
+  }
+}
+
+/** 勇士的头盔 / 长矛手的红头巾 / 爆破手的皮帽；small 只加战纹 */
+function drawGoblinHeadgear(cell: PixelCanvas, kind: GoblinKind, view: 'down' | 'up' | 'side', oy: number): void {
+  const c = GOBLIN
+  if (kind === 'elite') {
+    const x0 = view === 'side' ? 10 : 7
+    const x1 = view === 'side' ? 21 : 20
+    cell.fillRect(x0, 3 + oy, x1 - x0 + 1, 3, c.metal)
+    cell.hLine(x0, x1, 5 + oy, c.metalDark)
+    cell.hLine(x0 + 1, x1 - 1, 3 + oy, c.tooth)
+    // 盔顶红缨
+    cell.fillRect(view === 'side' ? 14 : 13, 0 + oy, 3, 4, c.accent)
+    cell.set(view === 'side' ? 14 : 13, 0 + oy, 0xd85b4a)
+    cell.set(view === 'side' ? 16 : 15, 1 + oy, c.clothDark)
+    // 护耳
+    cell.fillRect(view === 'side' ? 9 : 5, 6 + oy, 2, 3, c.metalDark)
+    if (view !== 'side') cell.fillRect(21, 6 + oy, 2, 3, c.metalDark)
+  } else if (kind === 'spear') {
+    cell.hLine(7, 21, 8 + oy, c.accent)
+    cell.set(22, 8 + oy, c.accent)
+    cell.set(23, 9 + oy, c.accent)
+    cell.set(23, 10 + oy, c.clothDark)
+    cell.set(8, 8 + oy, 0xd85b4a)
+  } else if (kind === 'bomber') {
+    cell.fillRect(8, 3 + oy, 13, 2, c.clothDark)
+    cell.hLine(7, 21, 5 + oy, c.woodDark)
+    cell.hLine(8, 20, 8 + oy, c.accent)
+    cell.set(22, 8 + oy, c.accent)
+    cell.set(23, 9 + oy, 0xffd166)
+  } else if (kind === 'brute') {
+    // 蛮兵：右耳挂一枚骨环，肩部另有骨甲
+    cell.set(24, 11 + oy, c.tooth)
+    cell.set(25, 12 + oy, c.tooth)
+    cell.set(24, 13 + oy, c.woodDark)
+    cell.set(9, 8 + oy, c.accent)
+  }
+}
+
+function drawGoblinWarPaint(cell: PixelCanvas, kind: GoblinKind, view: 'down' | 'side', oy: number): void {
+  if (kind !== 'small' && kind !== 'spear' && kind !== 'bomber') return
+  const c = GOBLIN
+  if (view === 'down') {
+    cell.set(7, 12 + oy, c.accent)
+    cell.set(8, 13 + oy, c.accent)
+    cell.set(9, 14 + oy, c.accent)
+    cell.set(20, 12 + oy, c.accent)
+    cell.set(19, 13 + oy, c.accent)
+    cell.set(18, 14 + oy, c.accent)
+  } else {
+    cell.set(17, 12 + oy, c.accent)
+    cell.set(18, 13 + oy, c.accent)
+    cell.set(19, 14 + oy, c.accent)
   }
 }
 
 function drawPauldrons(cell: PixelCanvas, kind: GoblinKind, mode: 'full' | 'near' = 'full'): void {
-  if (kind !== 'elite') return
   const c = GOBLIN
+  if (kind === 'brute') {
+    // 蛮兵：粗皮带 + 骨刺护肩，轮廓比普通哥布林更凶
+    const nx = mode === 'full' ? 24 : 20
+    cell.ellipse(nx, 20, 2, 2, c.clothDark)
+    cell.set(nx - 1, 18, c.tooth)
+    cell.set(nx, 18, c.tooth)
+    cell.set(nx + 1, 19, c.woodDark)
+    if (mode === 'full') {
+      cell.ellipse(4, 20, 2, 2, c.clothDark)
+      cell.set(3, 18, c.tooth)
+      cell.set(4, 18, c.tooth)
+    }
+    return
+  }
+  if (kind !== 'elite') return
   // 金属护肩：扣在上臂最外侧的圆顶护甲
   if (mode === 'full') {
     cell.ellipse(4, 20, 2, 2, c.metal)
@@ -2321,7 +2454,7 @@ function drawPauldrons(cell: PixelCanvas, kind: GoblinKind, mode: 'full' | 'near
 
 function drawGoblinHeadDown(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose): void {
   const c = GOBLIN
-  const wide = kind !== 'small'
+  const wide = isWideGoblin(kind)
   const oy = p.bob
 
   // 尖耳（先画，头骨压住耳根）
@@ -2383,11 +2516,13 @@ function drawGoblinHeadDown(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose):
   cell.set(m1, 16 + oy, c.tooth)
   // 下巴阴影
   cell.hLine(m0, m1, 17 + oy, c.skinDark)
+  drawGoblinWarPaint(cell, kind, 'down', oy)
+  drawGoblinHeadgear(cell, kind, 'down', oy)
 }
 
 function drawGoblinHeadUp(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose): void {
   const c = GOBLIN
-  const wide = kind !== 'small'
+  const wide = isWideGoblin(kind)
   const oy = p.bob
   if (wide) {
     cell.triangle(8, 8 + oy, 1, 10 + oy, 8, 14 + oy, c.skin)
@@ -2417,6 +2552,7 @@ function drawGoblinHeadUp(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose): v
   cell.hLine(wide ? 10 : 12, wide ? 18 : 16, 9 + oy, c.skinDark)
   cell.hLine(wide ? 12 : 13, wide ? 16 : 15, 13 + oy, c.skinDark)
   cell.hLine(wide ? 12 : 13, wide ? 16 : 15, 17 + oy, c.skinDark)
+  drawGoblinHeadgear(cell, kind, 'up', oy)
 }
 
 function drawGoblinDown(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose): void {
@@ -2440,7 +2576,7 @@ function drawGoblinUp(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose): void 
 /* ---------- 哥布林：侧面（朝右） ---------- */
 function drawGoblinSide(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose): void {
   const c = GOBLIN
-  const wide = kind !== 'small'
+  const wide = isWideGoblin(kind)
   const oy = p.bob
 
   // 后耳
@@ -2480,11 +2616,13 @@ function drawGoblinSide(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose): voi
     cell.fillRect(17, 29 + oy, 6, 2, c.skinDark)
   }
 
-  // 前臂 + 木棒
+  // 前臂 + 武器
   const swing = p.armSwing
   cell.fillRect(21, 20 + oy, 2, 4, c.skin)
   cell.fillRect(22, 23 + oy + swing, 3, 2, c.skin)
-  drawGoblinClub(cell, 23, 24 + oy + swing, wide, 'down')
+  if (kind === 'spear') drawGoblinSpear(cell, 24, 24 + oy + swing, 'side')
+  else if (kind === 'bomber') drawGoblinBomb(cell, 23, 24 + oy + swing)
+  else drawGoblinClub(cell, 23, 24 + oy + swing, wide, 'down')
   // 后臂
   cell.fillRect(12, 20 + oy, 2, 4, c.skin)
   cell.fillRect(11, 24 + oy, 3, 2, c.skin)
@@ -2517,6 +2655,8 @@ function drawGoblinSide(cell: PixelCanvas, kind: GoblinKind, p: GoblinPose): voi
   cell.hLine(wide ? 12 : 13, wide ? 15 : 15, 6 + oy, c.skinHi)
   cell.set(wide ? 9 : 10, 8 + oy, c.skinHi)
 
+  drawGoblinWarPaint(cell, kind, 'side', oy)
+  drawGoblinHeadgear(cell, kind, 'side', oy)
   drawPauldrons(cell, kind, 'near')
 }
 
@@ -2873,24 +3013,85 @@ export function buildEnemyBulletAtlas(): AtlasData {
  * 哥布林之王：52×60 逻辑像素 / 世界高度 2.2m
  * 金冠、烂披风、巨斧、驼背巨躯，站立时有呼吸起伏
  * ============================================================ */
-const KING = {
-  outline: 0x0d120c,
-  skin: 0x6c9640,
-  skinDark: 0x47652a,
-  skinHi: 0x93bb58,
-  cloth: 0x5b3f28,
-  wood: 0x7a4b26,
-  woodDark: 0x4a2d15,
-  cape: 0x6e2430,
-  capeDark: 0x451520,
-  gold: 0xf2c14e,
-  goldHi: 0xffe6a0,
-  goldDark: 0xa8781f,
-  metal: 0x9aa2b0,
-  metalDark: 0x565c66,
-  tooth: 0xece4c8,
-  eye: 0xffcf3d,
+interface KingPalette {
+  outline: number
+  skin: number
+  skinDark: number
+  skinHi: number
+  cloth: number
+  wood: number
+  woodDark: number
+  cape: number
+  capeDark: number
+  gold: number
+  goldHi: number
+  goldDark: number
+  metal: number
+  metalDark: number
+  tooth: number
+  eye: number
 }
+
+/** 三套王族配色：原版绿皮金冠 / 赤褐督军 / 紫皮巫王 */
+const KING_PALETTES: Record<BossKind, KingPalette> = {
+  king: {
+    outline: 0x0d120c,
+    skin: 0x6c9640,
+    skinDark: 0x47652a,
+    skinHi: 0x93bb58,
+    cloth: 0x5b3f28,
+    wood: 0x7a4b26,
+    woodDark: 0x4a2d15,
+    cape: 0x6e2430,
+    capeDark: 0x451520,
+    gold: 0xf2c14e,
+    goldHi: 0xffe6a0,
+    goldDark: 0xa8781f,
+    metal: 0x9aa2b0,
+    metalDark: 0x565c66,
+    tooth: 0xece4c8,
+    eye: 0xffcf3d,
+  },
+  warlord: {
+    outline: 0x150b09,
+    skin: 0x8a7a3f,
+    skinDark: 0x5a4e25,
+    skinHi: 0xb6a15c,
+    cloth: 0x4a241b,
+    wood: 0x6d3b24,
+    woodDark: 0x3b1e12,
+    cape: 0x8f2024,
+    capeDark: 0x4c0e11,
+    gold: 0xc98f38,
+    goldHi: 0xf4cf86,
+    goldDark: 0x7e4d1b,
+    metal: 0xb9b3a6,
+    metalDark: 0x625d52,
+    tooth: 0xf0e2c4,
+    eye: 0xff8a3d,
+  },
+  witch: {
+    outline: 0x0b0915,
+    skin: 0x8d77b7,
+    skinDark: 0x5b477f,
+    skinHi: 0xc6b2ea,
+    cloth: 0x302540,
+    wood: 0x4b3563,
+    woodDark: 0x291b39,
+    cape: 0x4d2170,
+    capeDark: 0x28113d,
+    gold: 0x92ddc8,
+    goldHi: 0xe1fff7,
+    goldDark: 0x4f8b7e,
+    metal: 0x9caebc,
+    metalDark: 0x4b5a67,
+    tooth: 0xd9f7ee,
+    eye: 0x7ff4ff,
+  },
+}
+
+let kingPalette = KING_PALETTES.king
+let kingVariant: BossKind = 'king'
 
 interface KingPose {
   bob: number
@@ -2924,7 +3125,7 @@ function fillSpans(cell: PixelCanvas, spans: [number, number, number][], color: 
 
 /* ---------- 王的烂披风 ---------- */
 function drawKingCapeDown(cell: PixelCanvas, bob: number): void {
-  const c = KING
+  const c = kingPalette
   const spans: [number, number, number][] = [
     [16, 18, 16], [18, 12, 28], [20, 8, 36], [22, 7, 38],
     [32, 7, 38], [34, 8, 36], [36, 9, 34], [38, 10, 32],
@@ -2949,7 +3150,7 @@ function drawKingCapeDown(cell: PixelCanvas, bob: number): void {
 
 /* ---------- 王的身体 ---------- */
 function drawKingBody(cell: PixelCanvas, back: boolean, bob: number): void {
-  const c = KING
+  const c = kingPalette
   const oy = bob
   const spans: [number, number, number][] = [
     [24, 17, 18], [25, 15, 22], [26, 14, 24], [28, 14, 24],
@@ -2993,7 +3194,7 @@ function drawKingBody(cell: PixelCanvas, back: boolean, bob: number): void {
 }
 
 function drawKingLegs(cell: PixelCanvas, p: KingPose): void {
-  const c = KING
+  const c = kingPalette
   const oy = p.bob
   const liftL = p.legPhase === 1
   const liftR = p.legPhase === 2
@@ -3026,7 +3227,7 @@ function drawKingLegs(cell: PixelCanvas, p: KingPose): void {
 }
 
 function drawKingArms(cell: PixelCanvas, p: KingPose): void {
-  const c = KING
+  const c = kingPalette
   const oy = p.bob
   const s = p.axeSwing
   // 左臂（垂在身侧）
@@ -3045,7 +3246,7 @@ function drawKingArms(cell: PixelCanvas, p: KingPose): void {
 
 /* ---------- 王的巨斧（正面/背面：竖握在右侧，刃朝外） ---------- */
 function drawKingAxe(cell: PixelCanvas, p: KingPose): void {
-  const c = KING
+  const c = kingPalette
   const oy = p.bob
   const s = p.axeSwing
   const hx = 43
@@ -3082,7 +3283,7 @@ function drawKingAxe(cell: PixelCanvas, p: KingPose): void {
 
 /* ---------- 王的头部（正面） ---------- */
 function drawKingHeadDown(cell: PixelCanvas, p: KingPose): void {
-  const c = KING
+  const c = kingPalette
   const oy = p.bob
   // 大耳朵
   cell.triangle(15, 14 + oy, 2, 18 + oy, 15, 25 + oy, c.skin)
@@ -3131,7 +3332,7 @@ function drawKingHeadDown(cell: PixelCanvas, p: KingPose): void {
 }
 
 function drawKingCrown(cell: PixelCanvas, oy: number): void {
-  const c = KING
+  const c = kingPalette
   cell.fillRect(18, 6 + oy, 16, 4, c.gold)
   cell.hLine(18, 33, 9 + oy, c.goldDark)
   cell.hLine(18, 33, 6 + oy, c.goldHi)
@@ -3146,11 +3347,46 @@ function drawKingCrown(cell: PixelCanvas, oy: number): void {
   cell.set(26, 7 + oy, c.cape)
   cell.set(26, 8 + oy, c.goldDark)
   for (const x of [20, 23, 29, 32]) cell.set(x, 8 + oy, c.goldDark)
+  drawKingVariantSignature(cell, oy)
+}
+
+/** 变体剪影：督军的铁角 / 巫王的额间第三眼 */
+function drawKingVariantSignature(cell: PixelCanvas, oy: number, side = false): void {
+  const c = kingPalette
+  if (kingVariant === 'warlord') {
+    if (side) {
+      cell.line(20, 8 + oy, 14, 2 + oy, c.metalDark)
+      cell.line(21, 8 + oy, 15, 2 + oy, c.metal)
+      cell.line(35, 8 + oy, 41, 2 + oy, c.metalDark)
+      cell.line(34, 8 + oy, 40, 2 + oy, c.metal)
+      cell.set(14, 2 + oy, c.tooth)
+      cell.set(41, 2 + oy, c.tooth)
+    } else {
+      cell.line(17, 8 + oy, 12, 3 + oy, c.metalDark)
+      cell.line(18, 8 + oy, 13, 3 + oy, c.metal)
+      cell.line(35, 8 + oy, 40, 3 + oy, c.metalDark)
+      cell.line(34, 8 + oy, 39, 3 + oy, c.metal)
+      cell.set(12, 2 + oy, c.tooth)
+      cell.set(40, 2 + oy, c.tooth)
+    }
+  } else if (kingVariant === 'witch') {
+    const cx = side ? 29 : 26
+    cell.fillRect(cx - 1, 13 + oy, 3, 2, c.goldDark)
+    cell.set(cx, 13 + oy, c.eye)
+    cell.set(cx, 14 + oy, c.goldHi)
+    if (side) {
+      cell.hLine(18, 36, 10 + oy, c.goldDark)
+      cell.hLine(19, 35, 9 + oy, c.gold)
+    } else {
+      cell.set(14, 14 + oy, c.goldDark)
+      cell.set(38, 14 + oy, c.goldDark)
+    }
+  }
 }
 
 /* ---------- 王的头部（背面） ---------- */
 function drawKingHeadUp(cell: PixelCanvas, p: KingPose): void {
-  const c = KING
+  const c = kingPalette
   const oy = p.bob
   cell.triangle(15, 14 + oy, 2, 18 + oy, 15, 25 + oy, c.skin)
   cell.triangle(37, 14 + oy, 50, 18 + oy, 37, 25 + oy, c.skin)
@@ -3175,6 +3411,7 @@ function drawKingHeadUp(cell: PixelCanvas, p: KingPose): void {
   cell.triangle(18, 7 + oy, 20, 1 + oy, 22, 7 + oy, c.gold)
   cell.triangle(24, 7 + oy, 26, 0 + oy, 28, 7 + oy, c.gold)
   cell.triangle(30, 7 + oy, 32, 2 + oy, 34, 7 + oy, c.gold)
+  drawKingVariantSignature(cell, oy)
 }
 
 function drawKingDown(cell: PixelCanvas, p: KingPose): void {
@@ -3198,7 +3435,7 @@ function drawKingUp(cell: PixelCanvas, p: KingPose): void {
 
 /* ---------- 王：侧面（朝右） ---------- */
 function drawKingSide(cell: PixelCanvas, p: KingPose): void {
-  const c = KING
+  const c = kingPalette
   const oy = p.bob
   const s = p.axeSwing
   // 披风（拖在身后）
@@ -3308,9 +3545,12 @@ function drawKingSide(cell: PixelCanvas, p: KingPose): void {
   cell.triangle(26, 7 + oy, 28, 0 + oy, 30, 7 + oy, c.gold)
   cell.triangle(32, 7 + oy, 34, 2 + oy, 36, 7 + oy, c.gold)
   cell.set(28, 2 + oy, c.goldHi)
+  drawKingVariantSignature(cell, oy, true)
 }
 
-export function buildKingAtlas(): AtlasData {
+export function buildKingAtlas(kind: BossKind = 'king'): AtlasData {
+  kingPalette = KING_PALETTES[kind]
+  kingVariant = kind
   const cellW = 52
   const cellH = 60
   const canvas = new PixelCanvas(cellW * FRAME_COLS, cellH * FRAME_ROWS)
@@ -3331,9 +3571,10 @@ export function buildKingAtlas(): AtlasData {
         drawKingSide(cell, pose)
         if (dir === 'left') cell = cell.mirrored()
       }
-      cell.outline(KING.outline)
+      cell.outline(kingPalette.outline)
       canvas.blit(cell, frame * cellW, row * cellH)
     }
   }
-  return { canvas, cols: FRAME_COLS, rows: FRAME_ROWS, cellW, cellH, worldW: 1.9, worldH: 2.2 }
+  const scale = kind === 'warlord' ? { worldW: 2.08, worldH: 2.38 } : kind === 'witch' ? { worldW: 1.86, worldH: 2.16 } : { worldW: 1.9, worldH: 2.2 }
+  return { canvas, cols: FRAME_COLS, rows: FRAME_ROWS, cellW, cellH, ...scale }
 }

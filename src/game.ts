@@ -1,9 +1,17 @@
 import * as THREE from 'three'
 import { Player } from './entities/player'
-import { enemyBulletSprite, getBillboardYaw, setSpriteFrame, type SpriteAnim } from './art/sprites'
+import { enemyBulletSprite, bombTexture, getBillboardYaw, setSpriteFrame, type SpriteAnim } from './art/sprites'
 import { Goblin } from './entities/goblin'
-import { GOBLIN_SMALL, GOBLIN_BRUTE, GOBLIN_ELITE, GOBLIN_CASTER } from './data/gameConfig'
-import { GoblinKing } from './entities/boss'
+import {
+  GOBLIN_SMALL,
+  GOBLIN_BRUTE,
+  GOBLIN_ELITE,
+  GOBLIN_CASTER,
+  GOBLIN_SPEAR,
+  GOBLIN_BOMBER,
+} from './data/gameConfig'
+import { GoblinKing, BOSS_TITLES } from './entities/boss'
+import { RoomNpc, RoomPortal } from './entities/roomNpc'
 import { PickupManager } from './entities/pickups'
 import { CameraRig } from './systems/cameraRig'
 import { Vfx } from './systems/vfx'
@@ -56,9 +64,11 @@ import {
 import type { HudV3 } from './ui/hud'
 import type {
   AwakeningChoice,
+  BossKind,
   CardStat,
   CharacterId,
   DifficultyId,
+  EnemyKind,
   GamePhase,
   HudSnapshot,
   InventoryItem,
@@ -83,14 +93,45 @@ interface GameWorld extends CombatWorld {
   playerHpRatio: () => number
 }
 
-/** 普通怪的战术招式状态机（brute 冲撞 / elite 震地） */
+/** 普通怪的战术招式状态机（brute 冲撞 / elite 震地 / spear 直线突刺） */
 interface MobMove {
-  kind: 'charge-windup' | 'charge' | 'slam-windup'
+  kind: 'charge-windup' | 'charge' | 'slam-windup' | 'spear-windup'
   timer: number
   baseSpeed: number
-  /** 冲锋或震地的锁定落点 */
+  /** 冲锋、震地或突刺的锁定落点 */
   x: number
   z: number
+}
+
+/** 爆破手抛出的炸弹：从怪脚下划抛物线落到目标点 */
+interface BombShot {
+  sprite: THREE.Sprite
+  startX: number
+  startZ: number
+  targetX: number
+  targetZ: number
+  x: number
+  z: number
+  t: number
+  duration: number
+  radius: number
+  damage: number
+}
+
+/** 时空隧道房间：选完路线后玩家实际走进来，由 NPC 开启房间内容 */
+interface RoomMapState {
+  offer: TunnelOffer
+  npc: RoomNpc
+  portal: RoomPortal | null
+  resolved: boolean
+}
+
+/** Boss 召唤的延迟刷怪，避免一帧内生成过多 drawcall */
+interface PendingSpawn {
+  kind: EnemyKind
+  x: number
+  z: number
+  timer: number
 }
 
 function makeRunState(character: CharacterId, difficulty: DifficultyId): RunState {
@@ -131,19 +172,30 @@ export class Game {
   private pickups: PickupManager
   private goblins: Goblin[] = []
   private boss: GoblinKing | null = null
-  private goblinKinds = new Map<Goblin, 'small' | 'brute' | 'elite' | 'caster'>()
+  private goblinKinds = new Map<Goblin, EnemyKind>()
   private contactCd = new Map<Goblin, number>()
-  /** 普通怪的战术招式（冲撞 / 震地） */
+  /** 普通怪的战术招式（冲撞 / 震地 / 突刺） */
   private mobMoves = new Map<Goblin, MobMove>()
   /** 普通怪下次可放招式的冷却 */
   private mobMoveCd = new Map<Goblin, number>()
-  /** 远程怪开火冷却 */
+  /** 远程怪开火冷却（术士 / 爆破手共用，怪只会是其中一种） */
   private casterCd = new Map<Goblin, number>()
   /** 术士开火次数：每第 3 发改为三连射 */
   private casterVolleys = new Map<Goblin, number>()
   /** 敌方弹幕（紫球） */
   private enemyShots: { mesh: THREE.Mesh; x: number; z: number; vx: number; vz: number; life: number; damage: number }[] = []
   private bulletAnim: SpriteAnim | null = null
+  /** 爆破手的抛物线炸弹 */
+  private bombShots: BombShot[] = []
+  /** 延迟生成的召唤物 */
+  private pendingSpawns: PendingSpawn[] = []
+  /** 房间怪潮：分批进场，避免一次生成 30+ 只导致卡顿/drawcall 爆炸 */
+  private roomSpawnRemaining = 0
+  private roomSpawnIndex = 0
+  private roomEliteCount = 0
+  private roomSpawnTimer = 0
+  /** 当前时空隧道房间；为 null 时就是普通战斗层 */
+  private roomMap: RoomMapState | null = null
 
   private clock = new THREE.Clock()
   private raycaster = new THREE.Raycaster()
@@ -361,6 +413,14 @@ export class Game {
     this.mobMoveCd.clear()
     this.casterCd.clear()
     this.casterVolleys.clear()
+    this.clearEnemyShots()
+    this.clearBombShots()
+    this.pendingSpawns.length = 0
+    this.roomSpawnRemaining = 0
+    this.roomSpawnIndex = 0
+    this.roomEliteCount = 0
+    this.roomSpawnTimer = 0
+    this.disposeRoomMap()
     this.bossContactCd = 0
     this.bossSpawnPending = false
     if (this.boss) {
@@ -440,7 +500,13 @@ export class Game {
     this.hud.hideTunnels()
     this.hud.hideShop()
     this.hud.showLayerBanner(layer, sceneDef.name, STAGE_NAMES[this.run.stage - 1] ?? '', total)
-    if (!restoring) this.hud.toast(bossLayer ? 'Boss 层：前往祭坛，唤醒哥布林之王！' : `第 ${layer} 层 · 清完 ${this.layerTotal} 只哥布林`, 'info')
+    if (!restoring) {
+      const bossTitle = BOSS_TITLES[this.bossKindForStage()]
+      this.hud.toast(
+        bossLayer ? `Boss 层：前往祭坛，唤醒${bossTitle}！` : `第 ${layer} 层 · 清完 ${this.layerTotal} 只哥布林`,
+        'info',
+      )
+    }
     // 读档后也要先按背包 + 金币训练重算一次，否则第一层会漏掉卡片/训练属性。
     this.syncCards()
     this.saveRun(AUTOSAVE_SLOT)
@@ -457,42 +523,80 @@ export class Game {
   private spawnBoss(): void {
     // 防御性校验：Boss 只能生成在真正的阶段 Boss 层，避免任何清理残留/调试调用把它带到普通层。
     if (!isBossLayer(this.run.difficulty, this.run.layer) || !this.floor) return
-    const diff = this.run.difficulty
     const half = this.floor.halfSize
     const bossZ = -half * 0.74
-    const boss = new GoblinKing(this.scene, 0, bossZ, {
-      onSlam: (x, z, radius, damage) => {
-        this.vfx.telegraph(x, z, radius, 0.2)
-        this.vfx.burst(x, z, { color: 0xff5a2a, count: 26, speed: 7, life: 0.5, size: 1.0 })
-        this.rig.shake(0.5)
-        audio.enemyDie()
-        this.damagePlayer(damage)
+    const kind = this.bossKindForStage()
+    const boss = this.createBoss(0, bossZ, kind, true)
+    this.hud.toast(`${boss.title}在祭坛前沉睡，靠近后才会苏醒`, 'info')
+    this.vfx.ring(0, bossZ, { color: kind === 'witch' ? 0xb46bff : 0xffb703, radius: 3, life: 0.9, grow: 2 })
+  }
+
+  /** 生成并配置 Boss；普通 Boss 层和隧道首领房共用同一套招式/召唤回调 */
+  private createBoss(x: number, z: number, kind: BossKind, dormant: boolean, hpMul = 1): GoblinKing {
+    const accent = kind === 'witch' ? 0xb46bff : kind === 'warlord' ? 0xff5a36 : 0xff5a2a
+    const boss = new GoblinKing(
+      this.scene,
+      x,
+      z,
+      {
+        onSlam: (sx, sz, radius, damage) => {
+          this.vfx.telegraph(sx, sz, radius, 0.2)
+          this.vfx.burst(sx, sz, { color: accent, count: 26, speed: 7, life: 0.5, size: 1.0 })
+          this.rig.shake(0.5)
+          audio.bossSlam()
+          this.damagePlayer(damage)
+        },
+        onSummon: (count, mobKind) => {
+          for (let i = 0; i < count; i += 1) {
+            const a = (i / count) * Math.PI * 2
+            const sx = boss.x + Math.cos(a) * 3.2
+            const sz = boss.z + Math.sin(a) * 3.2
+            // 分批入场：召唤多只时避免一帧内瞬间堆积
+            this.pendingSpawns.push({ kind: mobKind, x: sx, z: sz, timer: i * 0.16 })
+          }
+          this.vfx.ring(boss.x, boss.z, {
+            color: kind === 'witch' ? 0x8a2be2 : kind === 'warlord' ? 0xff4b2e : 0x8a2be2,
+            radius: 4.2,
+            life: 0.6,
+            grow: 1.4,
+          })
+          const mobName =
+            mobKind === 'brute'
+              ? '蛮兵'
+              : mobKind === 'caster'
+                ? '咒术师'
+                : mobKind === 'spear'
+                  ? '长矛手'
+                  : mobKind === 'bomber'
+                    ? '爆破手'
+                    : '哥布林'
+          this.hud.toast(`${boss.title}撕开裂隙，召唤${mobName}！`, 'bad')
+        },
+        onRoar: () => {
+          audio.bossRoar()
+          this.rig.shake(0.35)
+          this.hud.toast(`${boss.title}进入狂暴状态！`, 'bad')
+        },
       },
-      onSummon: (count) => {
-        for (let i = 0; i < count; i += 1) {
-          const a = (i / count) * Math.PI * 2
-          const sx = boss.x + Math.cos(a) * 3.2
-          const sz = boss.z + Math.sin(a) * 3.2
-          this.spawnGoblin('small', sx, sz)
-        }
-        this.vfx.ring(boss.x, boss.z, { color: 0x8a2be2, radius: 4.2, life: 0.6, grow: 1.4 })
-        this.hud.toast('哥布林之王撕开了裂隙，召唤援军！', 'bad')
-      },
-      onRoar: () => {
-        audio.bossRoar()
-        this.rig.shake(0.35)
-        this.hud.toast('哥布林之王进入狂暴状态！', 'bad')
-      },
-    })
-    boss.hp = bossHpFor(diff, this.run.layer)
+      kind,
+    )
+    const variantMul = kind === 'warlord' ? 1.12 : kind === 'witch' ? 1.06 : 1
+    boss.hp = Math.max(1, Math.round(bossHpFor(this.run.difficulty, this.run.layer) * variantMul * hpMul))
     boss.maxHp = boss.hp
-    boss.setDormant(true)
+    boss.setDormant(dormant)
     this.boss = boss
-    this.bossContactCd = 0
-    this.hud.showBoss('哥布林之王', boss.hp, boss.maxHp)
+    this.bossContactCd = dormant ? 0.8 : 0
+    this.bossBarrageTimer = kind === 'witch' ? 2.4 : 4
+    this.hud.showBoss(boss.title, boss.hp, boss.maxHp)
     this.fx.setBossMode(true)
-    this.hud.toast('哥布林之王在祭坛前沉睡，靠近后才会苏醒', 'info')
-    this.vfx.ring(0, bossZ, { color: 0xffb703, radius: 3, life: 0.9, grow: 2 })
+    return boss
+  }
+
+  /** 阶段 Boss 变体：第一幕王、第二幕督军、第三幕巫王 */
+  private bossKindForStage(): BossKind {
+    if (this.run.stage >= 3) return 'witch'
+    if (this.run.stage === 2) return 'warlord'
+    return 'king'
   }
 
   // ---------- 帧 ----------
@@ -536,6 +640,8 @@ export class Game {
     this.fx.update(dt)
     this.vfx.update(dt)
     this.floor?.update(dt, this.elapsed)
+    this.roomMap?.npc.update(dt)
+    this.roomMap?.portal?.update(dt)
     this.pushSnapshot()
   }
 
@@ -700,8 +806,11 @@ export class Game {
     }
 
     this.updateSpawner(dt)
+    this.updateRoomWave(dt)
+    this.updatePendingSpawns(dt)
     this.updateEnemies(dt)
     this.updateEnemyShots(dt)
+    this.updateBombShots(dt)
     this.updateBoss(dt)
     this.combat?.update(dt, p.x, p.z, this.buildWorld())
 
@@ -757,11 +866,32 @@ export class Game {
     this.checkLayerClear()
   }
 
-  /** 每帧刷新塔心信标/塔藏箱的 E 提示 */
+  /** 每帧刷新塔心信标/塔藏箱的 E 提示；时空隧道房间里改成 NPC / 出口裂隙提示 */
   private updateInteractPrompt(): void {
     const p = this.player
     const floor = this.floor
     if (!p || !floor) {
+      this.hud.setInteractPrompt(null)
+      return
+    }
+    if (this.roomMap) {
+      if (this.roomActive) {
+        this.hud.setInteractPrompt(null)
+        return
+      }
+      const room = this.roomMap
+      const npcDist = Math.hypot(p.x - room.npc.x, p.z - room.npc.z)
+      if (!room.resolved && npcDist <= 3.2) {
+        this.hud.setInteractPrompt(`${room.npc.title} · ${room.npc.hint}`)
+        return
+      }
+      if (room.resolved && room.portal) {
+        const portalDist = Math.hypot(p.x - room.portal.x, p.z - room.portal.z)
+        if (portalDist <= 3.4) {
+          this.hud.setInteractPrompt(`${room.portal.title} · ${room.portal.hint}`)
+          return
+        }
+      }
       this.hud.setInteractPrompt(null)
       return
     }
@@ -774,6 +904,10 @@ export class Game {
     const p = this.player
     const floor = this.floor
     if (!p || !floor) return
+    if (this.roomMap) {
+      this.tryRoomInteract()
+      return
+    }
     const info = floor.interactAt(p.x, p.z)
     if (!info) return
     audio.click()
@@ -824,7 +958,7 @@ export class Game {
   // ---------- 刷怪 / 敌人 ----------
 
   private updateSpawner(dt: number): void {
-    if (!this.floor) return
+    if (!this.floor || this.roomMap) return
     if (this.layerSpawned >= this.layerTotal) return
     const alive = this.goblins.length + (this.boss ? 1 : 0)
     if (alive >= maxAliveFor(this.run.difficulty, this.run.layer)) return
@@ -835,16 +969,64 @@ export class Game {
     this.spawnOne()
   }
 
+  /** 处理 Boss 召唤等延迟生成；不占用正常刷怪配额 */
+  private updatePendingSpawns(dt: number): void {
+    for (let i = this.pendingSpawns.length - 1; i >= 0; i -= 1) {
+      const spawn = this.pendingSpawns[i]
+      spawn.timer -= dt
+      if (spawn.timer > 0) continue
+      this.pendingSpawns.splice(i, 1)
+      this.spawnGoblin(spawn.kind, spawn.x, spawn.z)
+      this.vfx.ring(spawn.x, spawn.z, { color: 0x8a2be2, radius: 1.1, life: 0.35, grow: 1.7 })
+    }
+  }
+
+  /** 房间怪潮分批进场，场面上最多 12 只，清掉一批再补下一批 */
+  private updateRoomWave(dt: number): void {
+    if (!this.roomActive || this.roomSpawnRemaining <= 0) return
+    const cap = Math.min(12, Math.max(6, maxAliveFor(this.run.difficulty, this.run.layer)))
+    if (this.goblins.length >= cap) return
+    this.roomSpawnTimer -= dt
+    if (this.roomSpawnTimer > 0) return
+    this.roomSpawnTimer = 0.42
+    this.spawnRoomWaveBatch()
+  }
+
+  private spawnRoomWaveBatch(): void {
+    if (this.roomSpawnRemaining <= 0) return
+    const cap = Math.min(12, Math.max(6, maxAliveFor(this.run.difficulty, this.run.layer)))
+    const room = Math.max(0, cap - this.goblins.length)
+    const batch = Math.min(this.roomSpawnRemaining, Math.min(4, Math.max(1, room)))
+    for (let i = 0; i < batch; i += 1) {
+      const index = this.roomSpawnIndex
+      this.roomSpawnIndex += 1
+      this.roomSpawnRemaining -= 1
+      let kind: EnemyKind = 'small'
+      if (index < this.roomEliteCount) kind = 'elite'
+      else if ((index + 1) % 6 === 0) kind = 'bomber'
+      else if ((index + 1) % 4 === 0) kind = 'spear'
+      else if ((index + 1) % 5 === 0) kind = 'brute'
+      else if ((index + 1) % 7 === 0) kind = 'caster'
+      const pt = this.randomSpawnPoint()
+      this.spawnGoblin(kind, pt.x, pt.z)
+      this.layerSpawned += 1
+    }
+  }
+
   private spawnOne(): void {
     const layer = this.run.layer
-    let kind: 'small' | 'brute' | 'elite' | 'caster' = 'small'
-    const bruteChance = Math.min(0.38, 0.04 + (layer - 1) * 0.06)
+    let kind: EnemyKind = 'small'
+    const bruteChance = Math.min(0.28, 0.04 + (layer - 1) * 0.05)
     const eliteChance = layer >= 4 ? 0.08 : 0
-    const casterChance = layer >= 2 ? Math.min(0.24, 0.1 + (layer - 2) * 0.02) : 0
+    const casterChance = layer >= 2 ? Math.min(0.16, 0.07 + (layer - 2) * 0.015) : 0
+    const spearChance = layer >= 2 ? Math.min(0.2, 0.08 + (layer - 2) * 0.02) : 0
+    const bomberChance = layer >= 3 ? Math.min(0.16, 0.05 + (layer - 3) * 0.018) : 0
     const r = this.rng.next()
     if (r < eliteChance) kind = 'elite'
     else if (r < eliteChance + casterChance) kind = 'caster'
-    else if (r < eliteChance + casterChance + bruteChance) kind = 'brute'
+    else if (r < eliteChance + casterChance + spearChance) kind = 'spear'
+    else if (r < eliteChance + casterChance + spearChance + bomberChance) kind = 'bomber'
+    else if (r < eliteChance + casterChance + spearChance + bomberChance + bruteChance) kind = 'brute'
     if (this.layerSpawned + 1 >= this.layerTotal && layer >= 3) kind = 'elite'
     const point = this.randomSpawnPoint()
     this.spawnGoblin(kind, point.x, point.z)
@@ -858,8 +1040,19 @@ export class Game {
     return { x: base.x + (this.rng.next() - 0.5) * 3, z: base.z + (this.rng.next() - 0.5) * 3 }
   }
 
-  private spawnGoblin(kind: 'small' | 'brute' | 'elite' | 'caster', x: number, z: number): void {
-    const def = kind === 'small' ? GOBLIN_SMALL : kind === 'brute' ? GOBLIN_BRUTE : kind === 'caster' ? GOBLIN_CASTER : GOBLIN_ELITE
+  private spawnGoblin(kind: EnemyKind, x: number, z: number): void {
+    const def =
+      kind === 'small'
+        ? GOBLIN_SMALL
+        : kind === 'brute'
+          ? GOBLIN_BRUTE
+          : kind === 'caster'
+            ? GOBLIN_CASTER
+            : kind === 'spear'
+              ? GOBLIN_SPEAR
+              : kind === 'bomber'
+                ? GOBLIN_BOMBER
+                : GOBLIN_ELITE
     const hpMul = mobHpFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.hp
     const dmgMul = mobDamageFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.damage
     const g = new Goblin(
@@ -874,20 +1067,20 @@ export class Game {
     this.goblinKinds.set(g, kind)
     this.mobMoves.delete(g)
     this.casterVolleys.delete(g)
-    if (kind === 'brute' || kind === 'elite') {
-      // 错开首次招式，避免刚出生就贴脸冲撞/震地
+    if (kind === 'brute' || kind === 'elite' || kind === 'spear') {
+      // 错开首次招式，避免刚出生就贴脸冲撞/震地/突刺
       this.mobMoveCd.set(g, 2.0 + this.rng.next() * 1.8)
     } else {
       this.mobMoveCd.delete(g)
     }
-    if (kind === 'caster') {
-      this.casterCd.set(g, 1.2 + this.rng.next() * 1.4)
+    if (kind === 'caster' || kind === 'bomber') {
+      this.casterCd.set(g, kind === 'bomber' ? 1.6 + this.rng.next() * 1.2 : 1.2 + this.rng.next() * 1.4)
     } else {
       this.casterCd.delete(g)
     }
   }
 
-  private spawnEnemyShot(x: number, z: number, tx: number, tz: number, damage: number): void {
+  private spawnEnemyShot(x: number, z: number, tx: number, tz: number, damage: number, color = 0xffffff): void {
     if (!this.bulletAnim) this.bulletAnim = enemyBulletSprite()
     const dx = tx - x
     const dz = tz - z
@@ -895,7 +1088,7 @@ export class Game {
     const speed = 7.2
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(0.55, 0.55),
-      new THREE.MeshBasicMaterial({ map: this.bulletAnim.texture, transparent: true, depthWrite: false, toneMapped: false }),
+      new THREE.MeshBasicMaterial({ map: this.bulletAnim.texture, transparent: true, depthWrite: false, toneMapped: false, color }),
     )
     mesh.position.set(x, 0.8, z)
     mesh.renderOrder = 3
@@ -942,6 +1135,85 @@ export class Game {
     this.enemyShots.length = 0
   }
 
+  /** 爆破手抛弹：落点先亮起预警圈，炸弹沿抛物线飞行后范围爆炸 */
+  private throwBomb(sx: number, sz: number, tx: number, tz: number, damage: number): void {
+    if (this.bombShots.length >= 10) return
+    const mat = new THREE.SpriteMaterial({
+      map: bombTexture(),
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+    })
+    const sprite = new THREE.Sprite(mat)
+    sprite.center.set(0.5, 0.5)
+    sprite.scale.set(0.98, 0.98, 1)
+    sprite.position.set(sx, 0.55, sz)
+    sprite.renderOrder = 4
+    this.scene.add(sprite)
+    this.bombShots.push({
+      sprite,
+      startX: sx,
+      startZ: sz,
+      targetX: tx,
+      targetZ: tz,
+      x: sx,
+      z: sz,
+      t: 0,
+      duration: 0.82,
+      radius: 2.35,
+      damage,
+    })
+    this.vfx.telegraph(tx, tz, 2.35, 0.8)
+  }
+
+  private updateBombShots(dt: number): void {
+    const p = this.player
+    for (let i = this.bombShots.length - 1; i >= 0; i -= 1) {
+      const bomb = this.bombShots[i]
+      bomb.t += dt / bomb.duration
+      const t = Math.min(1, bomb.t)
+      bomb.x = bomb.startX + (bomb.targetX - bomb.startX) * t
+      bomb.z = bomb.startZ + (bomb.targetZ - bomb.startZ) * t
+      const y = 0.55 + Math.sin(Math.PI * t) * 2.05
+      bomb.sprite.position.set(bomb.x, y, bomb.z)
+      ;(bomb.sprite.material as THREE.SpriteMaterial).rotation += dt * 9
+      if (bomb.t < 1) continue
+
+      this.scene.remove(bomb.sprite)
+      ;(bomb.sprite.material as THREE.Material).dispose()
+      this.bombShots.splice(i, 1)
+      this.vfx.telegraph(bomb.targetX, bomb.targetZ, bomb.radius, 0.2)
+      this.vfx.ring(bomb.targetX, bomb.targetZ, {
+        color: 0xff7a2f,
+        radius: bomb.radius * 1.2,
+        life: 0.32,
+        grow: 2.4,
+      })
+      this.vfx.burst(bomb.targetX, bomb.targetZ, {
+        color: 0xff8a3d,
+        count: 24,
+        speed: 6,
+        life: 0.45,
+        size: 0.55,
+      })
+      this.rig.shake(0.24)
+      audio.bossSlam()
+      if (p && p.alive) {
+        const dx = p.x - bomb.targetX
+        const dz = p.z - bomb.targetZ
+        if (dx * dx + dz * dz < bomb.radius * bomb.radius) this.damagePlayer(bomb.damage)
+      }
+    }
+  }
+
+  private clearBombShots(): void {
+    for (const bomb of this.bombShots) {
+      this.scene.remove(bomb.sprite)
+      ;(bomb.sprite.material as THREE.Material).dispose()
+    }
+    this.bombShots.length = 0
+  }
+
   private updateEnemies(dt: number): void {
     const p = this.player
     if (!p) return
@@ -953,23 +1225,35 @@ export class Game {
       let targetX = p.x
       let targetZ = p.z
 
-      if (kind === 'caster') {
+      if (kind === 'caster' || kind === 'bomber') {
         // 术士：保持 6~10m 距离，站定读条后向玩家丢紫球；每第 3 发为三连射
+        // 爆破手：保持 5~8m 距离，抛掷有落点预警的炸弹
         const dx = g.x - p.x
         const dz = g.z - p.z
         const d = Math.hypot(dx, dz) || 1
+        const keepMin = kind === 'bomber' ? 5 : 6
+        const keepMax = kind === 'bomber' ? 8 : 10
         let tx = g.x
         let tz = g.z
-        if (d < 6) {
-          tx = p.x + (dx / d) * 9
-          tz = p.z + (dz / d) * 9
-        } else if (d > 10) {
+        if (d < keepMin) {
+          tx = p.x + (dx / d) * (keepMin + 3)
+          tz = p.z + (dz / d) * (keepMin + 3)
+        } else if (d > keepMax) {
           tx = p.x
           tz = p.z
         }
         g.update(dt, tx, tz, colliders, bounds)
         const cd = (this.casterCd.get(g) ?? 0) - dt
-        if (cd <= 0 && d < 13) {
+        if (kind === 'bomber') {
+          if (cd <= 0 && d < 12) {
+            this.throwBomb(g.x, g.z, p.x, p.z, g.damage * 1.25)
+            this.casterCd.set(g, 3.0 + this.rng.next() * 0.8)
+            this.hud.floatText(new THREE.Vector3(g.x, 1.5, g.z), '炸弹来袭！', 'crit')
+            this.vfx.ring(g.x, g.z, { color: 0xff7a2f, radius: 0.8, life: 0.35, grow: 1.6 })
+          } else {
+            this.casterCd.set(g, cd)
+          }
+        } else if (cd <= 0 && d < 13) {
           const volley = (this.casterVolleys.get(g) ?? 0) + 1
           this.casterVolleys.set(g, volley)
           if (volley % 3 === 0) {
@@ -1018,6 +1302,53 @@ export class Game {
               g.speed = move.baseSpeed
               this.mobMoves.delete(g)
               this.mobMoveCd.set(g, 4.8)
+            }
+          } else if (move.kind === 'spear-windup') {
+            // 长矛手：锁定直线，短暂前摇后沿直线突刺；横向走位可完全躲开
+            targetX = g.x
+            targetZ = g.z
+            if (move.timer <= 0) {
+              this.mobMoves.delete(g)
+              g.speed = move.baseSpeed
+              this.mobMoveCd.set(g, 4.2)
+              this.contactCd.set(g, 0.5)
+              const ox = g.x
+              const oz = g.z
+              const dx = move.x - ox
+              const dz = move.z - oz
+              const len = Math.hypot(dx, dz) || 1
+              const reach = Math.min(10, len + 2.2)
+              const ex = ox + (dx / len) * reach
+              const ez = oz + (dz / len) * reach
+              for (const t of [0.28, 0.58, 0.88]) {
+                this.vfx.ring(ox + (ex - ox) * t, oz + (ez - oz) * t, {
+                  color: 0xffd166,
+                  radius: 0.9,
+                  life: 0.28,
+                  grow: 0.5,
+                  y: 0.08,
+                })
+              }
+              this.vfx.telegraph(ex, ez, 1.4, 0.2)
+              this.vfx.burst((ox + ex) * 0.5, (oz + ez) * 0.5, {
+                color: 0xffb703,
+                count: 18,
+                speed: 6,
+                life: 0.4,
+                size: 0.32,
+                y: 0.5,
+              })
+              this.rig.shake(0.12)
+              const reachDX = ex - ox
+              const reachDZ = ez - oz
+              const reachLen2 = reachDX * reachDX + reachDZ * reachDZ || 1
+              const t = Math.max(
+                0,
+                Math.min(1, ((p.x - ox) * reachDX + (p.z - oz) * reachDZ) / reachLen2),
+              )
+              const px = ox + reachDX * t
+              const pz = oz + reachDZ * t
+              if (Math.hypot(p.x - px, p.z - pz) < 1.15) this.damagePlayer(g.damage * 1.45)
             }
           } else {
             // 精英震地前摇：锁定玩家当前位置，0.72s 后结算范围伤害
@@ -1069,6 +1400,20 @@ export class Game {
               targetZ = g.z
               this.vfx.telegraph(p.x, p.z, 3.2, 0.72)
               this.hud.floatText(new THREE.Vector3(g.x, 1.6, g.z), '震地！', 'crit')
+            } else if (kind === 'spear' && d > 2.4 && d < 9.5) {
+              // 长矛手：锁定玩家当前位置，0.55s 后沿直线突刺
+              this.mobMoves.set(g, {
+                kind: 'spear-windup',
+                timer: 0.55,
+                baseSpeed,
+                x: p.x,
+                z: p.z,
+              })
+              targetX = g.x
+              targetZ = g.z
+              this.vfx.telegraph(p.x, p.z, 1.5, 0.55)
+              this.hud.floatText(new THREE.Vector3(g.x, 1.5, g.z), '突刺！', 'crit')
+              this.vfx.ring(g.x, g.z, { color: 0xffd166, radius: 0.8, life: 0.35, grow: 1.4 })
             }
           }
         }
@@ -1135,8 +1480,13 @@ export class Game {
       if (dx * dx + dz * dz < 9.5 * 9.5) {
         boss.setDormant(false)
         this.bossContactCd = 0.8
-        this.hud.toast('哥布林之王苏醒了！', 'bad')
-        this.vfx.ring(boss.x, boss.z, { color: 0xffb703, radius: 3, life: 0.8, grow: 2.2 })
+        this.hud.toast(`${boss.title}苏醒了！`, 'bad')
+        this.vfx.ring(boss.x, boss.z, {
+          color: boss.kind === 'witch' ? 0xb46bff : 0xffb703,
+          radius: 3,
+          life: 0.8,
+          grow: 2.2,
+        })
         this.rig.shake(0.45)
         audio.bossRoar()
       }
@@ -1162,14 +1512,23 @@ export class Game {
     if (boss.phase2 && boss.alive) {
       this.bossBarrageTimer -= dt
       if (this.bossBarrageTimer <= 0) {
-        this.bossBarrageTimer = 6.5
-        const count = 12
+        this.bossBarrageTimer = boss.barrageEvery
+        const count = boss.barrageCount
+        const barrageColor = boss.kind === 'witch' ? 0xb46bff : boss.kind === 'warlord' ? 0xff6a3d : 0x9a5cff
+        const barrageMul = boss.kind === 'witch' ? 1.7 : boss.kind === 'warlord' ? 2.5 : 2.2
         for (let i = 0; i < count; i += 1) {
           const a = (i / count) * Math.PI * 2 + this.rng.next() * 0.2
-          this.spawnEnemyShot(boss.x, boss.z, boss.x + Math.cos(a) * 10, boss.z + Math.sin(a) * 10, mobDamageFor(this.run.difficulty, this.run.layer) * 2.2)
+          this.spawnEnemyShot(
+            boss.x,
+            boss.z,
+            boss.x + Math.cos(a) * 10,
+            boss.z + Math.sin(a) * 10,
+            mobDamageFor(this.run.difficulty, this.run.layer) * barrageMul,
+            barrageColor,
+          )
         }
-        this.vfx.ring(boss.x, boss.z, { color: 0xb46bff, radius: 2.2, life: 0.5, grow: 2.4 })
-        this.hud.toast('哥布林之王释放了紫色弹幕！', 'bad')
+        this.vfx.ring(boss.x, boss.z, { color: barrageColor, radius: 2.2, life: 0.5, grow: 2.4 })
+        this.hud.toast(`${boss.title}释放了${boss.kind === 'witch' ? '巫术' : '紫色'}弹幕！`, 'bad')
         audio.bossRoar()
       }
     }
@@ -1239,11 +1598,11 @@ export class Game {
     this.onGoblinKilled(goblin, kind)
   }
 
-  private onGoblinKilled(g: Goblin, kind: 'small' | 'brute' | 'elite' | 'caster'): void {
+  private onGoblinKilled(g: Goblin, kind: EnemyKind): void {
     this.run.kills += 1
     this.layerKilled += 1
     this.combat?.onKill(g, this.buildWorld())
-    const rewardKind = kind === 'caster' ? 'small' : kind
+    const rewardKind = kind === 'elite' ? 'elite' : kind === 'brute' ? 'brute' : 'small'
     const gold = killGold(this.run.layer, rewardKind)
     this.pickups.spawn('gold', g.x, g.z, gold)
     if (kind === 'elite') {
@@ -1283,8 +1642,13 @@ export class Game {
   // ---------- 通关 / 失败 ----------
 
   private checkLayerClear(): void {
+    if (this.roomMap && !this.roomActive) return
     if (this.roomActive) {
-      if (this.goblins.length === 0) this.finishRoomBattle()
+      // Boss 房由 onBossDefeated 结算；只要 Boss 对象还在，就不走小怪清场逻辑
+      if (this.boss) return
+      if (this.roomSpawnRemaining === 0 && this.goblins.length === 0 && this.pendingSpawns.length === 0) {
+        this.finishRoomBattle()
+      }
       return
     }
     // Boss 层只以「哥布林之王死亡」结算（updateBoss → onBossDefeated）；
@@ -1337,6 +1701,8 @@ export class Game {
   private onBossDefeated(): void {
     if (!this.boss) return
     const boss = this.boss
+    const title = boss.title
+    const accent = boss.kind === 'witch' ? 0xb46bff : boss.kind === 'warlord' ? 0xff6a3d : 0xffd166
     boss.alive = false
     this.hud.hideBoss()
     this.fx.setBossMode(false)
@@ -1345,15 +1711,24 @@ export class Game {
     audio.win()
     audio.setBgmIntensity(1)
     this.vfx.levelUpBurst(boss.x, boss.z)
-    this.vfx.ring(boss.x, boss.z, { color: 0xffd166, radius: 3, life: 1.2, grow: 4 })
-    this.vfx.burst(boss.x, boss.z, { color: 0xffd166, count: 40, speed: 9, life: 0.9, size: 0.4 })
+    this.vfx.ring(boss.x, boss.z, { color: accent, radius: 3, life: 1.2, grow: 4 })
+    this.vfx.burst(boss.x, boss.z, { color: accent, count: 40, speed: 9, life: 0.9, size: 0.4 })
     this.run.gold += Math.round(killGold(this.run.layer, 'boss'))
     this.collectRemainingPickups()
     // Boss 也计入全局累计击杀；Boss 层的清层条件仍只看 Boss 死亡。
     this.run.kills += 1
-    this.hud.toast('哥布林之王倒下了！', 'good')
+    this.hud.toast(`${title}倒下了！`, 'good')
     boss.dispose()
     this.boss = null
+    // 隧道首领房：Boss 倒下只完成房间，不推进整层流程
+    if (this.roomMap && this.roomActive) {
+      this.roomActive = false
+      this.clearRoomAdds()
+      audio.startBgm('shop')
+      audio.setBgmIntensity(0)
+      this.completeRoomMap(`${title}已被击败`)
+      return
+    }
     if (this.run.layer >= layerCount(this.run.difficulty)) this.win()
     else {
       this.run.gold += clearGoldFor(this.run.difficulty, this.run.layer)
@@ -1591,30 +1966,96 @@ export class Game {
     if (!offer) return
     this.hud.hideTunnels()
     audio.click()
-    const res = resolveRoom(offer, this.run.layer, this.run.character, this.rng, this.run.trainingBuys ?? 0)
+    audio.tunnel()
+    this.enterRoomMap(offer)
+  }
+
+  /** 选完路线后真正进入房间地图：玩家可以走动，找到 NPC 按 E 开启房间内容 */
+  private enterRoomMap(offer: TunnelOffer): void {
+    const p = this.player
+    const floor = this.floor
+    if (!p || !floor) return
+    this.disposeRoomMap()
+    // 防御性清场：正常流程是清层后才开隧道，但调试/异常状态下不能把上一波怪带进房间
+    this.clearRoomAdds()
+    this.phase = 'playing'
+    this.roomActive = false
+    this.layerTotal = 0
+    this.layerKilled = 0
+    this.layerSpawned = 0
+    this.roomSpawnRemaining = 0
+    this.roomSpawnIndex = 0
+    this.roomEliteCount = 0
+    this.roomSpawnTimer = 0
+    this.clearEnemyShots()
+    this.clearBombShots()
+    this.pendingSpawns.length = 0
+    this.hud.hideShop()
+    this.hud.setInteractPrompt(null)
+    this.fx.setBossMode(false)
+    this.rig.reset()
+    this.rig.setArenaHalf(floor.halfSize)
+    this.rig.fitForArena(floor.halfSize)
+
+    const half = floor.halfSize
+    p.x = 0
+    p.z = half * 0.56
+    p.grantInvuln(0.9)
+    const npcZ = Math.min(4.2, half * 0.22)
+    const npc = new RoomNpc(this.scene, offer.room, 0, npcZ)
+    this.roomMap = { offer, npc, portal: null, resolved: false }
+    audio.startBgm('shop')
+    audio.setBgmIntensity(0)
+    audio.duck(false)
+    this.hud.toast(`${offer.title} · ${npc.title}：${npc.hint}`, 'info')
+    this.saveRun(AUTOSAVE_SLOT)
+  }
+
+  /** E 键在房间里的优先级：未完成时找 NPC，完成后找出口裂隙 */
+  private tryRoomInteract(): void {
+    const p = this.player
+    const room = this.roomMap
+    if (!p || !room || this.roomActive) return
+    if (!room.resolved) {
+      const d = Math.hypot(p.x - room.npc.x, p.z - room.npc.z)
+      if (d <= 3.2) this.interactRoomNpc()
+      return
+    }
+    if (!room.portal) return
+    const d = Math.hypot(p.x - room.portal.x, p.z - room.portal.z)
+    if (d <= 3.4) this.leaveRoomMap()
+  }
+
+  /** 由 NPC 触发的房间结算：商家开额外货架、祭坛献金、战鼓开怪、宝箱/休憩直接给奖励 */
+  private interactRoomNpc(): void {
+    const room = this.roomMap
+    const p = this.player
+    if (!room || !p || room.resolved) return
+    audio.click()
+    this.hud.setInteractPrompt(null)
+    const res = resolveRoom(room.offer, this.run.layer, this.run.character, this.rng, this.run.trainingBuys ?? 0)
+
     if (res.gold) {
       this.run.gold += res.gold
       this.hud.toast(`+${res.gold} 金币`, 'good')
+      this.vfx.burst(room.npc.x, room.npc.z, { color: 0xffd166, count: 18, speed: 4, life: 0.5, size: 0.3, y: 0.8 })
     }
     if (res.card) {
-      if (this.grantRewardItem(res.card)) {
-        this.hud.toast(`${res.card.icon} ${res.card.name} 已放入背包`, 'good')
-      }
+      if (this.grantRewardItem(res.card)) this.hud.toast(`${res.card.icon} ${res.card.name} 已放入背包`, 'good')
     }
     if (res.rest) {
-      const p = this.player
-      if (p) {
-        p.heal(p.stats.maxHp * res.rest.healRatio)
-        this.run.hp = p.hp
-      }
+      p.heal(p.stats.maxHp * res.rest.healRatio)
+      this.run.hp = p.hp
       this.combat?.grantCharge(res.rest.chargeRatio)
-      this.vfx.ring(p?.x ?? 0, p?.z ?? 0, { color: 0x8fffc8, radius: 3, life: 0.8, grow: 2.2 })
-      this.hud.toast(`休憩：回血 28%、充能 +50%`, 'good')
+      this.vfx.ring(p.x, p.z, { color: 0x8fffc8, radius: 3, life: 0.8, grow: 2.2 })
+      this.vfx.burst(p.x, p.z, { color: 0x8fffc8, count: 20, speed: 3.5, life: 0.6, size: 0.28, y: 0.8 })
+      this.hud.toast('营地休整：回血 28%、充能 +50%', 'good')
       audio.heal()
-      this.proceedToShop()
+      this.completeRoomMap('营地休整完成')
       return
     }
     if (res.shopOffers && res.shopOffers.length > 0) {
+      room.resolved = true
       this.shopOffers = res.shopOffers
       this.shopMode = 'room'
       this.phase = 'shop'
@@ -1628,41 +2069,144 @@ export class Game {
         const qv = res.altarReward.value ?? 1
         const tier = qv >= 2.6 ? 3 : qv >= 1.5 ? 2 : 1
         const item = makeCardItem(res.altarReward.stat, tier)
-        if (!this.grantItem(item)) return
+        this.grantRewardItem(item)
         this.run.gold -= res.altarCost
         this.hud.toast(`祭坛献金 ${res.altarCost}：${item.name}`, 'good')
+        this.vfx.ring(room.npc.x, room.npc.z, { color: 0xb46bff, radius: 2.8, life: 0.7, grow: 2.1 })
       } else {
-        this.hud.toast('金币不足，祭坛不理你', 'bad')
+        // 金币不够也给一点怜悯，保证房间不会变成死路
+        p.heal(p.stats.maxHp * 0.12)
+        this.run.hp = p.hp
+        this.hud.toast('金币不足，祭坛只留下了一点回复', 'bad')
+        this.vfx.ring(room.npc.x, room.npc.z, { color: 0x8fffc8, radius: 2.2, life: 0.6, grow: 1.8 })
       }
+      this.completeRoomMap('祭坛的回应已结束')
+      return
+    }
+    if (res.bossLayer) {
+      this.startRoomBossBattle()
+      return
     }
     if (res.enemies) {
       this.startRoomBattle(res.enemies.count, res.enemies.elite)
       return
     }
+    this.completeRoomMap(room.offer.title)
+  }
+
+  /** 战斗房清空、宝箱打开、祭坛结算后：在房间入口生成裂隙 */
+  private completeRoomMap(message: string): void {
+    const room = this.roomMap
+    const floor = this.floor
+    if (!room || !floor) return
+    room.resolved = true
+    this.layerTotal = 0
+    this.layerKilled = 0
+    this.layerSpawned = 0
+    this.roomSpawnRemaining = 0
+    this.roomSpawnIndex = 0
+    this.roomEliteCount = 0
+    this.roomSpawnTimer = 0
+    if (!room.portal) {
+      const portalZ = floor.halfSize * 0.58
+      room.portal = new RoomPortal(this.scene, 0, portalZ)
+      this.vfx.ring(0, portalZ, { color: 0x3bd5b0, radius: 2.6, life: 0.8, grow: 2.4 })
+      this.vfx.burst(0, portalZ, { color: 0x8fffe4, count: 26, speed: 4.5, life: 0.7, size: 0.3, y: 1.1 })
+      audio.stairs()
+    }
+    this.hud.toast(`${message} · 出口裂隙已开启`, 'good')
+    this.hud.setInteractPrompt(null)
+  }
+
+  private leaveRoomMap(): void {
+    if (!this.roomMap) return
+    this.disposeRoomMap()
+    this.hud.setInteractPrompt(null)
+    audio.click()
     this.proceedToShop()
+    this.hud.toast('穿过裂隙，回到塔内商店', 'info')
+  }
+
+  private disposeRoomMap(): void {
+    if (!this.roomMap) return
+    this.roomMap.npc.dispose()
+    this.roomMap.portal?.dispose()
+    this.roomMap = null
+    this.hud.setInteractPrompt(null)
   }
 
   private startRoomBattle(count: number, elite: number): void {
     this.phase = 'playing'
     this.roomActive = true
+    this.clearEnemyShots()
+    this.clearBombShots()
+    this.pendingSpawns.length = 0
     audio.startBgm('battle')
     audio.setBgmIntensity(1)
     this.layerTotal = count
     this.layerKilled = 0
-    for (let i = 0; i < count; i += 1) {
-      const pt = this.randomSpawnPoint()
-      const kind = i < elite ? 'elite' : i % 5 === 0 ? 'brute' : 'small'
-      this.spawnGoblin(kind, pt.x, pt.z)
-    }
+    this.layerSpawned = 0
+    this.roomSpawnRemaining = count
+    this.roomSpawnIndex = 0
+    this.roomEliteCount = elite
+    this.roomSpawnTimer = 0
+    // 先放一小批，其余按存活上限分批进场
+    this.spawnRoomWaveBatch()
     this.hud.toast(elite > 0 ? '精英战：击败所有敌人！' : '战斗房：清空敌人！', 'bad')
     audio.bossRoar()
+  }
+
+  private startRoomBossBattle(): void {
+    const floor = this.floor
+    if (!floor) return
+    this.phase = 'playing'
+    this.roomActive = true
+    this.clearEnemyShots()
+    this.clearBombShots()
+    this.pendingSpawns.length = 0
+    // 首领房不计入小怪配额，HUD 由 boss 血条 + roomObjective 表达
+    this.layerTotal = 0
+    this.layerKilled = 0
+    this.layerSpawned = 0
+    this.roomSpawnRemaining = 0
+    this.roomSpawnIndex = 0
+    this.roomEliteCount = 0
+    this.roomSpawnTimer = 0
+    audio.startBgm('boss')
+    audio.setBgmIntensity(2)
+    const boss = this.createBoss(0, -floor.halfSize * 0.42, this.bossKindForStage(), false, 0.72)
+    this.hud.toast(`首领房：${boss.title}苏醒了！`, 'bad')
+    audio.bossRoar()
+    this.rig.shake(0.5)
+    this.vfx.ring(boss.x, boss.z, { color: boss.kind === 'witch' ? 0xb46bff : 0xff6a3d, radius: 3.2, life: 0.9, grow: 2.4 })
+  }
+
+  /** 首领房结束后清掉 Boss 召唤的残余小怪与弹幕，避免玩家离开房间时把怪带进商店 */
+  private clearRoomAdds(): void {
+    for (const g of this.goblins) g.dispose()
+    this.goblins.length = 0
+    this.goblinKinds.clear()
+    this.contactCd.clear()
+    this.mobMoves.clear()
+    this.mobMoveCd.clear()
+    this.casterCd.clear()
+    this.casterVolleys.clear()
+    this.pendingSpawns.length = 0
+    this.roomSpawnRemaining = 0
+    this.clearEnemyShots()
+    this.clearBombShots()
   }
 
   private finishRoomBattle(): void {
     this.roomActive = false
     const picked = this.collectRemainingPickups()
-    this.hud.toast(picked.count > 0 ? `房间清空！自动吸取 ${picked.count} 件掉落` : '房间清空！', 'good')
     this.run.gold += clearGoldFor(this.run.difficulty, this.run.layer)
+    if (this.roomMap) {
+      this.hud.toast(picked.count > 0 ? `房间清空！自动吸取 ${picked.count} 件掉落` : '房间清空！', 'good')
+      this.completeRoomMap('战斗房已清空')
+      return
+    }
+    this.hud.toast(picked.count > 0 ? `房间清空！自动吸取 ${picked.count} 件掉落` : '房间清空！', 'good')
     this.proceedToShop()
   }
 
@@ -1775,6 +2319,14 @@ export class Game {
     if (fromRoom) {
       this.shopMode = 'standard'
       this.shopLeaveLockedUntil = Date.now() + 500
+      // 房间商店只是隧道房间里的额外货架：收起后回到房间，由 NPC 旁的出口裂隙离开。
+      if (this.roomMap) {
+        this.phase = 'playing'
+        audio.startBgm('shop')
+        audio.setBgmIntensity(0)
+        this.completeRoomMap('额外货架已收起')
+        return
+      }
       this.proceedToShop()
       this.hud.toast('额外货架结束，进入本层标准商店', 'good')
       return
@@ -2006,6 +2558,19 @@ export class Game {
 
   private pushSnapshot(): void {
     const p = this.player
+    const room = this.roomMap
+    let roomObjective: string | undefined
+    if (room) {
+      if (this.roomActive) {
+        roomObjective = this.boss
+          ? `房间首领 · ${this.boss.title}`
+          : `房间敌人 ${this.layerKilled} / ${this.layerTotal}`
+      } else if (room.resolved) {
+        roomObjective = '从出口裂隙离开房间'
+      } else {
+        roomObjective = `${room.npc.title} · ${room.npc.hint}`
+      }
+    }
     const snap: HudSnapshot = {
       hp: Math.max(0, Math.round(p?.hp ?? 0)),
       maxHp: Math.round(p?.stats.maxHp ?? 100),
@@ -2013,6 +2578,9 @@ export class Game {
       gold: this.run.gold,
       floor: this.run.layer,
       floorName: this.sceneName,
+      room: !!room,
+      roomName: room?.offer.title,
+      roomObjective,
       stage: this.run.stage,
       stageName: STAGE_NAMES[this.run.stage - 1] ?? '',
       quota: this.layerKilled,
@@ -2035,7 +2603,7 @@ export class Game {
       difficultyName: DIFFICULTIES[this.run.difficulty].name,
       character: this.run.character,
       characterName: CHARACTERS[this.run.character].name,
-      boss: this.boss ? { name: '哥布林之王', hp: this.boss.hp, maxHp: this.boss.maxHp } : null,
+      boss: this.boss ? { name: this.boss.title, hp: this.boss.hp, maxHp: this.boss.maxHp } : null,
     }
     this.hud.update(snap)
   }

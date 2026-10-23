@@ -97,6 +97,7 @@ for (const [file, url] of Object.entries(modules)) {
 
 const images = new Map<string, HTMLImageElement>()
 const textures = new Map<string, THREE.CanvasTexture>()
+const variantTextures = new Map<string, THREE.CanvasTexture>()
 let loaded = false
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -166,6 +167,54 @@ export function artTexture(key: ArtKey): THREE.CanvasTexture | null {
 }
 
 /**
+ * Boss 变体纹理：不新增外部原画，直接把同一张 boss_king 图集做色相/饱和/叠色处理。
+ * 结果按 `key#variant` 缓存，和原图共享 UV 布局。
+ */
+export function variantArtTexture(
+  key: ArtKey,
+  variant: string,
+  filter: string,
+  overlay?: string,
+  overlayAlpha = 0.2,
+): THREE.CanvasTexture | null {
+  const cacheKey = `${key}#${variant}`
+  const cached = variantTextures.get(cacheKey)
+  if (cached) return cached
+  const img = images.get(key)
+  if (!img) return null
+  const canvas = document.createElement('canvas')
+  canvas.width = img.naturalWidth || img.width
+  canvas.height = img.naturalHeight || img.height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return null
+  ctx.imageSmoothingEnabled = false
+  try {
+    ctx.filter = filter
+  } catch {
+    /* 老浏览器不支持 filter 时仍能画出原图 */
+  }
+  ctx.drawImage(img, 0, 0)
+  if (overlay) {
+    ctx.filter = 'none'
+    ctx.globalCompositeOperation = 'source-atop'
+    ctx.globalAlpha = overlayAlpha
+    ctx.fillStyle = overlay
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.globalAlpha = 1
+    ctx.globalCompositeOperation = 'source-over'
+  }
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.magFilter = THREE.NearestFilter
+  tex.minFilter = THREE.NearestFilter
+  tex.generateMipmaps = false
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.flipY = false
+  tex.needsUpdate = true
+  variantTextures.set(cacheKey, tex)
+  return tex
+}
+
+/**
  * 把一张等分图集接成 SpriteAnim。
  * @param cols 图集列数（= 每个朝向的帧数）
  * @param rows 图集行数
@@ -181,6 +230,18 @@ export function sheetAnimFromArt(
 ): SpriteAnim | null {
   const texture = artTexture(key)
   if (!texture) return null
+  return animFromTexture(texture, cols, rows, worldW, worldH, rowOfFacing)
+}
+
+/** 用同一套 UV 规则把已有的图集纹理包成 SpriteAnim */
+function animFromTexture(
+  texture: THREE.CanvasTexture,
+  cols: number,
+  rows: number,
+  worldW: number,
+  worldH: number,
+  rowOfFacing: Partial<Record<Facing, number>> = {},
+): SpriteAnim {
   const frames = {} as SpriteAnim['frames']
   for (const facing of Object.keys(ROW_OF) as Facing[]) {
     const row = rowOfFacing[facing] ?? ROW_OF[facing]
@@ -193,6 +254,23 @@ export function sheetAnimFromArt(
   return { texture, frames, cols, rows, worldW, worldH }
 }
 
+/** 变体 Boss 图集：原画调色版优先，缺图时回退到程序化配色图集 */
+export function variantAnimFromArt(
+  key: ArtKey,
+  variant: string,
+  cols: number,
+  rows: number,
+  worldW: number,
+  worldH: number,
+  filter: string,
+  overlay?: string,
+  overlayAlpha = 0.2,
+): SpriteAnim | null {
+  const texture = variantArtTexture(key, variant, filter, overlay, overlayAlpha)
+  if (!texture) return null
+  return animFromTexture(texture, cols, rows, worldW, worldH)
+}
+
 /** 单张原画（道具/弹道/粒子）当一帧精灵用 */
 export function singleFrameAnimFromArt(key: ArtKey, worldW: number, worldH: number): SpriteAnim | null {
   return sheetAnimFromArt(key, 1, 1, worldW, worldH)
@@ -201,6 +279,8 @@ export function singleFrameAnimFromArt(key: ArtKey, worldW: number, worldH: numb
 export function disposeArt(): void {
   for (const tex of textures.values()) tex.dispose()
   textures.clear()
+  for (const tex of variantTextures.values()) tex.dispose()
+  variantTextures.clear()
   images.clear()
   loaded = false
 }

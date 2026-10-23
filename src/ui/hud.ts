@@ -819,17 +819,31 @@ class HudImpl implements HudV3 {
     const floor = Math.max(1, Math.floor(snapshot.floor || 1))
     setText(this.floorNumEl, String(floor))
     if (snapshot.stage != null) setText(this.stageEl, String(Math.max(1, Math.floor(snapshot.stage))))
-    setText(this.floorNameEl, snapshot.floorName || '未知区域')
+    setText(
+      this.floorNameEl,
+      snapshot.room && snapshot.roomName ? `${snapshot.floorName || '未知区域'} · ${snapshot.roomName}` : snapshot.floorName || '未知区域',
+    )
 
-    const bossLayer = snapshot.bossLayer === true
+    const room = snapshot.room === true
+    const bossLayer = snapshot.bossLayer === true && !room
+    const bossName = snapshot.boss?.name ?? '哥布林之王'
     const total = Math.max(0, Math.floor(snapshot.monsterTotal ?? snapshot.quotaMax ?? 0))
     const killed = Math.max(0, Math.floor(snapshot.monsterKilled ?? snapshot.quota ?? 0))
     const cleared = !bossLayer && total > 0 && killed >= total
     this.floorEl.classList.toggle('is-boss-layer', bossLayer)
     this.floorEl.classList.toggle('is-cleared', cleared)
+    this.floorEl.classList.toggle('is-room', room)
     setText(
       this.quotaTextEl,
-      bossLayer ? '首领层 · 击败哥布林之王' : total > 0 ? `击杀 ${Math.min(killed, total)} / ${total}` : '首领层 · 击败首领',
+      room
+        ? total > 0
+          ? `房间敌人 ${Math.min(killed, total)} / ${total}`
+          : '时空房间 · 探索'
+        : bossLayer
+          ? `首领层 · 击败${bossName}`
+          : total > 0
+            ? `击杀 ${Math.min(killed, total)} / ${total}`
+            : '首领层 · 击败首领',
     )
     setBarFill(this.quotaFillEl, bossLayer ? 0 : total > 0 ? clamp01(killed / total) : 0, this.barCache)
 
@@ -888,13 +902,15 @@ class HudImpl implements HudV3 {
     // 目标提示
     setText(
       this.objectiveEl,
-      bossLayer
-        ? '击败哥布林之王 · 本层通关'
-        : total <= 0
-          ? '击败本层首领'
-          : cleared
-            ? '本层已清空 · 前往时空隧道'
-            : `剩余 ${total - killed} 只 · 清空后进入时空隧道`,
+      room
+        ? snapshot.roomObjective || '探索时空房间 · 找到出口裂隙'
+        : bossLayer
+          ? `击败${bossName} · 本层通关`
+          : total <= 0
+            ? '击败本层首领'
+            : cleared
+              ? '本层已清空 · 前往时空隧道'
+              : `剩余 ${total - killed} 只 · 清空后进入时空隧道`,
     )
 
     this.updateBossFromSnapshot(snapshot)
@@ -946,11 +962,12 @@ class HudImpl implements HudV3 {
     const hasLayer = layer > 0
     const isBonus = mode === 'bonus'
     const isAwakening = mode === 'awakening'
+    const isTunnel = !isBonus && !isAwakening
     this.tunnelMode = mode
     this.tunnelOffers = offers.slice(0, this.tunnelCardRefs.length)
     this.tunnelEl.classList.toggle('is-bonus', isBonus)
     this.tunnelEl.classList.toggle('is-awakening', isAwakening)
-    this.tunnelEl.classList.toggle('is-tunnel', !isBonus && !isAwakening)
+    this.tunnelEl.classList.toggle('is-tunnel', isTunnel)
     this.tunnelEl.dataset.mode = mode
     this.tunnelEl.setAttribute(
       'aria-label',
@@ -959,9 +976,9 @@ class HudImpl implements HudV3 {
     setText(this.tunnelModeMarkEl, isAwakening ? '✦' : isBonus ? '🎁' : '🧭')
     setText(
       this.tunnelKickerEl,
-      isAwakening ? 'AWAKENING · LAYER 3 / 6 / 9' : isBonus ? 'STEP 1 / 2 · LAYER REWARD' : 'STEP 2 / 2 · TIME RIFT',
+      isAwakening ? 'AWAKENING · LAYER 3 / 6 / 9' : isBonus ? 'STEP 1 / 2 · LAYER REWARD' : 'TIME RIFT',
     )
-    setText(this.tunnelTitleEl, isAwakening ? '角色觉醒 · 二选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道 · 选择路线')
+    setText(this.tunnelTitleEl, isAwakening ? '角色觉醒 · 二选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道')
     setText(
       this.tunnelSubEl,
       isAwakening
@@ -973,9 +990,10 @@ class HudImpl implements HudV3 {
             ? `第 ${layer} 层清层奖励 · 领取后进入时空隧道选路线`
             : '本层清层奖励 · 领取后进入时空隧道选路线'
           : hasLayer
-            ? `第 ${layer} 层已清空 · 选择前进的路线`
-            : '选择前进的路线',
+            ? `第 ${layer} 层 · 选择一条路`
+            : '选择一条路',
     )
+    this.tunnelHintEl.hidden = isTunnel
     this.tunnelHintEl.innerHTML = isAwakening
       ? '选中一个觉醒，再点「确认觉醒」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd> 可直接选中）'
       : isBonus
@@ -1005,6 +1023,7 @@ class HudImpl implements HudV3 {
       setText(ref.title, offer.title)
       setText(ref.desc, offer.desc)
       const lines = this.tunnelPreviewLines(offer, mode)
+      ref.preview.hidden = isTunnel
       ref.preview.replaceChildren(...lines.map((line) => this.makePreviewRow(line)))
       setText(ref.key, String(i + 1))
     }
@@ -1025,7 +1044,7 @@ class HudImpl implements HudV3 {
     const roomShop = mode === 'room'
     this.shopKickerEl.textContent = roomShop ? 'WANDERING MERCHANT · EXTRA SHELF' : 'WANDERING MERCHANT'
     this.shopTitleEl.textContent = roomShop ? '流浪商人 · 额外货架' : '流浪商人'
-    this.shopContinueEl.textContent = roomShop ? '结束选购 → 标准商店' : '继续前进'
+    this.shopContinueEl.textContent = roomShop ? '结束选购 → 房间出口' : '继续前进'
     this.shopOffers = offers.slice(0, 4)
     this.shopRefreshCost = Math.max(0, refreshCost)
     this.renderShop(gold)

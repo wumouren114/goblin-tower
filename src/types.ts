@@ -4,6 +4,12 @@ import type { AwakeningId, StyleId } from './data/awakenings'
 export type DifficultyId = 'easy' | 'normal' | 'hard'
 export type GamePhase = 'title' | 'select' | 'playing' | 'tunnel' | 'shop' | 'dead' | 'victory'
 export type Facing = 'down' | 'up' | 'left' | 'right'
+/** 普通怪种类；v4.8 新增长矛手与爆破手 */
+export type EnemyKind = 'small' | 'brute' | 'elite' | 'caster' | 'spear' | 'bomber'
+/** Boss 变体：王 / 督军 / 巫王 */
+export type BossKind = 'king' | 'warlord' | 'witch'
+/** 时空隧道房间里的引路人外观 */
+export type RoomNpcKind = 'merchant' | 'oracle' | 'warden' | 'guide'
 /** v3 掉落物：金币 / 回血心 / 白米饭（肥鱼专武，回充能）/ 掉落卡 */
 export type PickupKind = 'gold' | 'heart' | 'rice' | 'card'
 export type ThemeId = 'moss' | 'candle' | 'forge' | 'frost' | 'throne'
@@ -311,7 +317,7 @@ export interface EnemyDef {
   xp: number
   goldChance: number
   scale: number
-  model: 'goblin' | 'goblin-big' | 'king' | 'caster'
+  model: 'goblin' | 'goblin-big' | 'king' | 'caster' | 'goblin-spear' | 'goblin-bomber'
 }
 
 /** 角色风格资源（节拍 / 剑意 / 泡泡） */
@@ -355,6 +361,10 @@ export interface HudSnapshot {
   monsterTotal?: number
   /** 当前层是否为阶段 Boss 层；Boss 层以击杀首领为唯一通关条件 */
   bossLayer?: boolean
+  /** 时空隧道房间：HUD 隐藏本层击杀配额，改为房间目标 */
+  room?: boolean
+  roomName?: string
+  roomObjective?: string
   charge?: number
   chargeMax?: number
   weaponLv?: number

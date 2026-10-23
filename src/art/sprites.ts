@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { CharacterId, Facing } from '../types'
+import type { BossKind, CharacterId, Facing } from '../types'
 import { PixelCanvas, type AtlasData } from './pixels'
 import {
   buildCharacterAtlas,
@@ -8,7 +8,12 @@ import {
   buildKingAtlas,
   type GoblinKind,
 } from './characters'
-import { sheetAnimFromArt, singleFrameAnimFromArt, type ArtKey } from './atlasImport'
+import {
+  sheetAnimFromArt,
+  singleFrameAnimFromArt,
+  variantAnimFromArt,
+  type ArtKey,
+} from './atlasImport'
 
 /**
  * 像素精灵的 three.js 包装层。
@@ -128,12 +133,51 @@ export function playerSprite(id: CharacterId | 'mortis' = 'mutsumi'): SpriteAnim
   return anim
 }
 
-/** 哥布林图集（small / brute / elite / caster 各缓存一张）——原画包未提供，保持程序化 */
+/** 哥布林图集（small / brute / elite / caster / spear / bomber 各缓存一张）——原画包未提供，保持程序化 */
 export function goblinSprite(kind: GoblinKind): SpriteAnim {
   const key = `goblin-${kind}`
   let anim = spriteCache.get(key)
   if (!anim) {
     anim = atlasToAnim(buildGoblinAtlas(kind))
+    spriteCache.set(key, anim)
+  }
+  return anim
+}
+
+/** 哥布林之王图集：原版用 boss_king 原画；督军/巫王用同一原画的调色变体 */
+export function kingSprite(kind: BossKind = 'king'): SpriteAnim {
+  const key = `king-${kind}`
+  let anim = spriteCache.get(key)
+  if (!anim) {
+    if (kind === 'warlord') {
+      anim =
+        variantAnimFromArt(
+          'boss_king',
+          'warlord',
+          6,
+          4,
+          2.08,
+          2.38,
+          'sepia(0.35) saturate(0.72) contrast(1.16) brightness(0.78)',
+          '#5a1a14',
+          0.38,
+        ) ?? atlasToAnim(buildKingAtlas('warlord'))
+    } else if (kind === 'witch') {
+      anim =
+        variantAnimFromArt(
+          'boss_king',
+          'witch',
+          6,
+          4,
+          1.86,
+          2.16,
+          'hue-rotate(150deg) saturate(0.88) contrast(1.1) brightness(0.8)',
+          '#321a55',
+          0.24,
+        ) ?? atlasToAnim(buildKingAtlas('witch'))
+    } else {
+      anim = sheetAnimFromArt('boss_king', 6, 4, 1.9, 2.2) ?? atlasToAnim(buildKingAtlas('king'))
+    }
     spriteCache.set(key, anim)
   }
   return anim
@@ -145,16 +189,6 @@ export function enemyBulletSprite(): SpriteAnim {
   if (!anim) {
     anim = singleFrameAnimFromArt('proj_orbfire', 0.55, 0.55) ?? atlasToAnim(buildEnemyBulletAtlas())
     spriteCache.set('enemy-bullet', anim)
-  }
-  return anim
-}
-
-/** 哥布林之王图集：原画 boss_king 6 列 × 4 行（96×112 格） */
-export function kingSprite(): SpriteAnim {
-  let anim = spriteCache.get('king')
-  if (!anim) {
-    anim = sheetAnimFromArt('boss_king', 6, 4, 1.9, 2.2) ?? atlasToAnim(buildKingAtlas())
-    spriteCache.set('king', anim)
   }
   return anim
 }
@@ -230,6 +264,63 @@ export function shadowTexture(): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(canvas)
   tex.colorSpace = THREE.SRGBColorSpace
   shadowTex = tex
+  return tex
+}
+
+let bombTex: THREE.CanvasTexture | null = null
+
+/** v4.8 爆破手的炸弹：程序化 24×24 像素图，暗铁球 + 灼热铁箍 + 燃烧引线 */
+export function bombTexture(): THREE.CanvasTexture {
+  if (bombTex) return bombTex
+  const size = 24
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.clearRect(0, 0, size, size)
+  // 暗色余烬外圈：保证在暗色地砖上可读，但把主体留给铁球
+  ctx.fillStyle = '#6e2a14'
+  ctx.beginPath()
+  ctx.arc(11, 14, 8, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#ff8a3d'
+  ctx.beginPath()
+  ctx.arc(11, 14, 7, 0, Math.PI * 2)
+  ctx.fill()
+  // 暗铁球与高光
+  ctx.fillStyle = '#120a10'
+  ctx.beginPath()
+  ctx.arc(11, 14, 6, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#2b1d26'
+  ctx.beginPath()
+  ctx.arc(11, 14, 4.6, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = '#6b4d54'
+  ctx.fillRect(8, 10, 2, 2)
+  ctx.fillStyle = '#ffe6a0'
+  ctx.fillRect(9, 9, 1, 1)
+  // 铁箍只压在球体上
+  ctx.fillStyle = '#c9a15c'
+  ctx.fillRect(5, 13, 12, 1)
+  ctx.fillRect(5, 16, 12, 1)
+  // 引线 + 火花
+  ctx.fillStyle = '#7a4b26'
+  ctx.fillRect(16, 8, 2, 2)
+  ctx.fillRect(17, 5, 2, 3)
+  ctx.fillStyle = '#ff7a2f'
+  ctx.fillRect(18, 3, 2, 2)
+  ctx.fillRect(19, 1, 1, 2)
+  ctx.fillStyle = '#ffe6a0'
+  ctx.fillRect(19, 1, 1, 1)
+  ctx.fillStyle = '#fff6c9'
+  ctx.fillRect(20, 4, 1, 1)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.magFilter = THREE.NearestFilter
+  tex.minFilter = THREE.NearestFilter
+  tex.generateMipmaps = false
+  tex.colorSpace = THREE.SRGBColorSpace
+  bombTex = tex
   return tex
 }
 
