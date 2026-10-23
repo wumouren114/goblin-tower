@@ -211,7 +211,7 @@ export interface Hud {
 }
 ```
 要求：
-- **标题页**：游戏名「哥布林之塔 / GOBLIN TOWER」，像素风标题、难度三选（休闲/标准/噩梦，调用 `handlers.onStart(difficulty)`）、操作说明、开始按钮；首次点击触发 `Audio` 解锁由 Lead 处理。
+- **标题页**：游戏名「残响高塔 / ECHO SPIRE」，像素风标题、难度三选（休闲/标准/噩梦，调用 `handlers.onStart(difficulty)`）、操作说明、开始按钮；首次点击触发 `Audio` 解锁由 Lead 处理。
 - **HUD**：左上楼层与目标进度（击杀 quota / 计时），右上金币/等级/击杀；底部左侧 HP 条（数字）+ 经验条（等级）、底部右侧回旋刃/属性小提示；中央下方 `showPrompt`（"走到阶梯旁按 E"）。
 - **升级三选一**：卡片展示图标、名称、描述、稀有度配色（common/rare/epic），点击或按 1/2/3 选择，回调 `handlers.onUpgradePick(id)`；面板出现时暂停感（模糊背景）。
 - **Boss 血条**：屏幕上方横向血条 + 名字 + 阶段标记。

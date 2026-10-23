@@ -9,6 +9,7 @@ import { themeFor } from './themes'
 import { disposeTree } from './util'
 
 const UP = new THREE.Vector3(0, 1, 0)
+const ZERO_BANNER = new THREE.Matrix4().makeScale(0, 0, 0)
 
 /** 火把运行时状态 */
 interface TorchEntry {
@@ -29,6 +30,31 @@ interface PropPlacement {
   scale: number
   rot: number
   kind: PropKind
+}
+
+/** 可交互的塔藏箱：开启后箱盖翻开、封印熄灭，但箱体仍作为障碍物 */
+interface TowerCache {
+  x: number
+  z: number
+  used: boolean
+  open: number
+  group: THREE.Group
+  lidPivot: THREE.Group
+  seal: THREE.Sprite
+  sealBaseY: number
+  phase: number
+}
+
+export type TowerInteractionKind = 'altar' | 'cache'
+
+/** 供 HUD 显示的一次互动提示；坐标用于交互判定与特效落点 */
+export interface TowerInteraction {
+  kind: TowerInteractionKind
+  index: number
+  x: number
+  z: number
+  title: string
+  hint: string
 }
 
 /**
@@ -70,11 +96,22 @@ export class TowerFloor implements WorldV3 {
   private wallMat: THREE.MeshStandardMaterial | null = null
   private keyLight: THREE.DirectionalLight | null = null
   private pillarMeshes: THREE.InstancedMesh[] = []
+  private bannerMeshes: THREE.InstancedMesh[] = []
+  private bannerSides: ('south' | 'north' | 'east' | 'west')[] = []
+  private bannerBaseMatrices: THREE.Matrix4[][] = []
+  private readonly hiddenWalls = new Set<'south' | 'north' | 'east' | 'west'>()
 
   private altarRune: THREE.Mesh | null = null
   private crystal: THREE.Mesh | null = null
   private crystalBaseY = 1.4
   private altarLight: THREE.PointLight | null = null
+  private altarBeam: THREE.Mesh | null = null
+  private altarHalo: THREE.Mesh | null = null
+  private altarGlow: THREE.Sprite | null = null
+  private altarUsed = false
+  private altarFlash = 0
+  private altarInteractR = 4.8
+  private caches: TowerCache[] = []
 
   private mote: THREE.Points | null = null
   private moteBase: Float32Array | null = null
@@ -123,21 +160,23 @@ export class TowerFloor implements WorldV3 {
     this.props = props
 
     /* ---------------- 场景光照与雾 ---------------- */
-    const airColor = mixHex(theme.fogColor, 0xd9f3ef, 0.38)
-    this.scene.fog = new THREE.FogExp2(airColor, theme.fogDensity * 0.68)
-    const sky = mixHex(mixHex(theme.fogColor, theme.accentColor, 0.35), 0xe6fbf7, 0.32)
+    // v4.7：角色是明亮像素二次元画风，场景不再走高对比黑箱；降低雾密度、
+    // 抬高环境光与补光，让角色、道具和塔元素都能被一眼读清。
+    const airColor = mixHex(theme.fogColor, 0xd9f3ef, 0.56)
+    this.scene.fog = new THREE.FogExp2(airColor, theme.fogDensity * 0.46)
+    const sky = mixHex(mixHex(theme.fogColor, theme.accentColor, 0.32), 0xe6fbf7, 0.48)
     this.scene.background = new THREE.Color(sky)
 
     // 清新化：环境光更亮、地面反光不再压黑
     const hemi = new THREE.HemisphereLight(
-      mixHex(theme.ambientColor, 0xeafbff, 0.45),
-      mixHex(theme.fogColor, theme.floorColor, 0.5),
-      theme.ambientIntensity * 1.32,
+      mixHex(theme.ambientColor, 0xeafbff, 0.58),
+      mixHex(theme.fogColor, theme.floorColor, 0.64),
+      theme.ambientIntensity * 1.62,
     )
     this.root.add(hemi)
 
     // 主光：唯一投影光源（2048 阴影贴图）
-    const key = new THREE.DirectionalLight(mixHex(theme.keyColor, 0xfff6e8, 0.18), theme.keyIntensity)
+    const key = new THREE.DirectionalLight(mixHex(theme.keyColor, 0xfff6e8, 0.28), theme.keyIntensity * 1.12)
     key.position.set(-half * 0.46, wallH * 4.6 + 7, half * 0.58)
     key.castShadow = true
     key.shadow.mapSize.set(2048, 2048)
@@ -157,7 +196,7 @@ export class TowerFloor implements WorldV3 {
     this.keyLight = key
 
     // 冷色补光（不投影），拉开体积感
-    const fill = new THREE.DirectionalLight(mixHex(theme.fogColor, 0xbfe9ff, 0.7), 0.55)
+    const fill = new THREE.DirectionalLight(mixHex(theme.fogColor, 0xbfe9ff, 0.82), 0.86)
     fill.position.set(half * 0.7, wallH * 1.8, -half * 0.75)
     this.root.add(fill)
 
@@ -169,6 +208,10 @@ export class TowerFloor implements WorldV3 {
       map: tex.floor,
       roughness: 0.95,
       metalness: 0.02,
+      // 轻微抬亮并加入主题色自发光，避免角色像站在黑底贴纸上
+      color: new THREE.Color(1.12, 1.12, 1.12),
+      emissive: new THREE.Color(mixHex(theme.floorColor, theme.accentColor, 0.22)),
+      emissiveIntensity: 0.075,
     })
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(size, size), floorMat)
     floor.rotation.x = -Math.PI / 2
@@ -181,8 +224,14 @@ export class TowerFloor implements WorldV3 {
     tex.wall.wrapT = THREE.RepeatWrapping
     tex.wall.repeat.set(Math.max(2, Math.round(size / 3.4)), Math.max(1, Math.round(wallH / 3)))
     tex.wall.anisotropy = 8
-    const wallMat = new THREE.MeshStandardMaterial({ map: tex.wall, roughness: 0.97, metalness: 0.02 })
-    this.wallMat = wallMat
+    const wallMat = new THREE.MeshStandardMaterial({
+      map: tex.wall,
+      roughness: 0.97,
+      metalness: 0.02,
+      color: new THREE.Color(1.08, 1.08, 1.08),
+      emissive: new THREE.Color(mixHex(theme.wallColor, theme.accentColor, 0.12)),
+      emissiveIntensity: 0.045,
+    })
     this.wallMat = wallMat
 
     const addWall = (w: number, d: number, x: number, z: number, side: 'south' | 'north' | 'east' | 'west'): void => {
@@ -272,6 +321,9 @@ export class TowerFloor implements WorldV3 {
     /* ---------------- 火把 ---------------- */
     this.buildTorches(half, wallH, tex)
 
+    /* ---------------- 塔旗（强化“塔”的识别） ---------------- */
+    this.buildTowerBanners(half, wallH, tex)
+
     /* ---------------- 主题道具 ---------------- */
     const seed = hashSeed(def.id)
     const layoutRng = new Rng(0x9e3779b9 ^ seed ^ (half << 3))
@@ -346,9 +398,63 @@ export class TowerFloor implements WorldV3 {
     this.crystal.castShadow = true
     this.root.add(this.crystal)
 
-    this.altarLight = new THREE.PointLight(theme.accentColor, 9, Math.max(12, half * 0.7), 2)
+    // 塔心光柱：只增加一个透明自发光圆柱，不新增实时光源
+    const beamMat = new THREE.MeshBasicMaterial({
+      map: tex.beam,
+      color: mixHex(theme.accentColor, 0xffffff, 0.18),
+      transparent: true,
+      opacity: 0.13,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    })
+    this.altarBeam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.18, stepR * 0.82, wallH * 2.15, 16, 1, true),
+      beamMat,
+    )
+    this.altarBeam.position.y = wallH * 1.06
+    this.altarBeam.renderOrder = 3
+    this.root.add(this.altarBeam)
+
+    // 悬浮塔徽：复用符文贴图，作为“信标”的视觉核心
+    const haloMat = new THREE.MeshBasicMaterial({
+      map: tex.rune,
+      color: mixHex(theme.accentColor, 0xffffff, 0.28),
+      transparent: true,
+      opacity: 0.55,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    })
+    this.altarHalo = new THREE.Mesh(new THREE.PlaneGeometry(stepR * 1.22, stepR * 1.22), haloMat)
+    this.altarHalo.rotation.x = -Math.PI / 2
+    this.altarHalo.position.y = this.crystalBaseY + 1.25
+    this.altarHalo.renderOrder = 3
+    this.root.add(this.altarHalo)
+
+    const glowMat = new THREE.SpriteMaterial({
+      map: tex.glow,
+      color: theme.accentColor,
+      transparent: true,
+      opacity: 0.3,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    })
+    this.altarGlow = new THREE.Sprite(glowMat)
+    this.altarGlow.position.set(0, this.crystalBaseY + 0.25, 0)
+    this.altarGlow.scale.set(5.4, 5.4, 1)
+    this.altarGlow.renderOrder = 2
+    this.root.add(this.altarGlow)
+
+    this.altarLight = new THREE.PointLight(theme.accentColor, 11, Math.max(13, half * 0.75), 2)
     this.altarLight.position.set(0, this.crystalBaseY + 0.3, 0)
     this.root.add(this.altarLight)
+
+    // 塔心信标交互半径：站在台阶外沿也能按 E
+    this.altarInteractR = stepR + 1.95
 
     // 祭坛单体碰撞（低矮但不可穿行）
     this.propColliders.push({ x: 0, z: 0, r: stepR * 0.92 })
@@ -481,6 +587,105 @@ export class TowerFloor implements WorldV3 {
     )
   }
 
+  /* ---------------- 塔旗 ---------------- */
+  private buildTowerBanners(half: number, wallH: number, tex: TextureBook): void {
+    const theme = this.theme
+    if (!theme) return
+
+    const clothMat = new THREE.MeshStandardMaterial({
+      color: mixHex(theme.accentColor, theme.wallColor, 0.7),
+      roughness: 0.94,
+      metalness: 0.02,
+      emissive: theme.accentColor,
+      emissiveIntensity: 0.05,
+      side: THREE.DoubleSide,
+      flatShading: true,
+    })
+    const rodMat = new THREE.MeshStandardMaterial({
+      color: mixHex(theme.wallTopColor, 0x3a2a18, 0.42),
+      roughness: 0.62,
+      metalness: 0.55,
+      flatShading: true,
+    })
+    const crestMat = new THREE.MeshBasicMaterial({
+      map: tex.rune,
+      color: mixHex(theme.accentColor, 0xffffff, 0.2),
+      transparent: true,
+      opacity: 0.5,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    })
+
+    const clothGeo = new THREE.ShapeGeometry(
+      (() => {
+        const shape = new THREE.Shape()
+        shape.moveTo(-0.85, 1.1)
+        shape.lineTo(0.85, 1.1)
+        shape.lineTo(0.85, -0.52)
+        shape.lineTo(0, -1.1)
+        shape.lineTo(-0.85, -0.52)
+        shape.closePath()
+        return shape
+      })(),
+    )
+    const rodGeo = new THREE.BoxGeometry(2.0, 0.09, 0.09)
+    const crestGeo = new THREE.PlaneGeometry(0.82, 0.82)
+    const clothMats: THREE.Matrix4[] = []
+    const rodMats: THREE.Matrix4[] = []
+    const crestMats: THREE.Matrix4[] = []
+    const y = wallH * 0.61
+    const inset = 0.16
+    const off = half * 0.52
+
+    const spots: { x: number; z: number; ry: number }[] = [
+      { x: -off, z: -half + inset, ry: 0 },
+      { x: off, z: -half + inset, ry: 0 },
+      { x: -off, z: half - inset, ry: Math.PI },
+      { x: off, z: half - inset, ry: Math.PI },
+      { x: half - inset, z: -off, ry: -Math.PI / 2 },
+      { x: half - inset, z: off, ry: -Math.PI / 2 },
+      { x: -half + inset, z: -off, ry: Math.PI / 2 },
+      { x: -half + inset, z: off, ry: Math.PI / 2 },
+    ]
+
+    for (const s of spots) {
+      const q = new THREE.Quaternion().setFromAxisAngle(UP, s.ry)
+      const one = new THREE.Vector3(1, 1, 1)
+      clothMats.push(new THREE.Matrix4().compose(new THREE.Vector3(s.x, y, s.z), q, one))
+      rodMats.push(
+        new THREE.Matrix4().compose(new THREE.Vector3(s.x, y + 1.16, s.z), q, one),
+      )
+      // 塔徽略微向房间内侧偏移，避免与布料 z-fighting
+      const nx = Math.sin(s.ry) * 0.026
+      const nz = Math.cos(s.ry) * 0.026
+      crestMats.push(
+        new THREE.Matrix4().compose(new THREE.Vector3(s.x + nx, y + 0.16, s.z + nz), q, one),
+      )
+    }
+
+    const cloth = this.instanced(clothGeo, clothMat, clothMats, false)
+    const rod = this.instanced(rodGeo, rodMat, rodMats, true)
+    const crest = this.instanced(crestGeo, crestMat, crestMats, false)
+    crest.renderOrder = 3
+    this.bannerMeshes.push(cloth, rod, crest)
+    this.bannerBaseMatrices = [clothMats, rodMats, crestMats]
+    this.bannerSides = [
+      'north',
+      'north',
+      'south',
+      'south',
+      'east',
+      'east',
+      'west',
+      'west',
+    ]
+    this.root.add(cloth)
+    this.root.add(rod)
+    this.root.add(crest)
+  }
+
   /* ---------------- 道具 ---------------- */
   private buildProps(def: SceneDef, props: PropSet, rng: Rng): void {
     const half = def.halfSize
@@ -591,6 +796,155 @@ export class TowerFloor implements WorldV3 {
       im.frustumCulled = false
       this.root.add(im)
     }
+
+    // 塔藏箱：贴着现有障碍生成，让“绕开障碍”变成值得探索的路线
+    this.buildTowerCaches(def, placements, rng)
+  }
+
+  /** 在已有大型道具旁放置 2 个可开启的塔藏箱 */
+  private buildTowerCaches(def: SceneDef, placements: PropPlacement[], rng: Rng): void {
+    const theme = this.theme
+    const tex = this.tex
+    if (!theme || !tex) return
+    const half = def.halfSize
+    const chosen: Vec2[] = []
+    const candidates = placements
+      .filter((p) => Math.hypot(p.x, p.z) > half * 0.28)
+      .slice()
+      .sort((a, b) => Math.hypot(b.x, b.z) - Math.hypot(a.x, a.z))
+
+    const valid = (x: number, z: number): boolean => {
+      if (Math.abs(x) > half - 2.25 || Math.abs(z) > half - 2.25) return false
+      if (Math.hypot(x, z) < 4.8) return false
+      if (Math.hypot(x - this.entrance.x, z - this.entrance.z) < TowerFloor.ENTRANCE_CLEAR) return false
+      for (const s of this.spawnPoints) if (Math.hypot(x - s.x, z - s.z) < 2.6) return false
+      for (const t of this.torches) if (Math.hypot(x - t.tx, z - t.tz) < 2.1) return false
+      for (const c of chosen) if (Math.hypot(x - c.x, z - c.z) < 4.5) return false
+      for (const c of this.propColliders) {
+        if (Math.hypot(x - c.x, z - c.z) < c.r + 0.92) return false
+      }
+      return true
+    }
+
+    for (const pl of candidates) {
+      if (chosen.length >= 2) break
+      const base = Math.atan2(pl.z, pl.x)
+      const offsets = [0, Math.PI * 0.62, -Math.PI * 0.62, Math.PI]
+      for (const off of offsets) {
+        const a = base + off
+        const x = pl.x + Math.cos(a) * 2.15
+        const z = pl.z + Math.sin(a) * 2.15
+        if (!valid(x, z)) continue
+        chosen.push({ x, z })
+        this.spawnTowerCache(x, z, rng.range(0, Math.PI * 2), chosen.length - 1)
+        break
+      }
+    }
+
+    // 极端情况下（超小场景/道具全挤在中心）至少给一个，保证塔藏玩法存在
+    if (chosen.length === 0) {
+      for (let i = 0; i < 48 && chosen.length === 0; i++) {
+        const a = (i / 48) * Math.PI * 2
+        const r = half * 0.56
+        const x = Math.cos(a) * r
+        const z = Math.sin(a) * r
+        if (!valid(x, z)) continue
+        chosen.push({ x, z })
+        this.spawnTowerCache(x, z, a, 0)
+      }
+    }
+  }
+
+  /** 木箱 + 金属箍 + 发光封印；开箱时只翻盖，不产生额外实时灯光 */
+  private spawnTowerCache(x: number, z: number, rot: number, index: number): void {
+    const theme = this.theme
+    const tex = this.tex
+    if (!theme || !tex) return
+
+    const woodMat = new THREE.MeshStandardMaterial({
+      color: mixHex(theme.propColors[0], 0x6b4a2d, 0.42),
+      roughness: 0.88,
+      metalness: 0.03,
+      flatShading: true,
+    })
+    const bandMat = new THREE.MeshStandardMaterial({
+      color: mixHex(theme.wallTopColor, 0x5a4028, 0.5),
+      roughness: 0.48,
+      metalness: 0.68,
+      flatShading: true,
+    })
+    const sealMat = new THREE.SpriteMaterial({
+      map: tex.rune,
+      color: mixHex(theme.accentColor, 0xffffff, 0.2),
+      transparent: true,
+      opacity: 0.9,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    })
+    const glowMat = new THREE.SpriteMaterial({
+      map: tex.glow,
+      color: theme.accentColor,
+      transparent: true,
+      opacity: 0.3,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    })
+
+    const group = new THREE.Group()
+    group.position.set(x, 0, z)
+    group.rotation.y = rot
+
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.64, 0.76), woodMat)
+    body.position.y = 0.33
+    body.castShadow = true
+    body.receiveShadow = true
+    group.add(body)
+
+    for (const bx of [-0.25, 0.25]) {
+      const band = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.72, 0.8), bandMat)
+      band.position.set(bx, 0.36, 0)
+      band.castShadow = true
+      group.add(band)
+    }
+
+    const lidPivot = new THREE.Group()
+    lidPivot.position.set(0, 0.61, 0.35)
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.14, 0.82), woodMat)
+    lid.position.set(0, 0.07, -0.35)
+    lid.castShadow = true
+    lidPivot.add(lid)
+    const lidBand = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.155, 0.84), bandMat)
+    lidBand.position.set(0.24, 0.07, -0.35)
+    lidPivot.add(lidBand)
+    group.add(lidPivot)
+
+    const glow = new THREE.Sprite(glowMat)
+    glow.position.set(0, 0.42, 0)
+    glow.scale.set(2.1, 2.1, 1)
+    glow.renderOrder = 3
+    group.add(glow)
+
+    const seal = new THREE.Sprite(sealMat)
+    seal.position.set(0, 1.05, 0)
+    seal.scale.set(0.92, 0.92, 1)
+    seal.renderOrder = 4
+    group.add(seal)
+
+    this.root.add(group)
+    this.propColliders.push({ x, z, r: 0.72 })
+    this.caches.push({
+      x,
+      z,
+      used: false,
+      open: 0,
+      group,
+      lidPivot,
+      seal,
+      sealBaseY: 1.05,
+      phase: index * 1.9 + rot,
+    })
   }
 
   /* ---------------- 浮尘 ---------------- */
@@ -642,19 +996,53 @@ export class TowerFloor implements WorldV3 {
     if (!this.built) return
     this.time += dt
     const t = this.time
+    this.altarFlash = Math.max(0, this.altarFlash - dt * 0.7)
 
-    // 祭坛符文旋转 + 晶体呼吸
+    // 塔心信标：符文旋转 + 晶体呼吸 + 光柱脉冲
     if (this.altarRune) {
-      this.altarRune.rotation.z = t * 0.12
+      this.altarRune.rotation.z = t * (this.altarUsed ? 0.18 : 0.12)
       const mat = this.altarRune.material as THREE.MeshBasicMaterial
-      mat.opacity = 0.66
+      mat.opacity = 0.66 + (this.altarUsed ? 0.12 : 0) + this.altarFlash * 0.18
     }
     if (this.crystal) {
       this.crystal.rotation.y = t * 0.55
-      this.crystal.position.y = this.crystalBaseY + Math.sin(t * 1.1) * 0.12
+      this.crystal.position.y = this.crystalBaseY + Math.sin(t * 1.1) * 0.12 + this.altarFlash * 0.18
+    }
+    if (this.altarBeam) {
+      const mat = this.altarBeam.material as THREE.MeshBasicMaterial
+      mat.opacity = 0.1 + (this.altarUsed ? 0.07 : 0.02) + Math.sin(t * 1.4) * 0.018 + this.altarFlash * 0.24
+      this.altarBeam.rotation.y = t * 0.14
+    }
+    if (this.altarHalo) {
+      this.altarHalo.rotation.z = -t * (this.altarUsed ? 0.45 : 0.26)
+      const mat = this.altarHalo.material as THREE.MeshBasicMaterial
+      mat.opacity = 0.46 + Math.sin(t * 1.6) * 0.08 + this.altarFlash * 0.3
+    }
+    if (this.altarGlow) {
+      const s = 5.2 + Math.sin(t * 1.2) * 0.35 + this.altarFlash * 1.4
+      this.altarGlow.scale.set(s, s, 1)
+      const mat = this.altarGlow.material as THREE.SpriteMaterial
+      mat.opacity = 0.27 + Math.sin(t * 1.7) * 0.04 + this.altarFlash * 0.2
     }
     if (this.altarLight) {
-      this.altarLight.intensity = 9
+      this.altarLight.intensity = (this.altarUsed ? 13.5 : 10.5) + Math.sin(t * 1.5) * 0.7 + this.altarFlash * 6
+    }
+
+    // 塔藏箱：未开启时封印悬浮旋转，开启后箱盖翻开
+    for (const cache of this.caches) {
+      if (cache.used) {
+        cache.open = Math.min(1, cache.open + dt * 3.8)
+        const e = 1 - (1 - cache.open) * (1 - cache.open)
+        cache.lidPivot.rotation.x = 1.18 * e
+        if (cache.open > 0.15) cache.seal.visible = false
+      } else {
+        cache.seal.position.y = cache.sealBaseY + Math.sin(t * 1.7 + cache.phase) * 0.08
+        const s = 0.9 + Math.sin(t * 2.1 + cache.phase) * 0.06
+        cache.seal.scale.set(s, s, 1)
+        const mat = cache.seal.material as THREE.SpriteMaterial
+        mat.rotation = t * 0.65 + cache.phase
+        mat.opacity = 0.82 + Math.sin(t * 2.3 + cache.phase) * 0.08
+      }
     }
 
     // 火把：火焰缩放抖动 + 真实点光源闪烁
@@ -691,6 +1079,73 @@ export class TowerFloor implements WorldV3 {
       }
       attr.needsUpdate = true
     }
+  }
+
+  /* ================================================================ */
+  /*  塔内交互                                                          */
+  /* ================================================================ */
+
+  /** 玩家附近可交互对象；没有则返回 null（HUD 据此隐藏 E 提示） */
+  interactionAt(px: number, pz: number): TowerInteraction | null {
+    if (!this.built) return null
+    let best: TowerInteraction | null = null
+    let bestD = Infinity
+
+    if (!this.altarUsed) {
+      const d = Math.hypot(px, pz)
+      if (d <= this.altarInteractR) {
+        best = {
+          kind: 'altar',
+          index: -1,
+          x: 0,
+          z: 0,
+          title: '塔心信标',
+          hint: '共鸣',
+        }
+        bestD = d
+      }
+    }
+
+    for (let i = 0; i < this.caches.length; i++) {
+      const c = this.caches[i]
+      if (c.used) continue
+      const d = Math.hypot(px - c.x, pz - c.z)
+      if (d > 2.2 || d >= bestD) continue
+      best = {
+        kind: 'cache',
+        index: i,
+        x: c.x,
+        z: c.z,
+        title: '塔藏箱',
+        hint: '开启',
+      }
+      bestD = d
+    }
+    return best
+  }
+
+  /** 执行交互；返回本次交互信息，失败返回 null。奖励由 Game 结算。 */
+  interactAt(px: number, pz: number): TowerInteraction | null {
+    const info = this.interactionAt(px, pz)
+    if (!info) return null
+    if (info.kind === 'altar') {
+      this.altarUsed = true
+      this.altarFlash = 1
+      return info
+    }
+    const cache = this.caches[info.index]
+    if (!cache || cache.used) return null
+    cache.used = true
+    cache.open = 0
+    return info
+  }
+
+  get altarConsumed(): boolean {
+    return this.altarUsed
+  }
+
+  get cacheTotal(): number {
+    return this.caches.length
   }
 
   /* ================================================================ */
@@ -784,9 +1239,19 @@ export class TowerFloor implements WorldV3 {
   private clear(): void {
     this.built = false
     this.torches.length = 0
+    this.bannerMeshes.length = 0
+    this.bannerSides.length = 0
+    this.bannerBaseMatrices.length = 0
+    this.hiddenWalls.clear()
     this.altarRune = null
     this.crystal = null
     this.altarLight = null
+    this.altarBeam = null
+    this.altarHalo = null
+    this.altarGlow = null
+    this.altarUsed = false
+    this.altarFlash = 0
+    this.caches.length = 0
     this.mote = null
     this.moteBase = null
     this.motePhase = null
@@ -819,6 +1284,21 @@ export class TowerFloor implements WorldV3 {
     const c = this.corniceMeshes[side]
     if (m) m.visible = !hidden
     if (c) c.visible = !hidden
+    const changed = hidden !== this.hiddenWalls.has(side)
+    if (hidden) this.hiddenWalls.add(side)
+    else this.hiddenWalls.delete(side)
+    if (!changed) return
+    // 塔旗挂在墙上：把对应墙面的实例缩到 0，既隐藏悬空旗帜又不增加 drawcall
+    for (let meshIndex = 0; meshIndex < this.bannerMeshes.length; meshIndex += 1) {
+      const mesh = this.bannerMeshes[meshIndex]
+      const bases = this.bannerBaseMatrices[meshIndex]
+      if (!bases) continue
+      for (let i = 0; i < this.bannerSides.length; i += 1) {
+        const visible = !this.hiddenWalls.has(this.bannerSides[i])
+        mesh.setMatrixAt(i, visible ? bases[i] : ZERO_BANNER)
+      }
+      mesh.instanceMatrix.needsUpdate = true
+    }
   }
 
   /** 相机退到墙外时逐面隐藏 + 同时隐藏四角塔柱，避免任何方向挡视线 */

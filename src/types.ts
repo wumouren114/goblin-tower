@@ -396,6 +396,7 @@ export interface HudV3 {
   /** 文字飘字（闪避、免疫等） */
   floatText(worldPos: import('three').Vector3, text: string, kind?: 'normal' | 'crit' | 'heal' | 'gold' | 'dodge'): void
   toast(text: string, kind?: 'info' | 'good' | 'bad'): void
+  setInteractPrompt(text: string | null): void
   setPaused(paused: boolean): void
   setMuted(muted: boolean): void
   destroy(): void

@@ -48,10 +48,17 @@ export interface ProjectileHitContext {
   big?: boolean
 }
 
+export interface ProjectileBurstContext {
+  kind: ProjectileArtKind
+  source: 'player' | 'minion'
+  chord: boolean
+  big: boolean
+}
+
 export interface ProjectileHooks {
   /** Combat 负责暴击、hit()、onHit 回调；返回后弹道决定穿透/弹射/消失 */
   resolveHit(t: Hittable, damage: number, ctx: ProjectileHitContext): void
-  burst(x: number, z: number, color: number, count?: number): void
+  burst(x: number, z: number, color: number, count?: number, ctx?: ProjectileBurstContext): void
 }
 
 interface Projectile {
@@ -198,7 +205,12 @@ export class ProjectileSystem {
         chord: p.chord,
         big: p.big,
       })
-      this.hooks.burst(t.x, t.z, p.color, p.kind === 'wave' ? 14 : 7)
+      this.hooks.burst(t.x, t.z, p.color, p.kind === 'wave' ? 14 : 7, {
+        kind: p.kind,
+        source: p.source,
+        chord: p.chord,
+        big: p.big,
+      })
       if (p.pierce > 0) {
         p.pierce--
         continue

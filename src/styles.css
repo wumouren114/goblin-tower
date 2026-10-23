@@ -787,6 +787,16 @@ button:focus-visible {
   color: var(--amber);
 }
 
+.hud-prompt kbd {
+  height: 21px;
+  margin-right: 8px;
+  color: #1a1207;
+  background: linear-gradient(180deg, #ffe6a8, #dca846);
+  border-color: #fff0c8;
+  border-bottom-color: #8e6122;
+  box-shadow: 0 0 12px rgba(255, 205, 110, 0.35);
+}
+
 /* ============================================================
    Boss 血条
    ============================================================ */
@@ -2471,26 +2481,26 @@ button:focus-visible {
   flex: none;
 }
 
-/* 暗色圆形底 + 青铜描边；原画 <img> 放在圆形容器里铺满，裁剪交给容器 */
+/* 高清头像容器：保留青铜描边，但去掉压黑的扫描线与重暗角 */
 .char-avatar {
   position: relative;
   display: grid;
   place-items: center;
-  width: clamp(76px, 8.2vw, 100px);
+  width: clamp(84px, 9vw, 112px);
   aspect-ratio: 1;
   overflow: hidden;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 38%, #221a26 0%, #1a1420 58%, #100c14 100%);
-  border: 2px solid #6b5836;
-  box-shadow: inset 0 0 22px rgba(0, 0, 0, 0.8), 2px 2px 0 rgba(0, 0, 0, 0.45);
+  background: radial-gradient(circle at 50% 38%, #342936 0%, #1d1722 62%, #120e17 100%);
+  border: 2px solid #8a7047;
+  box-shadow: inset 0 0 14px rgba(0, 0, 0, 0.35), 0 2px 0 rgba(0, 0, 0, 0.45);
 }
 
 .char-avatar::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 3px, transparent 3px 6px),
-    repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.12) 0 3px, transparent 3px 6px);
+  z-index: 2;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.035) 0 3px, transparent 3px 6px);
   pointer-events: none;
 }
 
@@ -2498,28 +2508,29 @@ button:focus-visible {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 2;
   background: radial-gradient(
-    circle at 50% 34%,
-    rgba(10, 8, 12, 0) 40%,
-    rgba(18, 13, 22, 0.42) 68%,
-    rgba(12, 9, 16, 0.86) 100%
+    circle at 50% 36%,
+    rgba(10, 8, 12, 0) 64%,
+    rgba(18, 13, 22, 0.16) 86%,
+    rgba(12, 9, 16, 0.42) 100%
   );
   pointer-events: none;
 }
 
 .avatar-mutsumi {
-  background: radial-gradient(circle at 50% 38%, #241d28 0%, #1a1420 60%, #0f0b13 100%);
-  border-color: #6b5836;
+  background: radial-gradient(circle at 50% 38%, #33283a 0%, #211929 60%, #120e17 100%);
+  border-color: #8a7047;
 }
 
 .avatar-murasame {
-  background: radial-gradient(circle at 50% 38%, #261a20 0%, #1a1420 60%, #0f0b13 100%);
-  border-color: #6b5836;
+  background: radial-gradient(circle at 50% 38%, #38242c 0%, #241923 60%, #120e17 100%);
+  border-color: #8a7047;
 }
 
 .avatar-fish {
-  background: radial-gradient(circle at 50% 38%, #1c1a28 0%, #171420 60%, #0d0b12 100%);
-  border-color: #6b5836;
+  background: radial-gradient(circle at 50% 38%, #243047 0%, #1a2238 60%, #0e111c 100%);
+  border-color: #8a7047;
 }
 
 .char-emoji {
@@ -4173,26 +4184,28 @@ button:focus-visible {
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9), 0 0 18px rgba(0, 0, 0, 0.6);
 }
 
-/* ---------- 角色卡 128 头像 ---------- */
+/* ---------- 角色卡 512 高清头像 ---------- */
 
 .char-avatar > .art-img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 26%;
-  /* 软渐隐代替硬裁：原画自带的品红底在圆缘淡出、落进暗色圆盘，避免锯齿反光 */
+  object-position: center 42%;
+  image-rendering: auto;
+  filter: saturate(1.06) brightness(1.04);
+  /* 只在最外圈轻微收边，让高清裁切和圆形描边自然衔接 */
   -webkit-mask-image: radial-gradient(
-    circle at 50% 40%,
-    #000 56%,
-    rgba(0, 0, 0, 0.86) 72%,
-    rgba(0, 0, 0, 0.34) 87%,
+    circle at 50% 44%,
+    #000 72%,
+    rgba(0, 0, 0, 0.92) 87%,
+    rgba(0, 0, 0, 0.55) 96%,
     transparent 100%
   );
   mask-image: radial-gradient(
-    circle at 50% 40%,
-    #000 56%,
-    rgba(0, 0, 0, 0.86) 72%,
-    rgba(0, 0, 0, 0.34) 87%,
+    circle at 50% 44%,
+    #000 72%,
+    rgba(0, 0, 0, 0.92) 87%,
+    rgba(0, 0, 0, 0.55) 96%,
     transparent 100%
   );
 }

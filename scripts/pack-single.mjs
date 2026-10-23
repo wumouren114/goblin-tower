@@ -1,6 +1,6 @@
 // 打包成「双击就能玩」的单文件 HTML：把 JS/CSS/PNG/WAV 全部内联成 data:
 // 用法：node scripts/pack-single.mjs
-// 产物：dist/哥布林之塔-单文件版.html（约 15MB），可以在 file:// 下直接打开，
+// 产物：dist/残响高塔-单文件版.html（约 15MB），可以在 file:// 下直接打开，
 // 也可以直接发给别人（微信/网盘/邮件），不需要 Node、不需要服务器。
 import { execSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
@@ -78,7 +78,7 @@ html = html.replace(/<link[^>]*rel="stylesheet"[^>]*href="([^"]+)"[^>]*>/g, (m, 
 // 3) HTML 里可能还有内联的 url(/assets/...)
 html = inlineUrls(html)
 
-const outName = '哥布林之塔-单文件版.html'
+const outName = '残响高塔-单文件版.html'
 const outPath = path.join(DIST, outName)
 writeFileSync(outPath, html, 'utf8')
 const size = statSync(outPath).size

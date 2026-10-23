@@ -26,6 +26,14 @@ function makeCtx(canvas) {
     moveTo() {},
     lineTo() {},
     closePath() {},
+    save() {},
+    restore() {},
+    translate() {},
+    rotate() {},
+    scale() {},
+    ellipse() {},
+    bezierCurveTo() {},
+    quadraticCurveTo() {},
     createRadialGradient() {
       return { addColorStop() {} }
     },

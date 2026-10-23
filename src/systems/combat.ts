@@ -11,10 +11,11 @@ import { BASE_STATS } from '../data/gameConfig'
 import { getWeaponTier, tierNum, MAX_WEAPON_LV, type WeaponTier } from '../data/characterRuntime'
 import { rng } from '../core/rng'
 import { ChargeMeter } from './charge'
-import { ProjectileSystem, type ProjectileHitContext } from './projectiles'
+import { ProjectileSystem, type ProjectileBurstContext, type ProjectileHitContext } from './projectiles'
 import { MinionSystem, type Minion } from './minions'
+import { CharacterFx } from './characterFx'
 import { getBillboardYaw } from '../art/sprites'
-import { createProjectileMesh, disposeProjectileArt, type ProjectileArtKind } from '../art/projectiles'
+import { createProjectileMesh, disposeProjectileArt } from '../art/projectiles'
 import { disposeMinionArt } from '../art/minions'
 import { pickConeTargets, pickLineTargets, gatherTo, pullToward } from './attack'
 import {
@@ -85,14 +86,6 @@ export interface CombatResource {
   ready: boolean
   styleName: string
   hint: string
-}
-
-interface Effect {
-  mesh: THREE.Mesh
-  life: number
-  maxLife: number
-  grow: number
-  opacity: number
 }
 
 interface RiceDrop {
@@ -167,6 +160,8 @@ export class Combat {
   private readonly meter = new ChargeMeter()
   private readonly projectiles: ProjectileSystem
   private readonly minions: MinionSystem
+  /** v4.7 角色专属特效与觉醒武器光环（对象池，无新增光源） */
+  private readonly characterFx: CharacterFx
 
   /** 普攻冷却（秒），tryAttack/update 内部按 dt 递减 */
   private cooldownLeft = 0
@@ -176,7 +171,6 @@ export class Combat {
   private transformTime = 0
   private pulseLeft = 0
   private mods = { ...IDENTITY_MODS }
-  private readonly effects: Effect[] = []
   private readonly rice: RiceDrop[] = []
   private riceTimer = 0
   private readonly pendingBursts: PendingBurst[] = []
@@ -202,9 +196,10 @@ export class Combat {
   constructor(scene: THREE.Scene, hooks: CombatHooks) {
     this.scene = scene
     this.hooks = hooks
+    this.characterFx = new CharacterFx(scene)
     this.projectiles = new ProjectileSystem(scene, {
       resolveHit: (t, damage, ctx) => this.applyProjectileHit(t, damage, ctx),
-      burst: (x, z, color, count) => this.burstAt(x, z, color, count),
+      burst: (x, z, color, count, ctx) => this.projectileBurst(x, z, color, count, ctx),
     })
     this.minions = new MinionSystem(scene, this.projectiles, {
       burst: (x, z, color, count) => this.burstAt(x, z, color, count),
@@ -457,6 +452,7 @@ export class Combat {
     const chordPierce = chord ? (requiem ? 5 : 3) : 0
     const damage = baseDamage * chordMul * (!this.transformActive && this.style.id === 'mutsumi-duet' ? 0.9 : 1)
     const chordColor = chord ? 0xffe6ad : undefined
+    this.characterFx.mutsumiShot(px, pz, dir.x, dir.z, chord)
 
     // lv4/5 变身期：普攻改为向前音波剑气
     if (this.transformActive && tierNum(tier, 'mortisWave', 0) > 0) {
@@ -552,14 +548,7 @@ export class Combat {
     }
     if (lifesteal > 0 && leeched > 0) world.heal(leeched)
     if (targets.length > 0) this.gainResource(1)
-    this.spawnEffect(
-      'slash',
-      px + dir.x * range * 0.55,
-      pz + dir.z * range * 0.55,
-      Math.max(0.7, range / 2.6),
-      0.18,
-      0x9ff6e2,
-    )
+    this.characterFx.murasameSlash(px, pz, dir.x, dir.z, range, this.style.id, targets.length > 0)
     // lv4+ 普攻带前冲
     const stepLen = tierNum(tier, 'stepOnAttack', 0)
     if (stepLen > 0) {
@@ -603,8 +592,7 @@ export class Combat {
       this.hooks.onSfx('crit')
     }
     if (targets.length > 0) this.gainResource(1)
-    this.spawnEffect('slash', px + dir.x * range * 0.5, pz + dir.z * range * 0.5, 1.9, 0.22, 0xffe6ad)
-    this.spawnEffect('slash', px + dir.x * range * 0.8, pz + dir.z * range * 0.8, 1.3, 0.16, 0xfff4d6)
+    this.characterFx.murasameIai(px, pz, dir.x, dir.z, range, this.style.id)
   }
 
   private attackFish(
@@ -621,6 +609,7 @@ export class Combat {
     const big = this.resourceValue >= this.resourceMax
     if (big) this.spendResource(this.resourceMax)
     const damage = baseDamage * (big ? 1.6 : 1)
+    this.characterFx.fishShot(px, pz, dir.x, dir.z, big)
     this.projectiles.spawn({
       kind: 'bubble',
       x: px + dir.x * 0.45,
@@ -707,9 +696,7 @@ export class Combat {
       const killed = t.hit(amount, kx, kz)
       this.hooks.onHit(t, amount, false, killed)
     }
-    this.spawnEffect('slash', px, pz, Math.max(1, radius / 2.2), 0.35, 0xd7b6ff)
-    this.burstAt(px, pz, 0xd7b6ff, 30)
-    this.burstAt(px, pz, 0x8a5cff, 18)
+    this.characterFx.mutsumiCast(px, pz, radius, this.style.id)
     this.hooks.onSfx('skill')
   }
 
@@ -788,7 +775,7 @@ export class Combat {
         const killed = t.hit(dmg * ratio, dir.x * 2.6, dir.z * 2.6)
         this.hooks.onHit(t, dmg * ratio, false, killed)
       }
-      this.spawnEffect('slash', end.x, end.z, 2.2, 0.3, 0xffd166)
+      this.characterFx.murasameGuard(end.x, end.z, empowered)
     }
     // 回血与命中数挂钩：每命中 1 个敌人回 healPerHit 血
     const healPerHit = tierNum(tier, 'skillHealPerHit', 7)
@@ -796,8 +783,7 @@ export class Combat {
     world.grantInvuln(p.invulnerable ?? 0.3)
     world.dashPlayer(dir.x, dir.z, distance, p.dashDuration ?? 0.24)
     this.lockedLeft = Math.max(this.lockedLeft, p.recovery ?? 0.2)
-    this.spawnEffect('slash', end.x, end.z, empowered ? 2.2 : 1.6, 0.3, empowered ? 0xffe6ad : 0xbffcf0)
-    this.burstAt(end.x, end.z, empowered ? 0xffd166 : 0xbffcf0, empowered ? 26 : 16)
+    this.characterFx.murasameDash(px, pz, end.x, end.z, dir.x, dir.z, this.style.id, empowered)
     this.hooks.onSfx('dash')
     this.hooks.onSfx('skill')
   }
@@ -839,6 +825,7 @@ export class Combat {
       })
     }
     this.minions.spawn(specs)
+    this.characterFx.fishSummon(px, pz, count, this.style.id)
     // 召唤瞬间的冲击波：给周围敌人一次伤害，避免「放了大招没反馈」
     const burstDamage = hitDamage(p.burstDamage ?? 26, this.stats.magic)
     const burstRadius = p.burstRadius ?? 4.2
@@ -852,7 +839,6 @@ export class Combat {
       hits += 1
     }
     if (hits > 0) this.burstAt(px, pz, 0x9fe8ff, 16)
-    this.burstAt(px, pz, 0x9fe8ff, 18)
     this.hooks.onSfx('summon')
   }
 
@@ -894,7 +880,14 @@ export class Combat {
     this.projectiles.update(step, world.enemies, world.halfSize)
     this.minions.update(step, px, pz, world)
     this.updateBuildEffects(step, world)
-    this.updateEffects(step)
+    this.characterFx.update(step, px, pz, {
+      character: this.charId,
+      styleId: this.style.id,
+      awakenings: this.awakenings,
+      resourceRatio: this.resourceMax > 0 ? this.resourceValue / this.resourceMax : 0,
+      transformActive: this.transformActive,
+      weaponLv: this.lv,
+    })
     this.flushBursts(world)
   }
 
@@ -912,8 +905,7 @@ export class Combat {
         if (Math.hypot(t.x - px, t.z - pz) > 4 + t.radius) continue
         this.slowTarget(t, slow, duration)
       }
-      this.spawnEffect('slash', px, pz, 1.8, 0.3, 0x9a7bff)
-      this.burstAt(px, pz, 0x9a7bff, 18)
+      this.characterFx.mutsumiCurtain(px, pz, this.style.id)
     }
     this.encoreExtension = 0
     this.mods = { ...IDENTITY_MODS }
@@ -990,8 +982,7 @@ export class Combat {
         const killed = t.hit(damage, 0, 0)
         this.hooks.onHit(t, damage, false, killed)
       }
-      this.spawnEffect('slash', m.x, m.z, Math.max(0.8, radius / 2.6), 0.22, 0x8ff6ff)
-      this.burstAt(m.x, m.z, 0x8ff6ff, 14)
+      this.characterFx.fishMinionExpire(m.x, m.z, this.style.id)
     }
     const echo = this.al('fish-whale-echo')
     if (echo > 0) {
@@ -1046,15 +1037,7 @@ export class Combat {
     }
     if (!chord) this.gainResource(this.style.id === 'mutsumi-duet' ? 2 : 1)
     if (lifesteal > 0 && drained > 0) world.heal(drained * lifesteal)
-    this.spawnEffect(
-      'slash',
-      px,
-      pz,
-      Math.max(0.8, radius / 3.2),
-      0.22,
-      chord ? 0xffe6ad : 0xd7b6ff,
-    )
-    this.burstAt(px, pz, chord ? 0xffd166 : 0xbf8dff, chord ? 14 : 6)
+    this.characterFx.mutsumiPulse(px, pz, radius, chord, this.style.id)
   }
 
   private applyProjectileHit(t: Hittable, damage: number, ctx: ProjectileHitContext): void {
@@ -1090,6 +1073,25 @@ export class Combat {
     }
   }
 
+  /** 弹道命中：按角色语言选择音符/泡泡，而不是所有弹道共用同一套火花。 */
+  private projectileBurst(
+    x: number,
+    z: number,
+    color: number,
+    count?: number,
+    ctx?: ProjectileBurstContext,
+  ): void {
+    if (ctx && ctx.kind === 'bubble') {
+      this.characterFx.fishHit(x, z, ctx.big)
+      return
+    }
+    if (ctx && (ctx.kind === 'cucumber' || ctx.kind === 'wave')) {
+      this.characterFx.mutsumiHit(x, z, ctx.chord)
+      return
+    }
+    this.burstAt(x, z, color, count)
+  }
+
   /** 睦的普通和弦命中：共鸣标记 + 余音音场 + 葬送爆炸 + 残响返还 */
   private onChordHit(t: Hittable, amount: number, killed: boolean, x: number, z: number): void {
     const resonance = this.al('mutsumi-solo-resonance')
@@ -1113,7 +1115,7 @@ export class Combat {
     const funeral = this.al('mutsumi-requiem-funeral')
     if (funeral > 0) {
       this.damageArea(x, z, [0, 3, 3.4, 3.8][funeral], amount * [0, 0.4, 0.6, 0.85][funeral], 0, 0)
-      this.spawnEffect('slash', x, z, 1.2, 0.22, 0xffe6ad)
+      this.characterFx.mutsumiExplosion(x, z, [0, 3, 3.4, 3.8][funeral])
     }
     const echo = this.al('mutsumi-requiem-echo')
     if (echo > 0) {
@@ -1183,8 +1185,7 @@ export class Combat {
         this.hooks.onHit(enemy, damage, false, killed)
       }
     }
-    this.spawnEffect('slash', t.x, t.z, Math.max(0.8, radius / 2.4), 0.2, 0x8ff6ff)
-    this.burstAt(t.x, t.z, 0x8ff6ff, 12)
+    this.characterFx.fishBurst(t.x, t.z, radius, this.style.id)
     const shield = this.al('fish-burst-shield')
     if (shield > 0 && world) {
       const ext = world as CombatWorldExt
@@ -1260,38 +1261,6 @@ export class Combat {
     }
   }
 
-  private spawnEffect(
-    kind: ProjectileArtKind,
-    x: number,
-    z: number,
-    scale: number,
-    life: number,
-    color: number,
-  ): void {
-    const mesh = createProjectileMesh(kind, scale, { color, additive: true })
-    mesh.position.set(x, 0.35, z)
-    mesh.rotation.set(0, getBillboardYaw(), 0)
-    this.scene.add(mesh)
-    this.effects.push({ mesh, life, maxLife: life, grow: 0.9, opacity: 0.9 })
-  }
-
-  private updateEffects(dt: number): void {
-    for (let i = this.effects.length - 1; i >= 0; i--) {
-      const e = this.effects[i]
-      e.life -= dt
-      const t = 1 - Math.max(0, e.life) / e.maxLife
-      e.mesh.scale.multiplyScalar(1 + e.grow * dt)
-      const mat = e.mesh.material as THREE.MeshBasicMaterial
-      mat.opacity = e.opacity * (1 - t)
-      if (e.life <= 0) {
-        this.scene.remove(e.mesh)
-        e.mesh.geometry.dispose()
-        mat.dispose()
-        this.effects.splice(i, 1)
-      }
-    }
-  }
-
   private burstAt(x: number, z: number, color: number, count?: number): void {
     this.pendingBursts.push({ x, z, color, count })
   }
@@ -1352,14 +1321,8 @@ export class Combat {
   private clearTransient(): void {
     this.projectiles.clear()
     this.minions.clear()
+    this.characterFx.clearTransient()
     this.pendingBursts.length = 0
-    for (let i = this.effects.length - 1; i >= 0; i--) {
-      const e = this.effects[i]
-      this.scene.remove(e.mesh)
-      e.mesh.geometry.dispose()
-      ;(e.mesh.material as THREE.Material).dispose()
-    }
-    this.effects.length = 0
     for (let i = this.rice.length - 1; i >= 0; i--) {
       const r = this.rice[i]
       this.scene.remove(r.mesh)
@@ -1374,6 +1337,7 @@ export class Combat {
     this.clearBuildTransient()
     this.projectiles.dispose()
     this.minions.dispose()
+    this.characterFx.dispose()
     disposeProjectileArt()
     disposeMinionArt()
   }

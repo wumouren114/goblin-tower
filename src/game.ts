@@ -208,7 +208,7 @@ export class Game {
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
-    this.renderer.toneMappingExposure = 1.15
+    this.renderer.toneMappingExposure = 1.2
 
     this.camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 220)
     this.rig = new CameraRig(this.camera)
@@ -374,6 +374,7 @@ export class Game {
       this.floor = null
     }
     this.hud.hideBoss()
+    this.hud.setInteractPrompt(null)
     this.fx.setBossMode(false)
   }
 
@@ -551,6 +552,10 @@ export class Game {
     if (this.input.justPressed('KeyI') || this.input.justPressed('Tab')) {
       if (this.inventoryOpen()) this.closeInventory()
       else if (this.phase === 'shop') this.openInventory()
+    }
+    // 塔内互动：祭坛共鸣 / 开启塔藏箱。只在局内有效，避免和标题页、商店的 E 冲突。
+    if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('KeyE')) {
+      this.tryTowerInteract()
     }
   }
 
@@ -748,7 +753,72 @@ export class Game {
       this.die()
       return
     }
+    this.updateInteractPrompt()
     this.checkLayerClear()
+  }
+
+  /** 每帧刷新塔心信标/塔藏箱的 E 提示 */
+  private updateInteractPrompt(): void {
+    const p = this.player
+    const floor = this.floor
+    if (!p || !floor) {
+      this.hud.setInteractPrompt(null)
+      return
+    }
+    const info = floor.interactionAt(p.x, p.z)
+    this.hud.setInteractPrompt(info ? `${info.title} · ${info.hint}` : null)
+  }
+
+  /** 塔内互动结算：祭坛给护盾/治疗/充能，塔藏箱随机给金币/治疗/充能 */
+  private tryTowerInteract(): void {
+    const p = this.player
+    const floor = this.floor
+    if (!p || !floor) return
+    const info = floor.interactAt(p.x, p.z)
+    if (!info) return
+    audio.click()
+    this.hud.setInteractPrompt(null)
+
+    if (info.kind === 'altar') {
+      const maxHp = p.stats.maxHp
+      const heal = maxHp * 0.1
+      p.heal(heal)
+      this.shieldHp = Math.max(this.shieldHp, maxHp * 0.16)
+      this.shieldTime = Math.max(this.shieldTime, 12)
+      this.combat?.grantCharge(0.22)
+      this.vfx.ring(info.x, info.z, { color: 0xffd166, radius: 4.8, life: 0.8, grow: 1.9, y: 0.08 })
+      this.vfx.ring(info.x, info.z, { color: 0x9ff6e2, radius: 3.6, life: 0.5, grow: 2.6, y: 0.1 })
+      this.vfx.burst(info.x, info.z, { color: 0xffe6ad, count: 30, speed: 5, life: 0.65, size: 0.3, y: 1.2 })
+      this.hud.toast('塔心共鸣：护盾 + 充能 + 治疗', 'good')
+      audio.heal()
+      return
+    }
+
+    const layer = this.run.layer
+    const roll = this.rng.next()
+    if (roll < 0.55) {
+      const gold = 18 + layer * 5 + this.rng.int(0, 8)
+      this.run.gold += gold
+      this.hud.toast(`塔藏箱：金币 +${gold}`, 'good')
+      this.vfx.ring(info.x, info.z, { color: 0xffd166, radius: 2.4, life: 0.5, grow: 2.2 })
+      this.vfx.burst(info.x, info.z, { color: 0xffd166, count: 22, speed: 4.2, life: 0.5, size: 0.28, y: 0.7 })
+      audio.coin()
+    } else if (roll < 0.82) {
+      const maxHp = p.stats.maxHp
+      p.heal(maxHp * 0.2)
+      this.shieldHp = Math.max(this.shieldHp, maxHp * 0.08)
+      this.shieldTime = Math.max(this.shieldTime, 6)
+      this.hud.toast('塔藏箱：生命 +20% · 小护盾', 'good')
+      this.vfx.ring(info.x, info.z, { color: 0x8fffc8, radius: 2.8, life: 0.6, grow: 2.1 })
+      this.vfx.burst(info.x, info.z, { color: 0x8fffc8, count: 20, speed: 3.6, life: 0.55, size: 0.26, y: 0.7 })
+      audio.heal()
+    } else {
+      this.combat?.grantCharge(0.32)
+      this.hud.toast('塔藏箱：充能 +32%', 'good')
+      this.vfx.ring(info.x, info.z, { color: 0x9fe8ff, radius: 2.6, life: 0.55, grow: 2.3 })
+      this.vfx.burst(info.x, info.z, { color: 0x9fe8ff, count: 24, speed: 4.4, life: 0.55, size: 0.28, y: 0.7 })
+      audio.levelUp()
+    }
   }
 
   // ---------- 刷怪 / 敌人 ----------

@@ -418,9 +418,15 @@ const UI_TEMPLATE = /* html */ `
         <span class="key-hint"><kbd>WASD/方向键</kbd>移动</span>
         <span class="key-hint"><kbd>左键</kbd>点击普攻</span>
         <span class="key-hint"><kbd>右键</kbd>技能</span>
+        <span class="key-hint"><kbd>E</kbd>塔内互动</span>
         <button class="key-hint js-hud-pause" type="button"><kbd>P</kbd>暂停</button>
       </div>
       <div class="objective js-objective">清空本层敌人</div>
+    </div>
+
+    <div class="hud-prompt js-hud-prompt" role="status">
+      <kbd>E</kbd>
+      <span class="js-hud-prompt-text"></span>
     </div>
   </div>
 
@@ -458,9 +464,9 @@ const UI_TEMPLATE = /* html */ `
     </div>
     <div class="title-inner js-title-inner">
       <header class="title-logo">
-        <div class="title-kicker">GOBLIN TOWER</div>
-        <h1 class="title-cn">哥布林之塔</h1>
-        <p class="title-en">Tower of the Goblin King · v3</p>
+        <div class="title-kicker">ECHO SPIRE</div>
+        <h1 class="title-cn">残响高塔</h1>
+        <p class="title-en">Echoes never die</p>
       </header>
       <div class="title-tagline">一局约 8–12 分钟 · 清空每层 · 在血尽前登顶</div>
 
@@ -650,6 +656,9 @@ class HudImpl implements HudV3 {
   private resourcePipsEl!: HTMLElement
   private weaponLvEl!: HTMLElement
   private objectiveEl!: HTMLElement
+  private hudPromptEl!: HTMLElement
+  private hudPromptTextEl!: HTMLElement
+  private lastPrompt = ''
 
   private bossEl!: HTMLElement
   private bossNameEl!: HTMLElement
@@ -1165,6 +1174,20 @@ class HudImpl implements HudV3 {
     this.renderFloater(floater)
   }
 
+  /** 塔内交互提示：传入 null 隐藏；只在文案变化时改 DOM */
+  setInteractPrompt(text: string | null): void {
+    if (this.destroyed) return
+    const next = text ?? ''
+    if (next === this.lastPrompt) return
+    this.lastPrompt = next
+    if (next) {
+      if (this.hudPromptTextEl.textContent !== next) this.hudPromptTextEl.textContent = next
+      this.hudPromptEl.classList.add('is-open')
+    } else {
+      this.hudPromptEl.classList.remove('is-open')
+    }
+  }
+
   toast(text: string, kind: 'info' | 'good' | 'bad' = 'info'): void {
     if (this.destroyed || !text) return
     while (this.toastLayerEl.childElementCount >= 4) {
@@ -1267,6 +1290,8 @@ class HudImpl implements HudV3 {
     this.bannerNameEl = this.q('.js-banner-name')
     this.bannerSubEl = this.q('.js-banner-sub')
     this.toastLayerEl = this.q('.js-toast-layer')
+    this.hudPromptEl = this.q('.js-hud-prompt')
+    this.hudPromptTextEl = this.q('.js-hud-prompt-text')
   }
 
   private wireTitle(): void {
@@ -2011,10 +2036,10 @@ class HudImpl implements HudV3 {
 
     if (victory) {
       setText(this.endTitleEl, '塔顶的黎明')
-      setText(this.endSubEl, '你带着战利品走出了哥布林之塔。')
+      setText(this.endSubEl, '你带着战利品走出了残响高塔。')
     } else {
       setText(this.endTitleEl, '生命耗尽')
-      setText(this.endSubEl, '你倒在了塔中，哥布林的笑声在石壁间回荡。')
+      setText(this.endSubEl, '你倒在了残响高塔中，石壁仍在回放你的脚步。')
     }
 
     const character = CHARACTERS[stats.character]
