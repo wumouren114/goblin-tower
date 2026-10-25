@@ -1,5 +1,5 @@
 /**
- * 层末「时空隧道」：3 扇门（reward/trade/battle，权重取 balance.portals，类别可重复）。
+ * 层末「时空隧道」：3 扇门（reward/trade/battle/rest，权重取 balance.portals，类别可重复）。
  * Boss 层三门全为 battle（boss 房）；resolveRoom 产出可直接结算的结果。
  * 纯数据层：不 import three.js、不碰 DOM；随机走传入的 Rng。
  */
@@ -59,6 +59,9 @@ const SKILL_CARDS = (BALANCE as unknown as { skillCards: SkillCardDef[] }).skill
 const BATTLE_GOLD_RATIO = 0.6
 /** balance 没有「房间怪量」字段：本层配额 × 比例派生（改这里即可调难度） */
 const MOB_WAVE_QUOTA_RATIO = 0.6
+/** 休憩房收益：回血按最大生命比例，充能按风格槽比例 */
+const REST_HEAL_RATIO = 0.28
+const REST_CHARGE_RATIO = 0.5
 /** 精英房后置：前 3 层不出；4–6 层 1 精英，7 层起 2 精英 */
 const ELITE_FIGHT_MIN_LAYER = 4
 const ELITE_FIGHT_DOUBLE_LAYER = 7
@@ -225,7 +228,7 @@ function makePayload(
     case 'boss':
       return { gold: battleGold(layer, true), enemyCount: 1, bossLayer: true }
     case 'rest':
-      return { rest: { healRatio: 0.28, chargeRatio: 0.5 } }
+      return { rest: { healRatio: REST_HEAL_RATIO, chargeRatio: REST_CHARGE_RATIO } }
     default:
       return {}
   }
@@ -271,7 +274,10 @@ function describePayload(room: TunnelRoom, payload: TunnelPayload): { title: str
     case 'boss':
       return { title: 'Boss 房间', desc: '正面击破最终阶段 Boss，锁定通关' }
     case 'rest':
-      return { title: '休憩营地', desc: '回血 28%、充能 +50%，安全但没金币' }
+      return {
+        title: '休憩营地',
+        desc: `回血 ${Math.round(REST_HEAL_RATIO * 100)}%、充能 +${Math.round(REST_CHARGE_RATIO * 100)}%，安全但没金币`,
+      }
     default:
       return { title: '未知房间', desc: '' }
   }
@@ -366,6 +372,8 @@ export function resolveRoom(
         enemies: { count: payload.enemyCount ?? 1, elite: 0 },
         bossLayer: true,
       }
+    case 'rest':
+      return { rest: { healRatio: REST_HEAL_RATIO, chargeRatio: REST_CHARGE_RATIO } }
     default:
       return {}
   }

@@ -386,11 +386,17 @@ check('resolveRoom 产出可直接结算的结果', () => {
         eq(result.enemies.count, 1, 'Boss 层单个敌人')
         break
       }
+      case 'rest': {
+        ok(result.rest, 'rest 应给出休整收益（不能只开门不做结算）')
+        eq(result.rest.healRatio, 0.28, '休憩回血比例')
+        eq(result.rest.chargeRatio, 0.5, '休憩充能比例')
+        break
+      }
       default:
         break
     }
   }
-  for (const room of ['chest', 'skill-card', 'merchant', 'altar', 'mob-wave', 'elite-fight']) {
+  for (const room of ['chest', 'skill-card', 'merchant', 'altar', 'mob-wave', 'elite-fight', 'rest']) {
     ok(res[room], `抽样应覆盖 ${room}`)
   }
 })

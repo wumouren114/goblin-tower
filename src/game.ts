@@ -2049,7 +2049,10 @@ export class Game {
       this.combat?.grantCharge(res.rest.chargeRatio)
       this.vfx.ring(p.x, p.z, { color: 0x8fffc8, radius: 3, life: 0.8, grow: 2.2 })
       this.vfx.burst(p.x, p.z, { color: 0x8fffc8, count: 20, speed: 3.5, life: 0.6, size: 0.28, y: 0.8 })
-      this.hud.toast('营地休整：回血 28%、充能 +50%', 'good')
+      this.hud.toast(
+        `营地休整：回血 ${Math.round(res.rest.healRatio * 100)}%、充能 +${Math.round(res.rest.chargeRatio * 100)}%`,
+        'good',
+      )
       audio.heal()
       this.completeRoomMap('营地休整完成')
       return
@@ -2307,7 +2310,7 @@ export class Game {
 
   /**
    * 离开商店。
-   * 商人房是「额外货架」：离开后进入本层标准商店，不推进层；
+   * 商人房是「额外货架」：收起后回到房间，由出口裂隙进入本层标准商店；
    * 标准商店离开后才存档并进入下一层。500ms 防连点，避免双击跳过标准商店。
    */
   leaveShop(): void {
