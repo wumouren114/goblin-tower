@@ -2203,12 +2203,14 @@ export class Game {
   private finishRoomBattle(): void {
     this.roomActive = false
     const picked = this.collectRemainingPickups()
-    this.run.gold += clearGoldFor(this.run.difficulty, this.run.layer)
     if (this.roomMap) {
+      // 战斗房的金币在 interactRoomNpc 里已按卡片预览结算；这里只收尾，
+      // 不再叠加本层通关金（本层通关金已在清层时发放）。
       this.hud.toast(picked.count > 0 ? `房间清空！自动吸取 ${picked.count} 件掉落` : '房间清空！', 'good')
       this.completeRoomMap('战斗房已清空')
       return
     }
+    this.run.gold += clearGoldFor(this.run.difficulty, this.run.layer)
     this.hud.toast(picked.count > 0 ? `房间清空！自动吸取 ${picked.count} 件掉落` : '房间清空！', 'good')
     this.proceedToShop()
   }

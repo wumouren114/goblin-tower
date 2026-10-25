@@ -279,6 +279,7 @@ export interface HudSnapshot {
    - dispose NPC / 裂隙 → `proceedToShop()` → 标准商店 → 下一层/阶段循环。
 6. 房间怪潮使用 `roomSpawnRemaining/roomSpawnIndex/roomSpawnTimer` 分批进场：
    场上约 12 只上限，约每 0.42s 补一批，避免 30+ 只同帧生成。
+7. 战斗房金币在按 E 开战时按卡片预览结算一次；清空时只生成裂隙，不再叠加本层通关金。
 
 ### 6.3 `src/entities/roomNpc.ts`
 
