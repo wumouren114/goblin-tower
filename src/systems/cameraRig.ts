@@ -86,6 +86,15 @@ export class CameraRig {
     const k = this.initialised ? 1 - Math.exp(-CONFIG.camera.follow * dt) : 1
     this.follow.lerp(this.desired, k)
 
+    // 相机本体夹在场地内：玩家贴边时不再退到墙外露出背景色。
+    // 留一段边距，避免低角度下画面底边越过矮墙看到场外。
+    if (this.arenaHalf > 0) {
+      const margin = this.mode === 'combat' ? 3.2 : 2
+      const limit = Math.max(0.5, this.arenaHalf - margin)
+      this.follow.x = THREE.MathUtils.clamp(this.follow.x, -limit, limit)
+      this.follow.z = THREE.MathUtils.clamp(this.follow.z, -limit, limit)
+    }
+
     const fx = -Math.sin(yaw)
     const fz = -Math.cos(yaw)
     this.lookTarget.set(x + fx * m.lookAhead * 0.55 + moveX * m.lookAhead * 0.45, 0.9, z + fz * m.lookAhead * 0.55 + moveZ * m.lookAhead * 0.45)

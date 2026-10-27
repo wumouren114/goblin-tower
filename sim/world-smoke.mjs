@@ -292,6 +292,8 @@ function statsOf(group) {
     shadowMapSizes: [],
     nodes: 0,
     drawcalls: 0,
+    /** InstancedBufferGeometry 合批（火把/光晕/粒子等） */
+    billboards: 0,
   }
   group.traverse((obj) => {
     out.nodes++
@@ -303,6 +305,7 @@ function statsOf(group) {
     if (obj.isMesh) {
       out.meshes++
       out.drawcalls++
+      if (obj.geometry?.isInstancedBufferGeometry) out.billboards++
     } else if (obj.isSprite) {
       out.sprites++
       out.drawcalls++
@@ -502,7 +505,8 @@ for (const def of allScenes) {
   check(stats.shadowLights === 1, `${tag} 只有 1 个投影光源`)
   eq(stats.shadowMapSizes.join(','), '2048x2048', `${tag} 阴影贴图 2048x2048`)
   check(countPointLightsInScene(scene3d) === stats.pointLights, `${tag} 点光全部挂在场景树内`)
-  check(stats.sprites >= 8, `${tag} 火把火焰 sprite ${stats.sprites} 个`)
+  check(stats.sprites === 0, `${tag} 火把火焰已合批，不再有独立 sprite`)
+  check(stats.billboards >= 2, `${tag} 场景发光合批 ${stats.billboards} 个（光晕/火焰）`)
 
   /* --- 确定性：同场景重建布局一致 --- */
   const colliders1 = floor.propColliders.map((c) => `${round3(c.x)},${round3(c.z)},${round3(c.r)}`).join('|')
@@ -590,11 +594,12 @@ section('拾取物 gold / heart / rice / card')
   pm.spawn('rice', 3, 4)
   pm.spawn('card', 4, 4)
   eq(pm.count, 4, '4 种拾取物都能生成')
-  eq(pkScene.children.length, 4, '每个拾取物在场景里有独立 group')
+  eq(pkScene.children.length, 3, '拾取物视觉已合批（光晕/火花/图标 3 个批次）')
 
   /* 上限 260：超出后复用最早的个体，不无限增长 */
   pm.clear()
-  eq(pkScene.children.length, 0, 'clear 后场景清空')
+  eq(pm.count, 0, 'clear 后拾取物清空')
+  eq(pkScene.children.length, 3, 'clear 后合批容器保留（实例已隐藏）')
   for (let i = 0; i < 300; i++) pm.spawn('gold', -8 + (i % 10) * 0.1, 8 + Math.floor(i / 10) * 0.1, 1)
   eq(pm.count, 260, '拾取物上限 260')
 
@@ -632,7 +637,7 @@ section('拾取物 gold / heart / rice / card')
   eq(drained.length, 4, 'drainAll 取回全部剩余掉落')
   eq(drained.filter((d) => d.kind === 'gold').reduce((sum, d) => sum + d.value, 0), 12, 'drainAll 保留金币金额')
   eq(pm.count, 0, 'drainAll 后拾取物清空')
-  eq(pkScene.children.length, 0, 'drainAll 后场景清空')
+  eq(pkScene.children.length, 3, 'drainAll 后合批容器保留')
 
   /* 拾取物漂移视觉 + dispose 不泄漏 */
   pm.clear()

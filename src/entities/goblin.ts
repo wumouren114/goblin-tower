@@ -10,6 +10,7 @@ import {
   setSpriteFrame,
   type SpriteAnim,
 } from '../art/sprites'
+import type { ShadowBatch } from '../art/shadowBatch'
 
 const RUN_FPS = 9
 const FLASH_TIME = 0.08
@@ -39,7 +40,11 @@ export class Goblin {
   private readonly anim: SpriteAnim
   private readonly sprite: THREE.Mesh
   private readonly mat: THREE.MeshBasicMaterial
-  private readonly shadow: THREE.Mesh
+  private readonly shadow: THREE.Mesh | null
+  private readonly shadowBatch: ShadowBatch | null
+  private readonly shadowIndex: number
+  private readonly shadowW: number
+  private readonly shadowD: number
   private readonly eliteRing: THREE.Mesh | null
 
   private readonly scale: number
@@ -57,6 +62,7 @@ export class Goblin {
     z: number,
     mul: { hp: number; damage: number; speed: number; scale: number; layerSpeed?: number },
     elite = false,
+    shadowBatch: ShadowBatch | null = null,
   ) {
     this.scene = scene
     this.x = x
@@ -94,9 +100,18 @@ export class Goblin {
     this.mat = this.sprite.material as THREE.MeshBasicMaterial
     this.group.add(this.sprite)
 
-    this.shadow = createShadowMesh(Math.max(0.55, this.radius * 2.3))
-    this.shadow.scale.setScalar(this.scale)
-    this.group.add(this.shadow)
+    this.shadowW = Math.max(0.55, this.radius * 2.3) * this.scale
+    this.shadowD = this.shadowW * 0.62
+    this.shadowBatch = shadowBatch
+    this.shadowIndex = shadowBatch?.acquire() ?? -1
+    if (shadowBatch && this.shadowIndex >= 0) {
+      this.shadow = null
+      shadowBatch.set(this.shadowIndex, x, z, this.shadowW, this.shadowD, 1)
+    } else {
+      this.shadow = createShadowMesh(Math.max(0.55, this.radius * 2.3))
+      this.shadow.scale.setScalar(this.scale)
+      this.group.add(this.shadow)
+    }
 
     if (elite) {
       const ringGeo = new THREE.PlaneGeometry(1, 1)
@@ -209,6 +224,7 @@ export class Goblin {
     this.x = Math.max(-limit, Math.min(limit, this.x))
     this.z = Math.max(-limit, Math.min(limit, this.z))
     this.group.position.set(this.x, 0, this.z)
+    this.shadowBatch?.set(this.shadowIndex, this.x, this.z, this.shadowW, this.shadowD, 1)
 
     // 朝向按相机 yaw 转成屏幕系
     const screen = rotateInput(dx, dz, getBillboardYaw())
@@ -245,8 +261,11 @@ export class Goblin {
     this.sprite.rotation.y = getBillboardYaw()
     this.mat.opacity = t
     this.mat.color.setScalar(1)
-    this.shadow.scale.setScalar(this.scale * t)
-    ;(this.shadow.material as THREE.MeshBasicMaterial).opacity = t
+    if (this.shadow) {
+      this.shadow.scale.setScalar(this.scale * t)
+      ;(this.shadow.material as THREE.MeshBasicMaterial).opacity = t
+    }
+    this.shadowBatch?.set(this.shadowIndex, this.x, this.z, this.shadowW * t, this.shadowD * t, t)
   }
 
   dispose(): void {
@@ -254,8 +273,11 @@ export class Goblin {
     this.group.clear()
     this.sprite.geometry.dispose()
     this.mat.dispose()
-    this.shadow.geometry.dispose()
-    ;(this.shadow.material as THREE.Material).dispose()
+    if (this.shadow) {
+      this.shadow.geometry.dispose()
+      ;(this.shadow.material as THREE.Material).dispose()
+    }
+    this.shadowBatch?.release(this.shadowIndex)
     if (this.eliteRing) {
       this.eliteRing.geometry.dispose()
       ;(this.eliteRing.material as THREE.Material).dispose()

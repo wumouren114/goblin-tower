@@ -449,6 +449,60 @@ check('隧道随机可复现（同 seed 同结果）', () => {
   deepEqual(a, b, 'rollTunnels')
 })
 
+check('宝箱预览与结算使用同一张卡（2A 回归）', () => {
+  let withCard = 0
+  let withoutCard = 0
+  for (let seed = 1; seed <= 400; seed += 1) {
+    const offers = tunnels.rollTunnels(6, TOTAL, false, 'mutsumi', new Rng(seed * 7919), 1, 0, 'normal')
+    const chest = offers.find((offer) => offer.room === 'chest')
+    if (!chest) continue
+    const result = tunnels.resolveRoom(chest, 6, 'mutsumi', new Rng(seed * 104729), 0, 'normal')
+    const previewUid = chest.payload.card?.uid ?? null
+    const resultUid = result.card?.uid ?? null
+    eq(resultUid, previewUid, `seed ${seed} 的宝箱卡应与门面预览一致`)
+    if (previewUid) withCard += 1
+    else withoutCard += 1
+  }
+  ok(withCard > 0 && withoutCard > 0, '样本应同时覆盖出卡与不出卡')
+})
+
+check('怪潮数量/金币接入难度参数（3B 回归）', () => {
+  const findWave = (difficulty) => {
+    for (let seed = 1; seed <= 400; seed += 1) {
+      const offers = tunnels.rollTunnels(6, TOTAL, false, 'mutsumi', new Rng(seed * 3571), 1, 0, difficulty)
+      const wave = offers.find((offer) => offer.room === 'mob-wave')
+      if (wave) return wave
+    }
+    return null
+  }
+  const easy = findWave('easy')
+  const normal = findWave('normal')
+  const hard = findWave('hard')
+  ok(easy && normal && hard, '三种难度都应能刷出怪潮房')
+  eq(normal.payload.enemyCount, Math.max(6, Math.round(quotaFor('normal', 6) * 0.6)), '普通怪潮数量')
+  ok(easy.payload.enemyCount < normal.payload.enemyCount, `简单 ${easy.payload.enemyCount} 应少于普通 ${normal.payload.enemyCount}`)
+  ok(easy.payload.gold > normal.payload.gold, `简单金币 ${easy.payload.gold} 应高于普通 ${normal.payload.gold}`)
+  ok(hard.payload.gold > normal.payload.gold, `困难金币 ${hard.payload.gold} 应高于普通 ${normal.payload.gold}`)
+
+  const fallback = tunnels.resolveRoom(
+    {
+      id: 'fallback-wave',
+      kind: 'battle',
+      room: 'mob-wave',
+      title: '怪潮',
+      desc: '',
+      icon: '',
+      payload: {},
+    },
+    6,
+    'mutsumi',
+    new Rng(1),
+    0,
+    'easy',
+  )
+  eq(fallback.enemies?.count, Math.max(6, Math.round(quotaFor('easy', 6) * 0.6)), '无 payload 时应按传入难度回退')
+})
+
 // ═════════════════════════════════════════════════════════════════
 section('3. 背包：合成 / 满格 / 卡片汇总')
 

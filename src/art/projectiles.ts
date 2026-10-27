@@ -200,6 +200,20 @@ export function projectileTexture(kind: ProjectileArtKind): THREE.CanvasTexture 
   return getArt(kind).anim.texture
 }
 
+export interface ProjectileArtInfo {
+  texture: THREE.CanvasTexture
+  worldW: number
+  worldH: number
+  /** true = 原画（flipY=false，UV 需要翻转 v） */
+  art: boolean
+}
+
+/** 弹道合批所需的尺寸/纹理信息 */
+export function projectileArtInfo(kind: ProjectileArtKind): ProjectileArtInfo {
+  const { anim, art } = getArt(kind)
+  return { texture: anim.texture, worldW: anim.worldW, worldH: anim.worldH, art }
+}
+
 /** 创建弹道 billboard：几何原点在中心（不是脚底），scale 为整体缩放 */
 export function createProjectileMesh(
   kind: ProjectileArtKind,

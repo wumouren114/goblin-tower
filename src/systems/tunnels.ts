@@ -14,7 +14,7 @@ import type {
   TunnelType,
 } from '../types'
 import type { Rng } from '../core/rng'
-import { BALANCE, quotaFor } from '../data/balance'
+import { BALANCE, DIFFICULTIES, quotaFor, type DifficultyId } from '../data/balance'
 import { makeCardItem, qualityFor } from './economy'
 import { generateOffers } from './shop'
 
@@ -123,23 +123,26 @@ function clampLayer(layer: number): number {
   return Math.max(1, Math.round(layer))
 }
 
-/** 奖励房金币（免费收益，全层深递增） */
-function chestGold(layer: number): number {
-  return Math.round(PORTALS.chestGoldBase + PORTALS.chestGoldPerLayer * (layer - 1))
+/** 奖励房金币（免费收益，全层深递增；难度金币倍率与清层/模拟器同口径） */
+function chestGold(layer: number, difficulty: DifficultyId = 'normal'): number {
+  const base = PORTALS.chestGoldBase + PORTALS.chestGoldPerLayer * (layer - 1)
+  return Math.round(base * DIFFICULTIES[difficulty].goldMul)
 }
 
-/** 对战房金币：奖励房基准 × 0.6 × mobWave/eliteFight 倍率 */
-function battleGold(layer: number, elite: boolean): number {
+/** 对战房金币：奖励房基准 × 0.6 × mobWave/eliteFight 倍率 × 难度金币倍率 */
+function battleGold(layer: number, elite: boolean, difficulty: DifficultyId = 'normal'): number {
   const base = (PORTALS.chestGoldBase + PORTALS.chestGoldPerLayer * (layer - 1)) * BATTLE_GOLD_RATIO
-  return Math.round(base * (elite ? PORTALS.eliteFightGoldMul : PORTALS.mobWaveGoldMul))
+  return Math.round(
+    base * (elite ? PORTALS.eliteFightGoldMul : PORTALS.mobWaveGoldMul) * DIFFICULTIES[difficulty].goldMul,
+  )
 }
 
 function altarCost(layer: number): number {
   return Math.round(PORTALS.altarBaseCost + PORTALS.altarCostStep * (layer - 1))
 }
 
-function mobWaveCount(layer: number): number {
-  return Math.max(6, Math.round(quotaFor(layer) * MOB_WAVE_QUOTA_RATIO))
+function mobWaveCount(layer: number, difficulty: DifficultyId = 'normal'): number {
+  return Math.max(6, Math.round(quotaFor(difficulty, layer) * MOB_WAVE_QUOTA_RATIO))
 }
 
 /** 精英房随层数的固定编成：先压早期压力，再在深层的 7 层后恢复双精英 */
@@ -203,10 +206,11 @@ function makePayload(
   rng: Rng,
   weaponLv: number,
   trainingBuys: number,
+  difficulty: DifficultyId,
 ): TunnelPayload {
   switch (room) {
     case 'chest': {
-      const gold = chestGold(layer)
+      const gold = chestGold(layer, difficulty)
       const wantCard = rng.chance(PORTALS.chestCardChance)
       const card = wantCard
         ? makeCardItem(rng.pick(BUFF_CARDS).id, qualityFor(layer, rng).tier)
@@ -220,13 +224,13 @@ function makePayload(
     case 'altar':
       return { altarCost: altarCost(layer), altarReward: rollAltarReward(layer, rng) }
     case 'mob-wave':
-      return { gold: battleGold(layer, false), enemyCount: mobWaveCount(layer) }
+      return { gold: battleGold(layer, false, difficulty), enemyCount: mobWaveCount(layer, difficulty) }
     case 'elite-fight': {
       const comp = eliteFightComposition(layer)
-      return { gold: battleGold(layer, true), enemyCount: comp.count, eliteCount: comp.elite }
+      return { gold: battleGold(layer, true, difficulty), enemyCount: comp.count, eliteCount: comp.elite }
     }
     case 'boss':
-      return { gold: battleGold(layer, true), enemyCount: 1, bossLayer: true }
+      return { gold: battleGold(layer, true, difficulty), enemyCount: 1, bossLayer: true }
     case 'rest':
       return { rest: { healRatio: REST_HEAL_RATIO, chargeRatio: REST_CHARGE_RATIO } }
     default:
@@ -296,6 +300,7 @@ export function rollTunnels(
   rng: Rng,
   weaponLv = 1,
   trainingBuys = 0,
+  difficulty: DifficultyId = 'normal',
 ): TunnelOffer[] {
   const current = clampLayer(layer)
   const bossDoor = isBossLayer || (totalLayers > 0 && current >= Math.round(totalLayers))
@@ -303,7 +308,7 @@ export function rollTunnels(
   const offers: TunnelOffer[] = []
   for (let index = 0; index < count; index += 1) {
     const room: TunnelRoom = bossDoor ? 'boss' : rollRoomType(rng, current)
-    const payload = makePayload(room, current, charId, rng, weaponLv, trainingBuys)
+    const payload = makePayload(room, current, charId, rng, weaponLv, trainingBuys, difficulty)
     const text = describePayload(room, payload)
     offers.push({
       id: `tunnel-${current}-${index}-${room}`,
@@ -325,17 +330,16 @@ export function resolveRoom(
   charId: CharacterId,
   rng: Rng,
   trainingBuys = 0,
+  difficulty: DifficultyId = 'normal',
 ): RoomResolution {
   const current = clampLayer(layer)
   const payload = offer.payload
   switch (offer.room) {
     case 'chest': {
-      const card =
-        payload.card ??
-        (rng.chance(PORTALS.chestCardChance)
-          ? makeCardItem(rng.pick(BUFF_CARDS).id, qualityFor(current, rng).tier)
-          : undefined)
-      return { gold: payload.gold ?? chestGold(current), card }
+      // 预览与结算必须同一次掷骰：payload.card 为 undefined 就是没出卡，
+      // 不能在这里再掷一次 chestCardChance（否则实际出卡率会被抬高）。
+      const card = payload.card
+      return { gold: payload.gold ?? chestGold(current, difficulty), card }
     }
     case 'skill-card': {
       const skill = payload.skillCard ?? rollSkillCard(rng)
@@ -350,16 +354,16 @@ export function resolveRoom(
       }
     case 'mob-wave':
       return {
-        gold: payload.gold ?? battleGold(current, false),
+        gold: payload.gold ?? battleGold(current, false, difficulty),
         enemies: {
-          count: payload.enemyCount ?? mobWaveCount(current),
+          count: payload.enemyCount ?? mobWaveCount(current, difficulty),
           elite: 0,
         },
       }
     case 'elite-fight': {
       const comp = eliteFightComposition(current)
       return {
-        gold: payload.gold ?? battleGold(current, true),
+        gold: payload.gold ?? battleGold(current, true, difficulty),
         enemies: {
           count: payload.enemyCount ?? comp.count,
           elite: payload.eliteCount ?? comp.elite,
@@ -368,7 +372,7 @@ export function resolveRoom(
     }
     case 'boss':
       return {
-        gold: payload.gold ?? battleGold(current, true),
+        gold: payload.gold ?? battleGold(current, true, difficulty),
         enemies: { count: payload.enemyCount ?? 1, elite: 0 },
         bossLayer: true,
       }

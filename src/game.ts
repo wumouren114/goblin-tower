@@ -15,6 +15,7 @@ import { RoomNpc, RoomPortal } from './entities/roomNpc'
 import { PickupManager } from './entities/pickups'
 import { CameraRig } from './systems/cameraRig'
 import { Vfx } from './systems/vfx'
+import { ShadowBatch } from './art/shadowBatch'
 import { ScreenFx } from './systems/screenFx'
 import { Combat, type CombatWorld, type Hittable } from './systems/combat'
 import { Input } from './core/input'
@@ -164,6 +165,8 @@ export class Game {
   readonly fx: ScreenFx
   readonly vfx: Vfx
   readonly input: Input
+  /** 小怪阴影合批（1 drawcall）；Boss 保留独立阴影 */
+  private readonly shadowBatch: ShadowBatch
   private hud: HudV3
 
   private player: Player | null = null
@@ -266,6 +269,7 @@ export class Game {
     this.rig = new CameraRig(this.camera)
     this.fx = new ScreenFx()
     this.vfx = new Vfx(this.scene)
+    this.shadowBatch = new ShadowBatch(this.scene, 36)
     this.input = new Input(canvas)
     this.pickups = new PickupManager(this.scene)
 
@@ -634,11 +638,13 @@ export class Game {
       this.rig.update(dt, p.x, p.z, this.moveInput.x, this.moveInput.z, this.phase === 'title')
       this.updateWallVisibility()
       this.pickups.update(dt, p.x, p.z, 0, () => {})
+      this.pickups.flush()
     } else {
       this.rig.update(dt, 0, 0, 0, 0, this.phase === 'title')
     }
     this.fx.update(dt)
     this.vfx.update(dt)
+    this.shadowBatch.flush()
     this.floor?.update(dt, this.elapsed)
     this.roomMap?.npc.update(dt)
     this.roomMap?.portal?.update(dt)
@@ -1062,6 +1068,7 @@ export class Game {
       z,
       { hp: hpMul, damage: dmgMul, speed: 1, scale: 1, layerSpeed: mobSpeedMulFor(this.run.layer) },
       kind === 'elite',
+      this.shadowBatch,
     )
     this.goblins.push(g)
     this.goblinKinds.set(g, kind)
@@ -1920,6 +1927,7 @@ export class Game {
       this.rng,
       this.run.weaponLv,
       this.run.trainingBuys ?? 0,
+      this.run.difficulty,
     )
     this.hud.showTunnelOffers(this.tunnelOffers, this.run.layer, 'tunnel')
   }
@@ -2033,7 +2041,14 @@ export class Game {
     if (!room || !p || room.resolved) return
     audio.click()
     this.hud.setInteractPrompt(null)
-    const res = resolveRoom(room.offer, this.run.layer, this.run.character, this.rng, this.run.trainingBuys ?? 0)
+    const res = resolveRoom(
+      room.offer,
+      this.run.layer,
+      this.run.character,
+      this.rng,
+      this.run.trainingBuys ?? 0,
+      this.run.difficulty,
+    )
 
     if (res.gold) {
       this.run.gold += res.gold
@@ -2764,6 +2779,7 @@ export class Game {
     this.combat?.dispose()
     this.pickups.dispose()
     this.vfx.dispose()
+    this.shadowBatch.dispose()
     this.fx.dispose()
     this.input.dispose()
     this.hud.destroy()

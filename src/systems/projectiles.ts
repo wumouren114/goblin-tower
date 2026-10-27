@@ -1,6 +1,6 @@
 import * as THREE from 'three'
-import { getBillboardYaw } from '../art/sprites'
-import { createProjectileMesh, type ProjectileArtKind } from '../art/projectiles'
+import { projectileArtInfo, type ProjectileArtKind } from '../art/projectiles'
+import { BillboardBatch } from '../art/billboardBatch'
 import { nearestEnemy } from './attack'
 import type { Hittable } from './combat'
 
@@ -62,7 +62,13 @@ export interface ProjectileHooks {
 }
 
 interface Projectile {
-  mesh: THREE.Mesh
+  batch: BillboardBatch
+  index: number
+  /** 合批实例尺寸（已乘 spec.scale） */
+  worldW: number
+  worldH: number
+  /** 原画 flipY=false：实例 UV 需要翻转 v */
+  art: boolean
   kind: ProjectileArtKind
   x: number
   z: number
@@ -103,6 +109,8 @@ export class ProjectileSystem {
   private readonly scene: THREE.Scene
   private readonly hooks: ProjectileHooks
   private readonly items: Projectile[] = []
+  /** 每种「弹道贴图 + 混合方式」一个批，单 drawcall */
+  private readonly batches = new Map<string, BillboardBatch>()
 
   constructor(scene: THREE.Scene, hooks: ProjectileHooks) {
     this.scene = scene
@@ -120,19 +128,25 @@ export class ProjectileSystem {
     const dirZ = spec.dirZ / len
     const kind = spec.kind
     const color = spec.color ?? DEFAULT_COLOR[kind]
-    const mesh = createProjectileMesh(kind, spec.scale ?? 1, {
-      color,
-      additive: spec.additive ?? (kind === 'wave' || kind === 'slash'),
-    })
-    mesh.position.set(spec.x, spec.y ?? 0.75, spec.z)
-    mesh.rotation.set(0, getBillboardYaw(), 0)
-    this.scene.add(mesh)
+    const additive = spec.additive ?? (kind === 'wave' || kind === 'slash')
+    const info = projectileArtInfo(kind)
+    const batch = this.batchFor(kind, additive, info.texture)
+    const index = batch.acquire()
+    const scale = spec.scale ?? 1
+    const worldW = info.worldW * scale
+    const worldH = info.worldH * scale
+    const y = spec.y ?? 0.75
+    batch.set(index, spec.x, y, spec.z, worldW, worldH, color, 1, 0, info.art ? 1 : 0, 1, info.art ? -1 : 1, 0)
     this.items.push({
-      mesh,
+      batch,
+      index,
+      worldW,
+      worldH,
+      art: info.art,
       kind,
       x: spec.x,
       z: spec.z,
-      y: spec.y ?? 0.75,
+      y,
       dirX,
       dirZ,
       speed: spec.speed,
@@ -178,11 +192,25 @@ export class ProjectileSystem {
       }
       if (p.alive) {
         p.spin += p.spinSpeed * dt
-        p.mesh.position.set(p.x, p.y + Math.sin(p.traveled * 3) * 0.03, p.z)
-        p.mesh.rotation.set(0, getBillboardYaw(), p.spin)
+        p.batch.set(
+          p.index,
+          p.x,
+          p.y + Math.sin(p.traveled * 3) * 0.03,
+          p.z,
+          p.worldW,
+          p.worldH,
+          p.color,
+          1,
+          0,
+          p.art ? 1 : 0,
+          1,
+          p.art ? -1 : 1,
+          p.spin,
+        )
       }
       if (!p.alive) this.remove(i)
     }
+    for (const batch of this.batches.values()) batch.flush()
   }
 
   /** 返回 true 表示这一小步撞到目标（不再继续推进本帧） */
@@ -243,14 +271,27 @@ export class ProjectileSystem {
 
   dispose(): void {
     this.clear()
+    for (const batch of this.batches.values()) batch.dispose()
+    this.batches.clear()
+  }
+
+  private batchFor(kind: ProjectileArtKind, additive: boolean, texture: THREE.Texture): BillboardBatch {
+    const key = `${kind}:${additive ? 1 : 0}`
+    let batch = this.batches.get(key)
+    if (!batch) {
+      batch = new BillboardBatch(this.scene, texture, 64, {
+        renderOrder: 4,
+        blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+      })
+      this.batches.set(key, batch)
+    }
+    return batch
   }
 
   private remove(index: number): void {
     const p = this.items[index]
     if (!p) return
-    this.scene.remove(p.mesh)
-    p.mesh.geometry.dispose()
-    ;(p.mesh.material as THREE.Material).dispose()
+    p.batch.release(p.index)
     this.items.splice(index, 1)
   }
 }

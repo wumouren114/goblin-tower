@@ -7,13 +7,14 @@ import type { PropKind } from './props'
 import type { ThemeV3 } from './themes'
 import { themeFor } from './themes'
 import { disposeTree } from './util'
+import { BillboardBatch } from '../art/billboardBatch'
 
 const UP = new THREE.Vector3(0, 1, 0)
 const ZERO_BANNER = new THREE.Matrix4().makeScale(0, 0, 0)
 
 /** 火把运行时状态 */
 interface TorchEntry {
-  flame: THREE.Sprite
+  flameIndex: number
   seed: number
   light: THREE.PointLight | null
   /** 基础亮度，flicker 在其上抖动 */
@@ -21,6 +22,8 @@ interface TorchEntry {
   /** 火焰挂点（用于道具避让） */
   tx: number
   tz: number
+  fy: number
+  color: number
 }
 
 /** 道具落位结果 */
@@ -40,7 +43,9 @@ interface TowerCache {
   open: number
   group: THREE.Group
   lidPivot: THREE.Group
-  seal: THREE.Sprite
+  glowIndex: number
+  sealIndex: number
+  sealColor: number
   sealBaseY: number
   phase: number
 }
@@ -107,11 +112,16 @@ export class TowerFloor implements WorldV3 {
   private altarLight: THREE.PointLight | null = null
   private altarBeam: THREE.Mesh | null = null
   private altarHalo: THREE.Mesh | null = null
-  private altarGlow: THREE.Sprite | null = null
+  private altarGlowIndex = -1
   private altarUsed = false
   private altarFlash = 0
   private altarInteractR = 4.8
   private caches: TowerCache[] = []
+
+  /** 场景中的发光 sprite 全部合批：光晕 / 火焰 / 塔藏箱符文各 1 个 drawcall */
+  private glowBatch: BillboardBatch | null = null
+  private flameBatch: BillboardBatch | null = null
+  private sealBatch: BillboardBatch | null = null
 
   private mote: THREE.Points | null = null
   private moteBase: Float32Array | null = null
@@ -158,6 +168,11 @@ export class TowerFloor implements WorldV3 {
     this.tex = tex
     const props = new PropSet(theme)
     this.props = props
+
+    // 发光 billboard 合批：数量按「祭坛 1 + 火把 8 + 塔藏箱 2」预留
+    this.glowBatch = new BillboardBatch(this.root, tex.glow, 16, { renderOrder: 4 })
+    this.flameBatch = new BillboardBatch(this.root, tex.flame, 8, { renderOrder: 5 })
+    this.sealBatch = new BillboardBatch(this.root, tex.rune, 2, { renderOrder: 5 })
 
     /* ---------------- 场景光照与雾 ---------------- */
     // v4.7：角色是明亮像素二次元画风，场景不再走高对比黑箱；降低雾密度、
@@ -434,20 +449,17 @@ export class TowerFloor implements WorldV3 {
     this.altarHalo.renderOrder = 3
     this.root.add(this.altarHalo)
 
-    const glowMat = new THREE.SpriteMaterial({
-      map: tex.glow,
-      color: theme.accentColor,
-      transparent: true,
-      opacity: 0.3,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      toneMapped: false,
-    })
-    this.altarGlow = new THREE.Sprite(glowMat)
-    this.altarGlow.position.set(0, this.crystalBaseY + 0.25, 0)
-    this.altarGlow.scale.set(5.4, 5.4, 1)
-    this.altarGlow.renderOrder = 2
-    this.root.add(this.altarGlow)
+    this.altarGlowIndex = this.glowBatch?.acquire() ?? -1
+    this.glowBatch?.set(
+      this.altarGlowIndex,
+      0,
+      this.crystalBaseY + 0.25,
+      0,
+      5.4,
+      5.4,
+      theme.accentColor,
+      0.3,
+    )
 
     this.altarLight = new THREE.PointLight(theme.accentColor, 11, Math.max(13, half * 0.75), 2)
     this.altarLight.position.set(0, this.crystalBaseY + 0.3, 0)
@@ -475,23 +487,8 @@ export class TowerFloor implements WorldV3 {
 
     const bracketMats: THREE.Matrix4[] = []
     const cupMats: THREE.Matrix4[] = []
-    const flameMat = new THREE.SpriteMaterial({
-      map: tex.flame,
-      color: mixHex(theme.torchColor, 0xffe4a8, 0.42),
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      toneMapped: false,
-    })
-    const glowMat = new THREE.SpriteMaterial({
-      map: tex.glow,
-      color: theme.torchColor,
-      transparent: true,
-      opacity: 0.34,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      toneMapped: false,
-    })
+    const flameColor = mixHex(theme.torchColor, 0xffe4a8, 0.42)
+    const glowColor = theme.torchColor
 
     this.torches = []
 
@@ -534,17 +531,11 @@ export class TowerFloor implements WorldV3 {
 
         const fx = x + side.inx * 0.48
         const fz = z + side.inz * 0.48
-        const flame = new THREE.Sprite(flameMat)
-        flame.position.set(fx, mountY + 0.72, fz)
-        flame.scale.set(0.5, 0.85, 1)
-        flame.renderOrder = 5
-        this.root.add(flame)
-
-        const glow = new THREE.Sprite(glowMat)
-        glow.position.set(fx, mountY + 0.62, fz)
-        glow.scale.set(2.4, 2.4, 1)
-        glow.renderOrder = 4
-        this.root.add(glow)
+        const fy = mountY + 0.72
+        const flameIndex = this.flameBatch?.acquire() ?? -1
+        this.flameBatch?.set(flameIndex, fx, fy, fz, 0.52, 0.92, flameColor, 1)
+        const glowIndex = this.glowBatch?.acquire() ?? -1
+        this.glowBatch?.set(glowIndex, fx, mountY + 0.62, fz, 2.4, 2.4, glowColor, 0.34)
 
         let light: THREE.PointLight | null = null
         let baseIntensity = 0
@@ -556,12 +547,14 @@ export class TowerFloor implements WorldV3 {
         }
 
         this.torches.push({
-          flame,
+          flameIndex,
           seed: a * 1.7 + x * 0.13 + z * 0.07,
           light,
           baseIntensity,
           tx: fx,
           tz: fz,
+          fy,
+          color: flameColor,
         })
       })
     }
@@ -769,7 +762,8 @@ export class TowerFloor implements WorldV3 {
       )
       for (let idx = 0; idx < pl.kind.parts.length; idx++) {
         const part = pl.kind.parts[idx]
-        const key = pl.kind.key + '#' + idx
+        // 按「几何 + 材质」合并：不同道具只要零件几何/材质相同就能进同一个 InstancedMesh
+        const key = part.geo.uuid + '|' + part.mat.uuid
         let bucket = buckets.get(key)
         if (!bucket) {
           bucket = { geo: part.geo, mat: part.mat, matrices: [] }
@@ -873,24 +867,7 @@ export class TowerFloor implements WorldV3 {
       metalness: 0.68,
       flatShading: true,
     })
-    const sealMat = new THREE.SpriteMaterial({
-      map: tex.rune,
-      color: mixHex(theme.accentColor, 0xffffff, 0.2),
-      transparent: true,
-      opacity: 0.9,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      toneMapped: false,
-    })
-    const glowMat = new THREE.SpriteMaterial({
-      map: tex.glow,
-      color: theme.accentColor,
-      transparent: true,
-      opacity: 0.3,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      toneMapped: false,
-    })
+    const sealColor = mixHex(theme.accentColor, 0xffffff, 0.2)
 
     const group = new THREE.Group()
     group.position.set(x, 0, z)
@@ -920,17 +897,11 @@ export class TowerFloor implements WorldV3 {
     lidPivot.add(lidBand)
     group.add(lidPivot)
 
-    const glow = new THREE.Sprite(glowMat)
-    glow.position.set(0, 0.42, 0)
-    glow.scale.set(2.1, 2.1, 1)
-    glow.renderOrder = 3
-    group.add(glow)
-
-    const seal = new THREE.Sprite(sealMat)
-    seal.position.set(0, 1.05, 0)
-    seal.scale.set(0.92, 0.92, 1)
-    seal.renderOrder = 4
-    group.add(seal)
+    // 光晕/封印走合批：坐标是世界空间，不挂在 group 上（group 只放实体箱体）
+    const glowIndex = this.glowBatch?.acquire() ?? -1
+    this.glowBatch?.set(glowIndex, x, 0.42, z, 2.1, 2.1, theme.accentColor, 0.3)
+    const sealIndex = this.sealBatch?.acquire() ?? -1
+    this.sealBatch?.set(sealIndex, x, 1.05, z, 0.92, 0.92, sealColor, 0.9)
 
     this.root.add(group)
     this.propColliders.push({ x, z, r: 0.72 })
@@ -941,7 +912,9 @@ export class TowerFloor implements WorldV3 {
       open: 0,
       group,
       lidPivot,
-      seal,
+      glowIndex,
+      sealIndex,
+      sealColor,
       sealBaseY: 1.05,
       phase: index * 1.9 + rot,
     })
@@ -1018,11 +991,11 @@ export class TowerFloor implements WorldV3 {
       const mat = this.altarHalo.material as THREE.MeshBasicMaterial
       mat.opacity = 0.46 + Math.sin(t * 1.6) * 0.08 + this.altarFlash * 0.3
     }
-    if (this.altarGlow) {
+    if (this.altarGlowIndex >= 0 && this.glowBatch) {
       const s = 5.2 + Math.sin(t * 1.2) * 0.35 + this.altarFlash * 1.4
-      this.altarGlow.scale.set(s, s, 1)
-      const mat = this.altarGlow.material as THREE.SpriteMaterial
-      mat.opacity = 0.27 + Math.sin(t * 1.7) * 0.04 + this.altarFlash * 0.2
+      const alpha = 0.27 + Math.sin(t * 1.7) * 0.04 + this.altarFlash * 0.2
+      const c = this.theme?.accentColor ?? 0xffffff
+      this.glowBatch.set(this.altarGlowIndex, 0, this.crystalBaseY + 0.25, 0, s, s, c, alpha)
     }
     if (this.altarLight) {
       this.altarLight.intensity = (this.altarUsed ? 13.5 : 10.5) + Math.sin(t * 1.5) * 0.7 + this.altarFlash * 6
@@ -1034,14 +1007,12 @@ export class TowerFloor implements WorldV3 {
         cache.open = Math.min(1, cache.open + dt * 3.8)
         const e = 1 - (1 - cache.open) * (1 - cache.open)
         cache.lidPivot.rotation.x = 1.18 * e
-        if (cache.open > 0.15) cache.seal.visible = false
+        if (cache.open > 0.15) this.sealBatch?.setAlpha(cache.sealIndex, 0)
       } else {
-        cache.seal.position.y = cache.sealBaseY + Math.sin(t * 1.7 + cache.phase) * 0.08
+        const y = cache.sealBaseY + Math.sin(t * 1.7 + cache.phase) * 0.08
         const s = 0.9 + Math.sin(t * 2.1 + cache.phase) * 0.06
-        cache.seal.scale.set(s, s, 1)
-        const mat = cache.seal.material as THREE.SpriteMaterial
-        mat.rotation = t * 0.65 + cache.phase
-        mat.opacity = 0.82 + Math.sin(t * 2.3 + cache.phase) * 0.08
+        const alpha = 0.82 + Math.sin(t * 2.3 + cache.phase) * 0.08
+        this.sealBatch?.set(cache.sealIndex, cache.x, y, cache.z, s, s, cache.sealColor, alpha, 0, 0, 1, 1, t * 0.65 + cache.phase)
       }
     }
 
@@ -1053,7 +1024,7 @@ export class TowerFloor implements WorldV3 {
         Math.sin(t * 1.6 + s) * 0.05 +
         Math.sin(t * 0.9 + s * 1.7) * 0.03 +
         Math.sin(t * 2.3 + s * 0.4) * 0.02
-      torch.flame.scale.set(0.42 + f * 0.1, 0.7 + f * 0.22, 1)
+      this.flameBatch?.set(torch.flameIndex, torch.tx, torch.fy, torch.tz, 0.42 + f * 0.1, 0.7 + f * 0.22, torch.color, 1)
       if (torch.light) {
         torch.light.intensity = torch.baseIntensity
       }
@@ -1079,6 +1050,10 @@ export class TowerFloor implements WorldV3 {
       }
       attr.needsUpdate = true
     }
+
+    this.glowBatch?.flush()
+    this.flameBatch?.flush()
+    this.sealBatch?.flush()
   }
 
   /* ================================================================ */
@@ -1248,13 +1223,20 @@ export class TowerFloor implements WorldV3 {
     this.altarLight = null
     this.altarBeam = null
     this.altarHalo = null
-    this.altarGlow = null
+    this.altarGlowIndex = -1
     this.altarUsed = false
     this.altarFlash = 0
     this.caches.length = 0
     this.mote = null
     this.moteBase = null
     this.motePhase = null
+
+    this.glowBatch?.dispose()
+    this.flameBatch?.dispose()
+    this.sealBatch?.dispose()
+    this.glowBatch = null
+    this.flameBatch = null
+    this.sealBatch = null
 
     disposeTree(this.root)
 

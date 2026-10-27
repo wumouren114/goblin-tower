@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import type { PickupKind } from '../types'
 import { PixelCanvas } from '../art/pixels'
-import { getBillboardYaw, particleTexture, textureFromPixels } from '../art/sprites'
+import { particleTexture, textureFromPixels } from '../art/sprites'
 import { artReady, artTexture, type ArtKey } from '../art/atlasImport'
+import { BillboardBatch } from '../art/billboardBatch'
 
 /**
  * v3 拾取物种类：
@@ -24,16 +25,6 @@ export const RICE_CHARGE = 20
 
 const MAX_PICKUPS = 260
 const PICK_RADIUS = 0.5
-const ITEM_GEO = new THREE.PlaneGeometry(1, 1)
-const GLOW_GEO = new THREE.PlaneGeometry(1, 1)
-
-/** 原画纹理是 flipY=false（和角色图集同一约定），对应几何体要把 v 轴翻过来 */
-const ART_ITEM_GEO = (() => {
-  const geo = new THREE.PlaneGeometry(1, 1)
-  const uv = geo.getAttribute('uv') as THREE.BufferAttribute
-  for (let i = 0; i < uv.count; i++) uv.setY(i, 1 - uv.getY(i))
-  return geo
-})()
 
 /** 磁吸：先向外轻弹再加速（保留旧手感） */
 const MAGNET_BOUNCE = 3.4
@@ -148,28 +139,33 @@ interface PickupItem {
   magnetDelay: number
   phase: number
   age: number
-  group: THREE.Group
-  mesh: THREE.Mesh
-  mat: THREE.MeshBasicMaterial
+  /** 图标批次 + 实例位（同纹理的图标合成 1 drawcall） */
+  iconBatch: BillboardBatch
+  iconIndex: number
+  /** 原画贴图 flipY=false，写入 UV 时需要翻转 v */
+  iconArt: boolean
   /** 图标基准尺寸（保留原画宽高比，金币旋转等动画基于它缩放） */
   baseW: number
   baseH: number
-  glow: THREE.Mesh
-  glowMat: THREE.MeshBasicMaterial
-  spark: THREE.Mesh | null
-  sparkMat: THREE.MeshBasicMaterial | null
+  glowIndex: number
+  sparkIndex: number
 }
 
 /**
  * 金币 / 红心 / 白米饭 / 掉落卡片的掉落管理器。
- * 所有拾取物共用少量纹理与几何，上限 260 个，超出时复用最早的个体。
+ * 全部视觉走 billboard 合批：每种纹理 1 个 drawcall，不再按掉落物产生 mesh。
  */
 export class PickupManager {
   private readonly scene: THREE.Scene
   private readonly items: PickupItem[] = []
+  private readonly glowBatch: BillboardBatch
+  private readonly sparkBatch: BillboardBatch
+  private readonly iconBatches = new Map<THREE.Texture, BillboardBatch>()
 
   constructor(scene: THREE.Scene) {
     this.scene = scene
+    this.glowBatch = new BillboardBatch(scene, particleTexture('glow'), MAX_PICKUPS, { renderOrder: 3 })
+    this.sparkBatch = new BillboardBatch(scene, particleTexture('spark'), MAX_PICKUPS, { renderOrder: 5 })
   }
 
   get count(): number {
@@ -217,7 +213,6 @@ export class PickupManager {
     magnetRadius: number,
     onCollect: (kind: PickupKindV3, value: number) => void,
   ): void {
-    const yaw = getBillboardYaw()
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i]
       it.age += dt
@@ -261,95 +256,82 @@ export class PickupManager {
         continue
       }
 
-      // 视觉：billboard + 上下浮动 + 呼吸光
+      // 视觉：billboard + 上下浮动 + 呼吸光（全部写进合批实例）
       const bob = Math.sin(it.age * 2.6 + it.phase) * (it.kind === 'card' ? 0.1 : 0.06)
       const y = BASE_Y[it.kind] + bob
-      it.group.position.set(it.x, y, it.z)
-      it.group.rotation.y = yaw
       const pulse = 0.55 + 0.45 * Math.sin(it.age * 3.2 + it.phase)
-      it.glowMat.opacity = 0.22 + pulse * 0.28
       const gs = GLOW_SIZE[it.kind] * (0.9 + pulse * 0.12)
-      it.glow.scale.set(gs, gs, 1)
+      this.glowBatch.set(it.glowIndex, it.x, y, it.z, gs, gs, GLOW_COLOR[it.kind], 0.22 + pulse * 0.28)
+
+      let sx = it.baseW
+      let sy = it.baseH
       if (it.kind === 'gold') {
         // 金币旋转：用横向缩放模拟（按原画宽度缩放，保持宽高比）
-        it.mesh.scale.x = it.baseW * (0.3 + Math.abs(Math.cos(it.age * 4 + it.phase)) * 0.7)
+        sx = it.baseW * (0.3 + Math.abs(Math.cos(it.age * 4 + it.phase)) * 0.7)
       } else if (it.kind === 'card' || it.kind === 'rice') {
         const s = 0.96 + pulse * 0.06
-        it.mesh.scale.set(it.baseW * s, it.baseH * s, 1)
+        sx = it.baseW * s
+        sy = it.baseH * s
       }
+      const v0 = it.iconArt ? 1 : 0
+      const vs = it.iconArt ? -1 : 1
+      it.iconBatch.set(it.iconIndex, it.x, y, it.z, sx, sy, 0xffffff, 1, 0, v0, 1, vs)
+
       // 卡片上浮的金色粒子
-      if (it.spark && it.sparkMat) {
+      if (it.sparkIndex >= 0) {
         const cycle = (it.age * 0.9 + it.phase) % 1
-        it.spark.position.y = -0.1 + cycle * 0.9
-        it.sparkMat.opacity = (1 - cycle) * 0.8
         const sc = 0.16 + cycle * 0.12
-        it.spark.scale.set(sc, sc, 1)
+        this.sparkBatch.set(
+          it.sparkIndex,
+          it.x,
+          BASE_Y[it.kind] - 0.1 + cycle * 0.9,
+          it.z,
+          sc,
+          sc,
+          0xffe9a8,
+          (1 - cycle) * 0.8,
+        )
       }
-      it.mat.opacity = 1
     }
+  }
+
+  /** 每帧末提交合批数据（无变化时 GPU 不会被无谓上传） */
+  flush(): void {
+    this.glowBatch.flush()
+    this.sparkBatch.flush()
+    for (const batch of this.iconBatches.values()) batch.flush()
   }
 
   clear(): void {
     for (const it of this.items) this.destroyItem(it)
     this.items.length = 0
+    this.flush()
   }
 
   dispose(): void {
     this.clear()
+    this.glowBatch.dispose()
+    this.sparkBatch.dispose()
+    for (const batch of this.iconBatches.values()) batch.dispose()
+    this.iconBatches.clear()
+  }
+
+  private batchFor(texture: THREE.Texture): BillboardBatch {
+    let batch = this.iconBatches.get(texture)
+    if (!batch) {
+      batch = new BillboardBatch(this.scene, texture, MAX_PICKUPS, {
+        renderOrder: 4,
+        blending: THREE.NormalBlending,
+      })
+      this.iconBatches.set(texture, batch)
+    }
+    return batch
   }
 
   private createItem(kind: PickupKindV3, x: number, z: number, value: number): PickupItem {
-    const group = new THREE.Group()
-    group.position.set(x, BASE_Y[kind], z)
-    this.scene.add(group)
-
     const icon = iconVisual(kind)
-    const baseW = SIZE[kind] * icon.aspect
-    const baseH = SIZE[kind]
-    const mat = new THREE.MeshBasicMaterial({
-      map: icon.tex,
-      transparent: true,
-      alphaTest: 0.02,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      toneMapped: false,
-    })
-    const mesh = new THREE.Mesh(icon.art ? ART_ITEM_GEO : ITEM_GEO, mat)
-    mesh.scale.set(baseW, baseH, 1)
-    mesh.renderOrder = 4
-    group.add(mesh)
-
-    const glowMat = new THREE.MeshBasicMaterial({
-      map: particleTexture('glow'),
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      color: GLOW_COLOR[kind],
-      toneMapped: false,
-    })
-    const glow = new THREE.Mesh(GLOW_GEO, glowMat)
-    glow.position.z = -0.01
-    glow.scale.setScalar(GLOW_SIZE[kind])
-    glow.renderOrder = 3
-    group.add(glow)
-
-    let spark: THREE.Mesh | null = null
-    let sparkMat: THREE.MeshBasicMaterial | null = null
-    if (kind === 'card') {
-      sparkMat = new THREE.MeshBasicMaterial({
-        map: particleTexture('spark'),
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        color: 0xffe9a8,
-        toneMapped: false,
-      })
-      spark = new THREE.Mesh(GLOW_GEO, sparkMat)
-      spark.renderOrder = 5
-      group.add(spark)
-    }
-
-    return {
+    const batch = this.batchFor(icon.tex)
+    const item: PickupItem = {
       kind,
       value,
       x,
@@ -360,16 +342,16 @@ export class PickupManager {
       magnetDelay: 0,
       phase: Math.random() * Math.PI * 2,
       age: 0,
-      group,
-      mesh,
-      mat,
-      baseW,
-      baseH,
-      glow,
-      glowMat,
-      spark,
-      sparkMat,
+      iconBatch: batch,
+      iconIndex: batch.acquire(),
+      iconArt: icon.art,
+      baseW: SIZE[kind] * icon.aspect,
+      baseH: SIZE[kind],
+      glowIndex: this.glowBatch.acquire(),
+      sparkIndex: -1,
     }
+    if (kind === 'card') item.sparkIndex = this.sparkBatch.acquire()
+    return item
   }
 
   /** 复用旧对象：换图标、换尺寸、挪位置 */
@@ -384,44 +366,30 @@ export class PickupManager {
     it.magnetDelay = 0
     it.age = 0
     it.phase = Math.random() * Math.PI * 2
+
     const icon = iconVisual(kind)
+    it.iconBatch.release(it.iconIndex)
+    it.iconBatch = this.batchFor(icon.tex)
+    it.iconIndex = it.iconBatch.acquire()
+    it.iconArt = icon.art
     it.baseW = SIZE[kind] * icon.aspect
     it.baseH = SIZE[kind]
-    it.mat.map = icon.tex
-    it.mat.needsUpdate = true
-    it.mesh.geometry = icon.art ? ART_ITEM_GEO : ITEM_GEO
-    it.mesh.scale.set(it.baseW, it.baseH, 1)
-    it.glowMat.color.setHex(GLOW_COLOR[kind])
-    it.glow.scale.setScalar(GLOW_SIZE[kind])
-    if (kind === 'card' && !it.spark) {
-      const sparkMat = new THREE.MeshBasicMaterial({
-        map: particleTexture('spark'),
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        color: 0xffe9a8,
-        toneMapped: false,
-      })
-      const spark = new THREE.Mesh(GLOW_GEO, sparkMat)
-      spark.renderOrder = 5
-      it.group.add(spark)
-      it.spark = spark
-      it.sparkMat = sparkMat
-    } else if (kind !== 'card' && it.spark) {
-      it.group.remove(it.spark)
-      it.sparkMat?.dispose()
-      it.spark = null
-      it.sparkMat = null
+
+    if (kind === 'card') {
+      if (it.sparkIndex < 0) it.sparkIndex = this.sparkBatch.acquire()
+    } else if (it.sparkIndex >= 0) {
+      this.sparkBatch.release(it.sparkIndex)
+      it.sparkIndex = -1
     }
-    it.group.position.set(x, BASE_Y[kind], z)
   }
 
   private destroyItem(it: PickupItem): void {
-    this.scene.remove(it.group)
-    it.group.clear()
-    it.mat.dispose()
-    it.glowMat.dispose()
-    it.sparkMat?.dispose()
+    it.iconBatch.release(it.iconIndex)
+    this.glowBatch.release(it.glowIndex)
+    if (it.sparkIndex >= 0) {
+      this.sparkBatch.release(it.sparkIndex)
+      it.sparkIndex = -1
+    }
   }
 }
 

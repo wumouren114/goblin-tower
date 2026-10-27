@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { fxTexture, type FxTextureKind } from '../art/fxTextures'
 import { particleTexture } from '../art/sprites'
+import { BillboardBatch } from '../art/billboardBatch'
+import { GroundBatch } from '../art/groundBatch'
 import { awakeningLevel, type AwakeningId, type StyleId } from '../data/awakenings'
 import type { CharacterId } from '../types'
 
@@ -17,7 +19,12 @@ import type { CharacterId } from '../types'
 type SpriteKind = FxTextureKind | 'spark'
 
 interface FxParticle {
-  sprite: THREE.Sprite
+  /** 合批容器 + 实例位（每次换贴图时重新取位） */
+  batch: BillboardBatch | null
+  index: number
+  x: number
+  y: number
+  z: number
   vx: number
   vy: number
   vz: number
@@ -28,13 +35,19 @@ interface FxParticle {
   size0: number
   size1: number
   opacity: number
+  color: number
+  rotation: number
   spin: number
   active: boolean
 }
 
 interface GroundFx {
-  mesh: THREE.Mesh
-  mat: THREE.MeshBasicMaterial
+  batch: GroundBatch | null
+  index: number
+  x: number
+  y: number
+  z: number
+  color: number
   life: number
   maxLife: number
   delay: number
@@ -147,7 +160,11 @@ export class CharacterFx {
   private readonly scene: THREE.Scene
   private readonly particles: FxParticle[] = []
   private readonly grounds: GroundFx[] = []
+  /** 常驻光环仍用独立 mesh：只有在拥有觉醒时才出现，数量固定且少 */
   private readonly groundGeometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
+  /** 每种贴图一个批次：粒子/地面特效各自单 drawcall */
+  private readonly particleBatches = new Map<SpriteKind, BillboardBatch>()
+  private readonly groundBatches = new Map<FxTextureKind, GroundBatch>()
   private particleIndex = 0
   private groundIndex = 0
 
@@ -170,20 +187,12 @@ export class CharacterFx {
     this.scene = scene
 
     for (let i = 0; i < 144; i++) {
-      const mat = new THREE.SpriteMaterial({
-        map: fxTexture('note'),
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.NormalBlending,
-        color: 0xffffff,
-      })
-      const sprite = new THREE.Sprite(mat)
-      sprite.visible = false
-      sprite.frustumCulled = false
-      sprite.renderOrder = 7
-      scene.add(sprite)
       this.particles.push({
-        sprite,
+        batch: null,
+        index: -1,
+        x: 0,
+        y: 0,
+        z: 0,
         vx: 0,
         vy: 0,
         vz: 0,
@@ -194,27 +203,21 @@ export class CharacterFx {
         size0: 0.3,
         size1: 0.05,
         opacity: 1,
+        color: 0xffffff,
+        rotation: 0,
         spin: 0,
         active: false,
       })
     }
 
     for (let i = 0; i < 30; i++) {
-      const mat = new THREE.MeshBasicMaterial({
-        map: fxTexture('slash'),
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.NormalBlending,
-        color: 0xffffff,
-        side: THREE.DoubleSide,
-      })
-      const mesh = new THREE.Mesh(this.groundGeometry, mat)
-      mesh.visible = false
-      mesh.renderOrder = 5
-      scene.add(mesh)
       this.grounds.push({
-        mesh,
-        mat,
+        batch: null,
+        index: -1,
+        x: 0,
+        y: 0,
+        z: 0,
+        color: 0xffffff,
         life: 0,
         maxLife: 1,
         delay: 0,
@@ -1071,6 +1074,13 @@ export class CharacterFx {
     this.updateParticles(dt)
     this.updateGrounds(dt)
     this.updateAura(dt, px, pz, ctx)
+    this.flush()
+  }
+
+  /** 每帧末统一上传合批实例数据 */
+  flush(): void {
+    for (const batch of this.particleBatches.values()) batch.flush()
+    for (const batch of this.groundBatches.values()) batch.flush()
   }
 
   private updateParticles(dt: number): void {
@@ -1079,7 +1089,8 @@ export class CharacterFx {
       p.life -= dt
       if (p.life <= 0) {
         p.active = false
-        p.sprite.visible = false
+        p.batch?.release(p.index)
+        p.index = -1
         continue
       }
       const t = Math.max(0, p.life / p.maxLife)
@@ -1087,17 +1098,17 @@ export class CharacterFx {
       p.vx *= drag
       p.vz *= drag
       p.vy += p.gravity * dt
-      p.sprite.position.x += p.vx * dt
-      p.sprite.position.y += p.vy * dt
-      p.sprite.position.z += p.vz * dt
-      if (p.sprite.position.y < 0.045) {
-        p.sprite.position.y = 0.045
+      p.x += p.vx * dt
+      p.y += p.vy * dt
+      p.z += p.vz * dt
+      if (p.y < 0.045) {
+        p.y = 0.045
         p.vy *= -0.18
       }
-      const size = p.size1 + (p.size0 - p.size1) * t
-      p.sprite.scale.setScalar(Math.max(0.001, size))
-      p.sprite.material.rotation += p.spin * dt
-      p.sprite.material.opacity = p.opacity * Math.min(1, t * 3.4)
+      const size = Math.max(0.001, p.size1 + (p.size0 - p.size1) * t)
+      p.rotation += p.spin * dt
+      const alpha = p.opacity * Math.min(1, t * 3.4)
+      p.batch?.set(p.index, p.x, p.y, p.z, size, size, p.color, alpha, 0, 0, 1, 1, p.rotation)
     }
   }
 
@@ -1107,24 +1118,23 @@ export class CharacterFx {
       if (g.delay > 0) {
         g.delay -= dt
         if (g.delay > 0) {
-          g.mesh.visible = false
+          g.batch?.set(g.index, g.x, g.y, g.z, g.startW, g.startL, g.yaw, g.color, 0)
           continue
         }
-        g.mesh.visible = true
       }
       g.life -= dt
       if (g.life <= 0) {
         g.active = false
-        g.mesh.visible = false
+        g.batch?.release(g.index)
+        g.index = -1
         continue
       }
       const t = 1 - Math.max(0, g.life) / g.maxLife
       const ease = 1 - Math.pow(1 - t, 2.2)
       const w = g.startW + (g.endW - g.startW) * ease
       const l = g.startL + (g.endL - g.startL) * ease
-      g.mesh.scale.set(w, 1, l)
-      g.mesh.rotation.y = g.yaw + g.spin * t
-      g.mat.opacity = g.startOpacity + (g.endOpacity - g.startOpacity) * t
+      const alpha = g.startOpacity + (g.endOpacity - g.startOpacity) * t
+      g.batch?.set(g.index, g.x, g.y, g.z, w, l, g.yaw + g.spin * t, g.color, alpha)
     }
   }
 
@@ -1270,14 +1280,16 @@ export class CharacterFx {
   ): void {
     const p = this.particles[this.particleIndex]
     this.particleIndex = (this.particleIndex + 1) % this.particles.length
-    const mat = p.sprite.material as THREE.SpriteMaterial
-    mat.map = spriteTexture(kind)
-    mat.color.setHex(color)
-    mat.opacity = opts.opacity ?? 1
-    mat.rotation = opts.rotation ?? rand(0, TAU)
-    p.sprite.position.set(x, y, z)
-    p.sprite.scale.setScalar(Math.max(0.001, size))
-    p.sprite.visible = true
+    const batch = this.particleBatchFor(kind)
+    if (p.index >= 0) p.batch?.release(p.index)
+    p.batch = batch
+    p.index = batch.acquire()
+    p.color = color
+    p.opacity = opts.opacity ?? 1
+    p.rotation = opts.rotation ?? rand(0, TAU)
+    p.x = x
+    p.y = y
+    p.z = z
     p.vx = opts.vx ?? 0
     p.vy = opts.vy ?? 0
     p.vz = opts.vz ?? 0
@@ -1286,21 +1298,26 @@ export class CharacterFx {
     p.life = p.maxLife = opts.life ?? 0.45
     p.size0 = size
     p.size1 = opts.size1 ?? size * 0.12
-    p.opacity = opts.opacity ?? 1
     p.spin = opts.spin ?? 0
     p.active = true
+    const shown = Math.max(0.001, size)
+    batch.set(p.index, x, y, z, shown, shown, color, p.opacity, 0, 0, 1, 1, p.rotation)
   }
 
   private ground(kind: FxTextureKind, x: number, z: number, opts: GroundOpts): void {
     const g = this.grounds[this.groundIndex]
     this.groundIndex = (this.groundIndex + 1) % this.grounds.length
+    const batch = this.groundBatchFor(kind)
+    if (g.index >= 0) g.batch?.release(g.index)
+    g.batch = batch
+    g.index = batch.acquire()
     const length = opts.length ?? opts.width
     const startScale = opts.startScale ?? 1
     const endScale = opts.endScale ?? 1.05
-    g.mat.map = fxTexture(kind)
-    g.mat.color.setHex(opts.color)
-    g.mat.opacity = opts.opacity ?? 0.9
-    g.mat.needsUpdate = true
+    g.x = x
+    g.y = opts.y ?? 0.06
+    g.z = z
+    g.color = opts.color
     g.startW = opts.width * startScale
     g.startL = length * startScale
     g.endW = opts.width * endScale
@@ -1312,10 +1329,28 @@ export class CharacterFx {
     g.spin = opts.spin ?? 0
     g.yaw = opts.yaw ?? 0
     g.active = true
-    g.mesh.position.set(x, opts.y ?? 0.06, z)
-    g.mesh.rotation.set(0, g.yaw, 0)
-    g.mesh.scale.set(g.startW, 1, g.startL)
-    g.mesh.visible = g.delay <= 0
+    batch.set(g.index, x, g.y, z, g.startW, g.startL, g.yaw, g.color, g.delay > 0 ? 0 : g.startOpacity)
+  }
+
+  private particleBatchFor(kind: SpriteKind): BillboardBatch {
+    let batch = this.particleBatches.get(kind)
+    if (!batch) {
+      batch = new BillboardBatch(this.scene, spriteTexture(kind), 144, {
+        renderOrder: 7,
+        blending: THREE.NormalBlending,
+      })
+      this.particleBatches.set(kind, batch)
+    }
+    return batch
+  }
+
+  private groundBatchFor(kind: FxTextureKind): GroundBatch {
+    let batch = this.groundBatches.get(kind)
+    if (!batch) {
+      batch = new GroundBatch(this.scene, fxTexture(kind), 30, 5)
+      this.groundBatches.set(kind, batch)
+    }
+    return batch
   }
 
   /**
@@ -1353,27 +1388,26 @@ export class CharacterFx {
   clearTransient(): void {
     for (const p of this.particles) {
       p.active = false
-      p.sprite.visible = false
+      if (p.index >= 0) p.batch?.release(p.index)
+      p.index = -1
     }
     for (const g of this.grounds) {
       g.active = false
-      g.mesh.visible = false
+      if (g.index >= 0) g.batch?.release(g.index)
+      g.index = -1
     }
     this.auraKey = ''
+    this.flush()
   }
 
   dispose(): void {
-    for (const p of this.particles) {
-      this.scene.remove(p.sprite)
-      p.sprite.material.dispose()
-    }
+    this.clearTransient()
+    for (const batch of this.particleBatches.values()) batch.dispose()
+    for (const batch of this.groundBatches.values()) batch.dispose()
+    this.particleBatches.clear()
+    this.groundBatches.clear()
     this.particles.length = 0
-    for (const g of this.grounds) {
-      this.scene.remove(g.mesh)
-      g.mat.dispose()
-    }
     this.grounds.length = 0
-    this.groundGeometry.dispose()
 
     for (const mote of this.auraMotes) {
       mote.material.dispose()
@@ -1385,6 +1419,7 @@ export class CharacterFx {
     ;(this.auraWhale.material as THREE.Material).dispose()
     ;(this.auraBubble.material as THREE.Material).dispose()
     this.auraBubble.geometry.dispose()
+    this.groundGeometry.dispose()
     this.scene.remove(this.aura)
   }
 }
