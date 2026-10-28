@@ -84,8 +84,12 @@ import type {
 /** 自动存档槽：每层开始/离开商店时覆盖；手动存档 UI 里也会列出，因此要标注 */
 const AUTOSAVE_SLOT = 1
 const NEUTRAL_MODS = { staminaMul: 1, magicMul: 1, intelligenceMul: 1, moveSpeedMul: 1, damageReduction: 0 }
-/** Boss 层：玩家越过入场线（半场比例）后才生成 Boss，避免在入口提前看到 Boss/血条 */
-const BOSS_ROOM_TRIGGER_RATIO = 0.12
+/** 长矛手突刺：0.55s 前摇 → 0.3s 真实位移（约 7.2m）→ 0.55s 硬直 */
+const SPEAR_WINDUP_TIME = 0.55
+const SPEAR_LUNGE_TIME = 0.3
+const SPEAR_LUNGE_SPEED = 24
+const SPEAR_RECOVER_TIME = 0.55
+const SPEAR_COOLDOWN = 4.2
 
 /** CombatWorld 的可选扩展（combat 侧 duck-type 探测） */
 interface GameWorld extends CombatWorld {
@@ -96,12 +100,25 @@ interface GameWorld extends CombatWorld {
 
 /** 普通怪的战术招式状态机（brute 冲撞 / elite 震地 / spear 直线突刺） */
 interface MobMove {
-  kind: 'charge-windup' | 'charge' | 'slam-windup' | 'spear-windup'
+  kind:
+    | 'charge-windup'
+    | 'charge'
+    | 'slam-windup'
+    | 'spear-windup'
+    | 'spear-lunge'
+    | 'spear-recover'
   timer: number
   baseSpeed: number
   /** 冲锋、震地或突刺的锁定落点 */
   x: number
   z: number
+  /** 长矛突刺起点：突刺阶段沿「起点 → 落点」真实位移 */
+  sx?: number
+  sz?: number
+  /** 本次突刺是否已经命中过玩家（一次突刺只结算一次） */
+  hit?: boolean
+  /** 突刺拖尾特效计时 */
+  fx?: number
 }
 
 /** 爆破手抛出的炸弹：从怪脚下划抛物线落到目标点 */
@@ -248,8 +265,6 @@ export class Game {
   private layerSnapshot: RunState | null = null
   private riceStacks = 0
   private bossBarrageTimer = 4
-  /** Boss 层尚未走到祭坛区域时挂起生成，防止 Boss 在入口提前出现 */
-  private bossSpawnPending = false
   /** Boss 身体接触伤害的冷却（避免每帧结算瞬间秒杀） */
   private bossContactCd = 0
   private autoPlay = false
@@ -426,7 +441,6 @@ export class Game {
     this.roomSpawnTimer = 0
     this.disposeRoomMap()
     this.bossContactCd = 0
-    this.bossSpawnPending = false
     if (this.boss) {
       this.boss.dispose()
       this.boss = null
@@ -492,13 +506,10 @@ export class Game {
     this.casterCd.clear()
     this.spawnTimer = bossLayer ? 2.0 : 0.4
     this.combat?.resetLayer(CHARGE_FLOOR_START_RATIO)
-    this.bossSpawnPending = false
 
     if (bossLayer) {
+      // Boss 层先清 60% 小怪，再开三扇首领门；Boss 本体只在首领房生成
       this.layerTotal = Math.round(quotaFor(this.run.difficulty, layer) * 0.6)
-      // 不在这里直接生成 Boss：先让玩家走进祭坛区域，避免一进 Boss 层
-      // 就在入口看到远处的 Boss 和首领血条。
-      this.bossSpawnPending = true
     }
 
     this.hud.hideTunnels()
@@ -507,7 +518,9 @@ export class Game {
     if (!restoring) {
       const bossTitle = BOSS_TITLES[this.bossKindForStage()]
       this.hud.toast(
-        bossLayer ? `Boss 层：前往祭坛，唤醒${bossTitle}！` : `第 ${layer} 层 · 清完 ${this.layerTotal} 只哥布林`,
+        bossLayer
+          ? `Boss 层：清完 ${this.layerTotal} 只小怪，开启首领门挑战${bossTitle}`
+          : `第 ${layer} 层 · 清完 ${this.layerTotal} 只哥布林`,
         'info',
       )
     }
@@ -522,17 +535,6 @@ export class Game {
       hp: this.player?.hp ?? this.run.hp,
       maxHp: this.player?.stats.maxHp ?? this.run.maxHp,
     }
-  }
-
-  private spawnBoss(): void {
-    // 防御性校验：Boss 只能生成在真正的阶段 Boss 层，避免任何清理残留/调试调用把它带到普通层。
-    if (!isBossLayer(this.run.difficulty, this.run.layer) || !this.floor) return
-    const half = this.floor.halfSize
-    const bossZ = -half * 0.74
-    const kind = this.bossKindForStage()
-    const boss = this.createBoss(0, bossZ, kind, true)
-    this.hud.toast(`${boss.title}在祭坛前沉睡，靠近后才会苏醒`, 'info')
-    this.vfx.ring(0, bossZ, { color: kind === 'witch' ? 0xb46bff : 0xffb703, radius: 3, life: 0.9, grow: 2 })
   }
 
   /** 生成并配置 Boss；普通 Boss 层和隧道首领房共用同一套招式/召唤回调 */
@@ -803,13 +805,6 @@ export class Game {
     const drag = this.input.consumeDrag()
     this.rig.addYaw(drag.x * 0.005)
     this.rig.zoom(this.input.consumeWheel() * 0.9)
-
-    // Boss 层：越过入场线才生成 Boss。此时与祭坛仍有 >9.5m，
-    // 所以生成后仍会保持沉睡，玩家继续靠近才苏醒。
-    if (this.bossSpawnPending && p.z <= this.floor.halfSize * BOSS_ROOM_TRIGGER_RATIO) {
-      this.bossSpawnPending = false
-      this.spawnBoss()
-    }
 
     this.updateSpawner(dt)
     this.updateRoomWave(dt)
@@ -1311,51 +1306,83 @@ export class Game {
               this.mobMoveCd.set(g, 4.8)
             }
           } else if (move.kind === 'spear-windup') {
-            // 长矛手：锁定直线，短暂前摇后沿直线突刺；横向走位可完全躲开
+            // 长矛手：锁定直线，前摇结束后进入真实位移的突刺阶段
+            targetX = g.x
+            targetZ = g.z
+            if (move.timer <= 0) {
+              move.kind = 'spear-lunge'
+              move.timer = SPEAR_LUNGE_TIME
+              move.sx = g.x
+              move.sz = g.z
+              move.hit = false
+              move.fx = 0
+              this.contactCd.set(g, 0.9)
+              this.vfx.ring(g.x, g.z, { color: 0xffd166, radius: 0.9, life: 0.25, grow: 1.6 })
+              this.rig.shake(0.1)
+            }
+          } else if (move.kind === 'spear-lunge') {
+            const sx = move.sx ?? g.x
+            const sz = move.sz ?? g.z
+            let dirX = move.x - sx
+            let dirZ = move.z - sz
+            const len = Math.hypot(dirX, dirZ) || 1
+            dirX /= len
+            dirZ /= len
+            const remain = Math.max(0, (move.x - g.x) * dirX + (move.z - g.z) * dirZ)
+            const step = Math.max(0, Math.min(remain, SPEAR_LUNGE_SPEED * dt))
+            const fromX = g.x
+            const fromZ = g.z
+            if (step > 0) {
+              g.x += dirX * step
+              g.z += dirZ * step
+            }
+            targetX = g.x
+            targetZ = g.z
+            // 按本帧位移线段判定，避免速度过快穿过玩家；一次突刺只命中一次
+            if (!move.hit && step > 1e-4) {
+              const relX = p.x - fromX
+              const relZ = p.z - fromZ
+              const t = Math.max(0, Math.min(1, (relX * dirX + relZ * dirZ) / step))
+              const cx = fromX + dirX * step * t
+              const cz = fromZ + dirZ * step * t
+              if (Math.hypot(p.x - cx, p.z - cz) < g.radius + p.radius + 0.55) {
+                move.hit = true
+                this.damagePlayer(g.damage * 1.45)
+                this.contactCd.set(g, 0.9)
+                this.vfx.burst(p.x, p.z, {
+                  color: 0xffb703,
+                  count: 16,
+                  speed: 5,
+                  life: 0.35,
+                  size: 0.3,
+                  y: 0.6,
+                })
+                this.rig.shake(0.18)
+              }
+            }
+            move.fx = (move.fx ?? 0) - dt
+            if (move.fx <= 0) {
+              move.fx = 0.04
+              this.vfx.ring(g.x, g.z, {
+                color: 0xffd166,
+                radius: 0.55,
+                life: 0.18,
+                grow: 2.4,
+                y: 0.08,
+              })
+            }
+            if (move.timer <= 0 || remain <= 1e-3) {
+              move.kind = 'spear-recover'
+              move.timer = SPEAR_RECOVER_TIME
+            }
+          } else if (move.kind === 'spear-recover') {
+            // 突刺后的硬直：站定不动，给玩家反击窗口
             targetX = g.x
             targetZ = g.z
             if (move.timer <= 0) {
               this.mobMoves.delete(g)
               g.speed = move.baseSpeed
-              this.mobMoveCd.set(g, 4.2)
-              this.contactCd.set(g, 0.5)
-              const ox = g.x
-              const oz = g.z
-              const dx = move.x - ox
-              const dz = move.z - oz
-              const len = Math.hypot(dx, dz) || 1
-              const reach = Math.min(10, len + 2.2)
-              const ex = ox + (dx / len) * reach
-              const ez = oz + (dz / len) * reach
-              for (const t of [0.28, 0.58, 0.88]) {
-                this.vfx.ring(ox + (ex - ox) * t, oz + (ez - oz) * t, {
-                  color: 0xffd166,
-                  radius: 0.9,
-                  life: 0.28,
-                  grow: 0.5,
-                  y: 0.08,
-                })
-              }
-              this.vfx.telegraph(ex, ez, 1.4, 0.2)
-              this.vfx.burst((ox + ex) * 0.5, (oz + ez) * 0.5, {
-                color: 0xffb703,
-                count: 18,
-                speed: 6,
-                life: 0.4,
-                size: 0.32,
-                y: 0.5,
-              })
-              this.rig.shake(0.12)
-              const reachDX = ex - ox
-              const reachDZ = ez - oz
-              const reachLen2 = reachDX * reachDX + reachDZ * reachDZ || 1
-              const t = Math.max(
-                0,
-                Math.min(1, ((p.x - ox) * reachDX + (p.z - oz) * reachDZ) / reachLen2),
-              )
-              const px = ox + reachDX * t
-              const pz = oz + reachDZ * t
-              if (Math.hypot(p.x - px, p.z - pz) < 1.15) this.damagePlayer(g.damage * 1.45)
+              this.mobMoveCd.set(g, SPEAR_COOLDOWN)
             }
           } else {
             // 精英震地前摇：锁定玩家当前位置，0.72s 后结算范围伤害
@@ -1408,17 +1435,27 @@ export class Game {
               this.vfx.telegraph(p.x, p.z, 3.2, 0.72)
               this.hud.floatText(new THREE.Vector3(g.x, 1.6, g.z), '震地！', 'crit')
             } else if (kind === 'spear' && d > 2.4 && d < 9.5) {
-              // 长矛手：锁定玩家当前位置，0.55s 后沿直线突刺
+              // 长矛手：锁定「当前位置 → 玩家当前位置」的直线，前摇后真实位移突刺
+              const lungeLen = Math.min(7.2, Math.max(4.4, d + 1.4))
+              const ex = g.x + (dx / d) * lungeLen
+              const ez = g.z + (dz / d) * lungeLen
               this.mobMoves.set(g, {
                 kind: 'spear-windup',
-                timer: 0.55,
+                timer: SPEAR_WINDUP_TIME,
                 baseSpeed,
-                x: p.x,
-                z: p.z,
+                x: ex,
+                z: ez,
+                sx: g.x,
+                sz: g.z,
+                hit: false,
+                fx: 0,
               })
               targetX = g.x
               targetZ = g.z
-              this.vfx.telegraph(p.x, p.z, 1.5, 0.55)
+              // 沿锁定线铺预警圈：横向走位可以完全躲开
+              for (const t of [0.35, 0.7, 1]) {
+                this.vfx.telegraph(g.x + (ex - g.x) * t, g.z + (ez - g.z) * t, 1.15, SPEAR_WINDUP_TIME)
+              }
               this.hud.floatText(new THREE.Vector3(g.x, 1.5, g.z), '突刺！', 'crit')
               this.vfx.ring(g.x, g.z, { color: 0xffd166, radius: 0.8, life: 0.35, grow: 1.4 })
             }
@@ -1440,8 +1477,10 @@ export class Game {
         }
         continue
       }
+      // 突刺阶段只按路径结算一次伤害，禁用普通接触伤害，避免同一招打两下
+      const lunging = this.mobMoves.get(g)?.kind === 'spear-lunge'
       const cd = (this.contactCd.get(g) ?? 0) - dt
-      if (cd <= 0) {
+      if (!lunging && cd <= 0) {
         const dx = p.x - g.x
         const dz = p.z - g.z
         if (dx * dx + dz * dz < (g.radius + p.radius) * (g.radius + p.radius)) {
@@ -1658,9 +1697,9 @@ export class Game {
       }
       return
     }
-    // Boss 层只以「哥布林之王死亡」结算（updateBoss → onBossDefeated）；
-    // 小怪只是干扰，不参与清层，避免 HUD 显示「剩余 N 只」误导玩家。
-    if (isBossLayer(this.run.difficulty, this.run.layer)) return
+    // Boss 层：先清完 60% 小怪，再由 onLayerCleared 打开三扇首领门；
+    // Boss 本体只在首领房生成，由 onBossDefeated 结算。
+    if (this.boss) return
     if (this.layerKilled >= this.layerTotal && this.goblins.length === 0) this.onLayerCleared()
   }
 
@@ -1696,10 +1735,16 @@ export class Game {
     const picked = this.collectRemainingPickups()
     const gold = clearGoldFor(this.run.difficulty, this.run.layer)
     this.run.gold += gold
+    const bossLayer = isBossLayer(this.run.difficulty, this.run.layer)
     const autoNote = picked.count > 0
       ? `（自动吸取 ${picked.count} 件${picked.gold > 0 ? `，+${picked.gold} 金币` : ''}）`
       : ''
-    this.hud.toast(`第 ${this.run.layer} 层清空！+${gold} 金币${autoNote}`, 'good')
+    this.hud.toast(
+      bossLayer
+        ? `Boss 层小怪清空！+${gold} 金币${autoNote}，首领门已开启`
+        : `第 ${this.run.layer} 层清空！+${gold} 金币${autoNote}`,
+      'good',
+    )
     audio.stairs()
     this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
     this.openPostClearFlow()
@@ -1727,10 +1772,15 @@ export class Game {
     this.hud.toast(`${title}倒下了！`, 'good')
     boss.dispose()
     this.boss = null
-    // 隧道首领房：Boss 倒下只完成房间，不推进整层流程
+    // 隧道首领房：Boss 倒下后，最终层直接通关；非最终层完成房间，
+    // 由出口裂隙回到商店，再进入下一层。
     if (this.roomMap && this.roomActive) {
       this.roomActive = false
       this.clearRoomAdds()
+      if (this.run.layer >= layerCount(this.run.difficulty)) {
+        this.win()
+        return
+      }
       audio.startBgm('shop')
       audio.setBgmIntensity(0)
       this.completeRoomMap(`${title}已被击败`)
@@ -1799,6 +1849,11 @@ export class Game {
   /** 清层后的固定顺序：3/6/9 层先觉醒，再清层奖励卡，最后隧道门 */
   private openPostClearFlow(): void {
     const layer = this.run.layer
+    // 阶段末层不插觉醒/三选一，清完小怪直接进三扇首领门
+    if (isBossLayer(this.run.difficulty, layer)) {
+      this.openTunnels()
+      return
+    }
     const claimed = this.run.awakeningLayers ?? []
     if ((layer === 3 || layer === 6 || layer === 9) && !claimed.includes(layer)) {
       this.openAwakening()
@@ -1916,13 +1971,13 @@ export class Game {
     this.phase = 'tunnel'
     audio.startBgm('shop')
     audio.duck(false)
-    // 阶段 Boss 已被击杀时才继续留在 Boss 层结算；此时不能再刷「Boss 房间」门，
-    // 否则会重复进入 Boss 房并刷出 1 只小怪冒充 Boss 房。Boss 战本身在 enterLayer 直接开始。
-    const boss = isBossLayer(this.run.difficulty, this.run.layer) && this.boss !== null
+    // Boss 层清完小怪后：三扇门全是首领房；Boss 本体只在首领房里生成，
+    // 击败后非最终层走出口→商店→下一层，最终层直接通关。
+    const bossDoor = isBossLayer(this.run.difficulty, this.run.layer)
     this.tunnelOffers = rollTunnels(
       this.run.layer,
       layerCount(this.run.difficulty),
-      boss,
+      bossDoor,
       this.run.character,
       this.rng,
       this.run.weaponLv,
@@ -2192,7 +2247,7 @@ export class Game {
     this.roomSpawnTimer = 0
     audio.startBgm('boss')
     audio.setBgmIntensity(2)
-    const boss = this.createBoss(0, -floor.halfSize * 0.42, this.bossKindForStage(), false, 0.72)
+    const boss = this.createBoss(0, -floor.halfSize * 0.42, this.bossKindForStage(), false, 1)
     this.hud.toast(`首领房：${boss.title}苏醒了！`, 'bad')
     audio.bossRoar()
     this.rig.shake(0.5)

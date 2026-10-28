@@ -1,6 +1,6 @@
 /**
- * 层末「时空隧道」：3 扇门（reward/trade/battle/rest，权重取 balance.portals，类别可重复）。
- * Boss 层三门全为 battle（boss 房）；resolveRoom 产出可直接结算的结果。
+ * 层末「时空隧道」：3 扇门（reward/trade/battle/rest，权重取 balance.portals）。
+ * 类别可重复，但同一轮不会出现两间完全相同的房；Boss 层三门全为 battle（boss 房）。
  * 纯数据层：不 import three.js、不碰 DOM；随机走传入的 Rng。
  */
 import type {
@@ -185,18 +185,63 @@ function rollAltarReward(layer: number, rng: Rng): { stat: CardStat; value: numb
   return { stat: def.stat, value: Number((def.value * quality.valueMul).toFixed(3)) }
 }
 
-function rollRoomType(rng: Rng, layer: number): TunnelRoom {
+/** 一个门类别在当前层可能出现的房间（顺序即展示/兜底顺序） */
+function roomsOfKind(kind: TunnelType, layer: number): TunnelRoom[] {
+  switch (kind) {
+    case 'reward':
+      return ['chest', 'skill-card']
+    case 'trade':
+      return ['merchant', 'altar']
+    case 'battle':
+      return clampLayer(layer) >= ELITE_FIGHT_MIN_LAYER ? ['mob-wave', 'elite-fight'] : ['mob-wave']
+    default:
+      return ['rest']
+  }
+}
+
+/** 只从还有空房的类别里按原权重掷类别；保证不会掷到已经用光的类别 */
+function rollKind(rng: Rng, available: TunnelType[]): TunnelType {
   const weights = PORTALS.weights
-  const roll = rng.next()
-  const rewardEnd = weights.reward
-  const tradeEnd = rewardEnd + weights.trade
-  const battleEnd = tradeEnd + weights.battle
-  const kind: TunnelType = roll < rewardEnd ? 'reward' : roll < tradeEnd ? 'trade' : roll < battleEnd ? 'battle' : 'rest'
-  if (kind === 'rest') return 'rest'
-  if (kind === 'reward') return rng.chance(PORTALS.reward.chest) ? 'chest' : 'skill-card'
-  if (kind === 'trade') return rng.chance(PORTALS.trade.merchant) ? 'merchant' : 'altar'
-  const elite = !rng.chance(PORTALS.battle.mobWave)
-  return elite && clampLayer(layer) >= ELITE_FIGHT_MIN_LAYER ? 'elite-fight' : 'mob-wave'
+  let total = 0
+  for (const kind of available) total += weights[kind]
+  if (total <= 0) return available[0] ?? 'reward'
+  let roll = rng.next() * total
+  for (const kind of available) {
+    roll -= weights[kind]
+    if (roll <= 0) return kind
+  }
+  return available[available.length - 1] ?? 'reward'
+}
+
+/**
+ * 同一轮 3 扇门不出现完全相同的房间：
+ * 类别仍按 balance.portals.weights 掷，但同类别内做无放回选择；
+ * 若该类别的房间都已出现（如低层精英未解锁、rest 只有一种），重掷类别。
+ */
+function rollRoomType(rng: Rng, layer: number, used: Set<TunnelRoom>): TunnelRoom {
+  const allKinds: TunnelType[] = ['reward', 'trade', 'battle', 'rest']
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const kinds = allKinds.filter((kind) => roomsOfKind(kind, layer).some((room) => !used.has(room)))
+    if (kinds.length === 0) break
+    const kind = rollKind(rng, kinds)
+    const candidates = roomsOfKind(kind, layer).filter((room) => !used.has(room))
+    if (candidates.length === 0) continue
+    if (kind === 'reward') {
+      const prefer = rng.chance(PORTALS.reward.chest) ? 'chest' : 'skill-card'
+      return candidates.includes(prefer) ? prefer : candidates[0]
+    }
+    if (kind === 'trade') {
+      const prefer = rng.chance(PORTALS.trade.merchant) ? 'merchant' : 'altar'
+      return candidates.includes(prefer) ? prefer : candidates[0]
+    }
+    if (kind === 'battle') {
+      const prefer = rng.chance(PORTALS.battle.mobWave) ? 'mob-wave' : 'elite-fight'
+      return candidates.includes(prefer) ? prefer : candidates[0]
+    }
+    return 'rest'
+  }
+  // 理论兜底：所有房间都已出现时退化为普通怪潮
+  return 'mob-wave'
 }
 
 function makePayload(
@@ -306,8 +351,10 @@ export function rollTunnels(
   const bossDoor = isBossLayer || (totalLayers > 0 && current >= Math.round(totalLayers))
   const count = Math.max(1, Math.round(PORTALS.count))
   const offers: TunnelOffer[] = []
+  const usedRooms = new Set<TunnelRoom>()
   for (let index = 0; index < count; index += 1) {
-    const room: TunnelRoom = bossDoor ? 'boss' : rollRoomType(rng, current)
+    const room: TunnelRoom = bossDoor ? 'boss' : rollRoomType(rng, current, usedRooms)
+    usedRooms.add(room)
     const payload = makePayload(room, current, charId, rng, weaponLv, trainingBuys, difficulty)
     const text = describePayload(room, payload)
     offers.push({

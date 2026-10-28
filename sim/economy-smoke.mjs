@@ -238,6 +238,7 @@ const roomCount = {
   rest: 0,
 }
 let repeatedKindRolls = 0
+let duplicateRoomRolls = 0
 let offersTotal = 0
 const firstByRoom = new Map()
 
@@ -246,17 +247,22 @@ for (let run = 0; run < SAMPLE_RUNS; run += 1) {
   eq(offers.length, BALANCE.portals.count, '每层门数')
   offersTotal += offers.length
   const kinds = new Set()
+  const rooms = new Set()
   let hasDuplicateKind = false
+  let hasDuplicateRoom = false
   for (const offer of offers) {
     kindCount[offer.kind] += 1
     roomCount[offer.room] += 1
     if (kinds.has(offer.kind)) hasDuplicateKind = true
     kinds.add(offer.kind)
+    if (rooms.has(offer.room)) hasDuplicateRoom = true
+    rooms.add(offer.room)
     ok(offer.title.length > 0 && offer.desc.length > 0, '门应有标题/描述')
     ok(offer.icon.length > 0, '门应有图标')
     if (!firstByRoom.has(offer.room)) firstByRoom.set(offer.room, offer)
   }
   if (hasDuplicateKind) repeatedKindRolls += 1
+  if (hasDuplicateRoom) duplicateRoomRolls += 1
 }
 
 console.log(`  抽样 ${SAMPLE_RUNS} 次 × ${BALANCE.portals.count} 门 = ${offersTotal} 扇`)
@@ -272,35 +278,39 @@ for (const [room, count] of Object.entries(roomCount)) {
   console.log(`  ${room.padEnd(11)} ${(count / offersTotal * 100).toFixed(2)}%  (${count})`)
 }
 console.log(`  同一轮出现重复类别的比例：${(repeatedKindRolls / SAMPLE_RUNS * 100).toFixed(1)}%`)
+console.log(`  同一轮出现完全相同房间的比例：${(duplicateRoomRolls / SAMPLE_RUNS * 100).toFixed(1)}%`)
 
-check('类型分布接近 balance.portals.weights（±4%）', () => {
-  approx(kindCount.reward / offersTotal, BALANCE.portals.weights.reward, 0.04, 'reward')
-  approx(kindCount.trade / offersTotal, BALANCE.portals.weights.trade, 0.04, 'trade')
-  approx(kindCount.battle / offersTotal, BALANCE.portals.weights.battle, 0.04, 'battle')
-  approx(kindCount.rest / offersTotal, BALANCE.portals.weights.rest, 0.04, 'rest')
+check('类型分布接近 balance.portals.weights（无放回约束，±5%）', () => {
+  approx(kindCount.reward / offersTotal, BALANCE.portals.weights.reward, 0.05, 'reward')
+  approx(kindCount.trade / offersTotal, BALANCE.portals.weights.trade, 0.05, 'trade')
+  approx(kindCount.battle / offersTotal, BALANCE.portals.weights.battle, 0.05, 'battle')
+  approx(kindCount.rest / offersTotal, BALANCE.portals.weights.rest, 0.05, 'rest')
 })
-check('房间分布接近 balance.portals 子概率（±4%）', () => {
+// 同类别房间不再放回：第二扇同类门会被迫改成另一间，
+// 因此奖励房内部会向 skill-card 偏移，这里用 ±6% 容忍这个结构性变化。
+check('房间分布接近 balance.portals 子概率（无放回约束，±6%）', () => {
   const p = BALANCE.portals
-  approx(roomCount.chest / offersTotal, p.weights.reward * p.reward.chest, 0.04, 'chest')
-  approx(roomCount['skill-card'] / offersTotal, p.weights.reward * p.reward.skillCard, 0.04, 'skill-card')
-  approx(roomCount.merchant / offersTotal, p.weights.trade * p.trade.merchant, 0.04, 'merchant')
-  approx(roomCount.altar / offersTotal, p.weights.trade * p.trade.altar, 0.04, 'altar')
+  approx(roomCount.chest / offersTotal, p.weights.reward * p.reward.chest, 0.06, 'chest')
+  approx(roomCount['skill-card'] / offersTotal, p.weights.reward * p.reward.skillCard, 0.06, 'skill-card')
+  approx(roomCount.merchant / offersTotal, p.weights.trade * p.trade.merchant, 0.06, 'merchant')
+  approx(roomCount.altar / offersTotal, p.weights.trade * p.trade.altar, 0.06, 'altar')
   approx(
     roomCount['mob-wave'] / offersTotal,
     p.weights.battle * p.battle.mobWave,
-    0.04,
+    0.06,
     'mob-wave',
   )
   approx(
     roomCount['elite-fight'] / offersTotal,
     p.weights.battle * p.battle.eliteFight,
-    0.04,
+    0.06,
     'elite-fight',
   )
-  approx(roomCount.rest / offersTotal, p.weights.rest, 0.04, 'rest')
+  approx(roomCount.rest / offersTotal, p.weights.rest, 0.06, 'rest')
   eq(roomCount.boss, 0, '非 Boss 层不应出现 boss 房')
 })
 check('类别可重复（同一轮出现两扇同类门）', () => ok(repeatedKindRolls > 0))
+check('同一轮不会出现两间完全相同的房', () => eq(duplicateRoomRolls, 0))
 
 check('Boss 层三门全为 boss 房', () => {
   const bossRng = new Rng(7)
