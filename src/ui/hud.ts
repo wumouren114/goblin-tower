@@ -29,6 +29,7 @@ import type {
 import { CHARACTERS } from '../data/characters'
 import { STYLES_BY_CHARACTER, type StyleId } from '../data/awakenings'
 import { artReady, artUrl, type ArtKey } from '../art/atlasImport'
+import { roomIconDataUrl } from '../art/roomIcons'
 import { BALANCE, DIFFICULTIES, DIFFICULTY_IDS } from '../data/balance'
 import { canMergeItems, DEFAULT_BAG_SLOTS } from '../systems/inventory'
 import {
@@ -308,6 +309,7 @@ function artIconParts(host: HTMLElement): ArtIconParts {
  * @returns 仍在等待原画时为 true
  */
 function setArtIcon(host: HTMLElement, key: ArtKey | null, fallback: string): boolean {
+  clearRoomIcon(host)
   const parts = artIconParts(host)
   setText(parts.emoji, fallback)
   if (!key) {
@@ -318,6 +320,25 @@ function setArtIcon(host: HTMLElement, key: ArtKey | null, fallback: string): bo
   }
   host.dataset.artKey = key
   return syncArtIcon(host)
+}
+
+/** 房间图标直接用 Canvas data URL 作为 CSS 背景，不参与原画轮询 */
+function clearRoomIcon(host: HTMLElement): void {
+  if (!host.classList.contains('has-room-icon')) return
+  host.classList.remove('has-room-icon')
+  host.style.removeProperty('--room-icon')
+  delete host.dataset.roomIcon
+}
+
+function setRoomIcon(host: HTMLElement, room: TunnelRoom): void {
+  const parts = artIconParts(host)
+  delete host.dataset.artKey
+  host.classList.remove('has-art')
+  parts.img.removeAttribute('src')
+  setText(parts.emoji, '')
+  host.style.setProperty('--room-icon', `url("${roomIconDataUrl(room)}")`)
+  host.dataset.roomIcon = room
+  host.classList.add('has-room-icon')
 }
 
 /** 若 data-art-key 对应的原画可用则切换成 <img>；返回是否仍在等待 */
@@ -535,8 +556,8 @@ const UI_TEMPLATE = /* html */ `
     <div class="shop-panel">
       <header class="shop-head">
         <div class="shop-head-main">
-          <p class="shop-kicker">WANDERING MERCHANT</p>
-          <h2 class="shop-title">流浪商人</h2>
+          <p class="shop-kicker js-shop-kicker">TOWER SUPPLY</p>
+          <h2 class="shop-title js-shop-title">塔内补给站</h2>
         </div>
         <div class="shop-gold"><span class="shop-gold-label">金币</span><b class="js-shop-gold">0</b></div>
       </header>
@@ -1011,7 +1032,8 @@ class HudImpl implements HudV3 {
       ref.card.dataset.offerId = offer.id
       ref.card.className = `tunnel-card kind-${offer.kind}`
       setText(ref.band, isAwakening ? '角色觉醒' : isBonus ? '清层奖励' : TUNNEL_META[offer.kind]?.label ?? '未知')
-      setArtIcon(ref.icon, this.tunnelIconArt(offer), offer.icon || '✦')
+      if (isTunnel) setRoomIcon(ref.icon, offer.room)
+      else setArtIcon(ref.icon, this.tunnelIconArt(offer), offer.icon || '✦')
       setText(
         ref.room,
         isAwakening
@@ -1042,8 +1064,10 @@ class HudImpl implements HudV3 {
 
   showShop(offers: ShopOffer[], gold: number, refreshCost: number, mode: ShopMode = 'standard'): void {
     const roomShop = mode === 'room'
-    this.shopKickerEl.textContent = roomShop ? 'WANDERING MERCHANT · EXTRA SHELF' : 'WANDERING MERCHANT'
-    this.shopTitleEl.textContent = roomShop ? '流浪商人 · 额外货架' : '流浪商人'
+    // 每层清完的补给站和隧道里的流浪商人是两回事：
+    // 前者是塔内固定补给，后者只在“时空隧道 → 流浪商人空间”出现。
+    this.shopKickerEl.textContent = roomShop ? 'WANDERING MERCHANT · EXTRA SHELF' : 'TOWER SUPPLY'
+    this.shopTitleEl.textContent = roomShop ? '流浪商人 · 额外货架' : '塔内补给站'
     this.shopContinueEl.textContent = roomShop ? '结束选购 → 房间出口' : '继续前进'
     this.shopOffers = offers.slice(0, 4)
     this.shopRefreshCost = Math.max(0, refreshCost)

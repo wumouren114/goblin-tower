@@ -130,20 +130,48 @@ function floorDetail(ctx: CanvasRenderingContext2D, theme: ThemeLike, rng: Rng):
       break
     }
     case 'forge': {
-      // 熔岩缝：亮橙裂缝 + 光晕
-      const lava = mixHex(theme.accentColor, 0xffd28a, 0.35)
-      ctx.save()
-      ctx.shadowColor = hexCss(lava, 0.9)
-      ctx.shadowBlur = 4
-      for (let i = 0; i < 3; i++) {
-        ctx.strokeStyle = hexCss(lava, rng.range(0.7, 1))
-        drawCrack(ctx, rng.int(2, 40), rng.int(2, 20), rng.range(18, 34), hexCss(lava), rng)
+      // 冷却熔渣：先用暗色不规则斑块压住石面，让亮橙裂缝不再铺满整块地砖
+      for (let i = 0; i < 5; i++) {
+        const x = rng.int(1, 56)
+        const y = rng.int(1, 58)
+        const w = rng.int(3, 9)
+        const h = rng.int(2, 6)
+        ctx.fillStyle = hexCss(0x1b110d, rng.range(0.3, 0.55))
+        ctx.fillRect(x, y, w, h)
+        ctx.fillStyle = hexCss(0x3a2620, rng.range(0.35, 0.6))
+        ctx.fillRect(x + 1, y, Math.max(1, w - 2), 1)
       }
-      ctx.restore()
-      // 熔渣点
-      for (let i = 0; i < 16; i++) {
-        ctx.fillStyle = hexCss(mixHex(0x1a0d08, lava, rng.range(0.1, 0.5)), 0.8)
-        ctx.fillRect(rng.int(0, 63), rng.int(0, 63), rng.int(1, 2), 1)
+      // 主熔岩缝：每张 64×64 地砖最多 1 道，压低亮度和光晕半径
+      const lava = mixHex(theme.accentColor, 0xffc070, 0.28)
+      if (rng.chance(0.72)) {
+        ctx.save()
+        ctx.shadowColor = hexCss(lava, 0.55)
+        ctx.shadowBlur = 2
+        drawCrack(
+          ctx,
+          rng.int(2, 42),
+          rng.int(2, 22),
+          rng.range(14, 24),
+          hexCss(lava, rng.range(0.45, 0.64)),
+          rng,
+        )
+        ctx.restore()
+      }
+      // 冷却后的暗红细裂纹：提供石面信息量，但不和熔岩抢视线
+      for (let i = 0; i < 2; i++) {
+        drawCrack(
+          ctx,
+          rng.int(2, 48),
+          rng.int(2, 44),
+          rng.range(8, 16),
+          hexCss(0x2a1913, rng.range(0.55, 0.8)),
+          rng,
+        )
+      }
+      // 余烬点：少而小，只做点缀
+      for (let i = 0; i < 7; i++) {
+        ctx.fillStyle = hexCss(mixHex(0x24140d, lava, rng.range(0.3, 0.75)), rng.range(0.5, 0.85))
+        ctx.fillRect(rng.int(0, 63), rng.int(0, 63), 1, 1)
       }
       break
     }

@@ -3057,6 +3057,22 @@ button:focus-visible {
   filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.5));
 }
 
+/* 程序化房间像素图标：Canvas data URL 作为背景，最近邻放大 */
+.tc-icon.has-room-icon {
+  background-color: rgba(9, 17, 14, 0.92);
+  background-image: var(--room-icon);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 38px 38px;
+  image-rendering: pixelated;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.55), inset 0 -8px 16px rgba(0, 0, 0, 0.35);
+}
+
+.tc-icon.has-room-icon > .art-img,
+.tc-icon.has-room-icon > .art-emoji {
+  display: none;
+}
+
 .tc-room {
   font-size: 10.5px;
   font-weight: 700;

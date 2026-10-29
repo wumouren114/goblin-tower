@@ -11,7 +11,7 @@ import {
   GOBLIN_BOMBER,
 } from './data/gameConfig'
 import { GoblinKing, BOSS_TITLES } from './entities/boss'
-import { RoomNpc, RoomPortal } from './entities/roomNpc'
+import { RoomCampfire, RoomNpc, RoomPortal } from './entities/roomNpc'
 import { PickupManager } from './entities/pickups'
 import { CameraRig } from './systems/cameraRig'
 import { Vfx } from './systems/vfx'
@@ -24,7 +24,7 @@ import { Rng } from './core/rng'
 import { rotateInput } from './core/math'
 import { TowerFloor } from './world/floor'
 import { pickScene, STAGE_NAMES } from './data/stages'
-import { CHARACTERS, CHARGE_FLOOR_START_RATIO } from './data/characters'
+import { CHARACTERS, CHARGE_FLOOR_START_RATIO, skillRange } from './data/characters'
 import { getWeaponTier, charTakeDamageMul, tierNum, MAX_WEAPON_LV } from './data/characterRuntime'
 import {
   DIFFICULTIES,
@@ -140,6 +140,7 @@ interface BombShot {
 interface RoomMapState {
   offer: TunnelOffer
   npc: RoomNpc
+  campfire: RoomCampfire | null
   portal: RoomPortal | null
   resolved: boolean
 }
@@ -649,6 +650,7 @@ export class Game {
     this.shadowBatch.flush()
     this.floor?.update(dt, this.elapsed)
     this.roomMap?.npc.update(dt)
+    this.roomMap?.campfire?.update(dt)
     this.roomMap?.portal?.update(dt)
     this.pushSnapshot()
   }
@@ -826,9 +828,10 @@ export class Game {
       }
     }
     // 自动索敌：攻击与技能自动朝向最近的敌人（移动方向不受影响）
-    // 自动索敌半径跟武器射程走（射程越短越近才锁）
+    // 锁定半径跟实际攻击射程走，避免瞄准一个明显砍不到的远目标。
     const baseRange = CHARACTERS[this.run.character].attack.baseRange
-    const lockRange = Math.max(3.5, Math.min(16, baseRange * ((p.stats.intelligence || 100) / 100) + 2))
+    const reach = skillRange(baseRange, p.stats.intelligence || 100)
+    const lockRange = Math.max(4.5, Math.min(16, reach + 1.2))
     const lockOn = this.nearestEnemy(p.x, p.z, lockRange)
     if (lockOn) this.aimPoint.set(lockOn.x, 0.6, lockOn.z)
 
@@ -2065,8 +2068,11 @@ export class Game {
     p.z = half * 0.56
     p.grantInvuln(0.9)
     const npcZ = Math.min(4.2, half * 0.22)
-    const npc = new RoomNpc(this.scene, offer.room, 0, npcZ)
-    this.roomMap = { offer, npc, portal: null, resolved: false }
+    const restRoom = offer.room === 'rest'
+    const npcX = restRoom ? -1.85 : 0
+    const npc = new RoomNpc(this.scene, offer.room, npcX, npcZ)
+    const campfire = restRoom ? new RoomCampfire(this.scene, 0.5, npcZ - 0.15) : null
+    this.roomMap = { offer, npc, campfire, portal: null, resolved: false }
     audio.startBgm('shop')
     audio.setBgmIntensity(0)
     audio.duck(false)
@@ -2203,6 +2209,7 @@ export class Game {
   private disposeRoomMap(): void {
     if (!this.roomMap) return
     this.roomMap.npc.dispose()
+    this.roomMap.campfire?.dispose()
     this.roomMap.portal?.dispose()
     this.roomMap = null
     this.hud.setInteractPrompt(null)

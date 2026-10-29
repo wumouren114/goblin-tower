@@ -106,6 +106,10 @@ export class TowerFloor implements WorldV3 {
   private bannerBaseMatrices: THREE.Matrix4[][] = []
   private readonly hiddenWalls = new Set<'south' | 'north' | 'east' | 'west'>()
 
+  /** 场地边界警示线：墙体被镜头隐掉时，仍然能看出“走到这里就停” */
+  private boundaryMesh: THREE.InstancedMesh | null = null
+  private boundaryMat: THREE.MeshBasicMaterial | null = null
+
   private altarRune: THREE.Mesh | null = null
   private crystal: THREE.Mesh | null = null
   private crystalBaseY = 1.4
@@ -161,6 +165,13 @@ export class TowerFloor implements WorldV3 {
     // SceneDef 不单独给墙高：按场地大小等比，矮墙保持俯视可读性
     const wallH = Math.round((3.2 + half * 0.07) * 100) / 100
     const size = half * 2
+    /**
+     * 镜头允许跟到南墙外（否则玩家走到下半区时，相机被墙夹住、水平距离缩短，
+     * 画面会滑成俯视）。地面向墙外多铺一圈，镜头退出去时看到的是延续的石板，
+     * 而不是背景色。墙体本身仍按 halfSize 摆放，不影响碰撞和战斗边界。
+     */
+    const floorApron = 24
+    const floorSize = size + floorApron * 2
 
     if (this.group.parent !== this.scene) this.scene.add(this.group)
 
@@ -216,7 +227,7 @@ export class TowerFloor implements WorldV3 {
     this.root.add(fill)
 
     /* ---------------- 地面 ---------------- */
-    tex.floor.repeat.set(size / 4, size / 4)
+    tex.floor.repeat.set(floorSize / 4, floorSize / 4)
     // 保持 TextureBook 的 16x 各向异性，斜视地面更稳，不再降回 8x
     tex.floor.anisotropy = 16
     const floorMat = new THREE.MeshStandardMaterial({
@@ -228,10 +239,48 @@ export class TowerFloor implements WorldV3 {
       emissive: new THREE.Color(mixHex(theme.floorColor, theme.accentColor, 0.22)),
       emissiveIntensity: 0.075,
     })
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(size, size), floorMat)
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, floorSize), floorMat)
     floor.rotation.x = -Math.PI / 2
     floor.receiveShadow = true
     this.root.add(floor)
+
+    /* ---------------- 场地边界警示线 ---------------- */
+    // 南墙/东墙等靠近镜头时会被隐藏，但碰撞边界仍在。没有墙可看时，
+    // 玩家走到 halfSize 附近会以为按键失灵；这条常驻发光细线负责把边界讲清楚。
+    // 4 段共用一个 InstancedMesh = 1 drawcall，不新增光源。
+    const boundaryInset = 0.95
+    const boundaryMat = new THREE.MeshBasicMaterial({
+      // 偏白的暖色，避免在熔火/霜蚀主题里被同色地面吃掉；加法混合只提亮不投影。
+      color: mixHex(theme.accentColor, 0xfff3d6, 0.74),
+      transparent: true,
+      opacity: 0.46,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    })
+    const boundaryGeo = new THREE.BoxGeometry(1, 0.05, 0.16)
+    const boundaryMesh = new THREE.InstancedMesh(boundaryGeo, boundaryMat, 4)
+    boundaryMesh.name = 'ArenaBoundary'
+    boundaryMesh.renderOrder = 3
+    const edge = half - boundaryInset
+    const edgeLen = edge * 2
+    const bm = new THREE.Matrix4()
+    const bq = new THREE.Quaternion()
+    // 南北两条沿 x 轴；东西两条转 90°
+    bm.compose(new THREE.Vector3(0, 0.03, edge), bq, new THREE.Vector3(edgeLen, 1, 1))
+    boundaryMesh.setMatrixAt(0, bm)
+    bm.compose(new THREE.Vector3(0, 0.03, -edge), bq, new THREE.Vector3(edgeLen, 1, 1))
+    boundaryMesh.setMatrixAt(1, bm)
+    const rot90 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2)
+    bm.compose(new THREE.Vector3(edge, 0.03, 0), rot90, new THREE.Vector3(edgeLen, 1, 1))
+    boundaryMesh.setMatrixAt(2, bm)
+    bm.compose(new THREE.Vector3(-edge, 0.03, 0), rot90, new THREE.Vector3(edgeLen, 1, 1))
+    boundaryMesh.setMatrixAt(3, bm)
+    boundaryMesh.instanceMatrix.needsUpdate = true
+    boundaryMesh.frustumCulled = false
+    this.boundaryMesh = boundaryMesh
+    this.boundaryMat = boundaryMat
+    this.root.add(boundaryMesh)
 
     /* ---------------- 墙体 + 压边 ---------------- */
     const thick = 1.6
@@ -306,8 +355,11 @@ export class TowerFloor implements WorldV3 {
     const noRot = new THREE.Quaternion()
     for (const sx of [-1, 1]) {
       for (const sz of [-1, 1]) {
-        const px = sx * (half - 0.95)
-        const pz = sz * (half - 0.95)
+        // 塔柱坐在墙角外侧（墙体中心线上），柱基不再探进可行走区域。
+        // 旧位置在 half-0.95，和玩家边界重合，柱体被镜头隐掉后还会留下
+        // 半径 1.7m 的“隐形墙”，贴墙走会像按键失灵；现在碰撞体完全在界外。
+        const px = sx * (half + 0.9)
+        const pz = sz * (half + 0.9)
         shaftMats.push(new THREE.Matrix4().compose(new THREE.Vector3(px, shaftH / 2, pz), noRot, one))
         baseMats.push(new THREE.Matrix4().compose(new THREE.Vector3(px, 0.3, pz), noRot, one))
         capMats.push(
@@ -969,6 +1021,10 @@ export class TowerFloor implements WorldV3 {
     if (!this.built) return
     this.time += dt
     const t = this.time
+    if (this.boundaryMat) {
+      // 很轻的呼吸，不抢角色；墙被隐藏时这条线就是唯一的边界提示。
+      this.boundaryMat.opacity = 0.4 + Math.sin(t * 1.7) * 0.06
+    }
     this.altarFlash = Math.max(0, this.altarFlash - dt * 0.7)
 
     // 塔心信标：符文旋转 + 晶体呼吸 + 光柱脉冲
@@ -1218,6 +1274,8 @@ export class TowerFloor implements WorldV3 {
     this.bannerSides.length = 0
     this.bannerBaseMatrices.length = 0
     this.hiddenWalls.clear()
+    this.boundaryMesh = null
+    this.boundaryMat = null
     this.altarRune = null
     this.crystal = null
     this.altarLight = null

@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { PixelCanvas } from '../art/pixels'
 import { createShadowMesh, particleTexture, textureFromPixels } from '../art/sprites'
 import { fxTexture } from '../art/fxTextures'
+import { BillboardBatch } from '../art/billboardBatch'
 import type { RoomNpcKind, TunnelRoom } from '../types'
 
 interface NpcPalette {
@@ -244,23 +245,38 @@ function drawNpcCell(kind: RoomNpcKind): PixelCanvas {
     cell.set(45, 18, p.trim)
     cell.set(44, 17, p.glow)
   } else {
-    // 提灯：长杆挑着一盏冷光风灯，金属框 + 内部小火焰
+    // 提灯：深色铁框 + 琥珀玻璃 + 小焰心，避免整块冷色亮斑
+    const iron = 0x271d18
+    const ironHi = 0x5e4636
+    const amber = 0xffa64d
+    const amberHi = 0xffd88a
+    const flame = 0xfff1b8
+    // 长杆与挑臂
     cell.line(40, 18, 43, 56, p.robeDark)
     cell.line(41, 18, 44, 56, p.robeHi)
-    cell.line(41, 18, 36, 15, p.robeDark)
-    cell.fillRect(31, 12, 8, 10, p.robeDark)
-    cell.fillRect(32, 13, 6, 8, p.robeHi)
-    cell.fillRect(34, 15, 2, 5, p.glow)
-    cell.vLine(31, 12, 21, p.trim)
-    cell.vLine(38, 12, 21, p.trim)
-    cell.hLine(31, 38, 12, p.trim)
-    cell.hLine(31, 38, 21, p.trim)
-    cell.hLine(30, 39, 10, p.trim)
-    cell.hLine(30, 39, 11, p.robeDark)
-    cell.hLine(30, 39, 22, p.robeDark)
-    cell.set(34, 9, p.trim)
-    cell.set(35, 8, p.glow)
-    cell.set(33, 22, p.glow)
+    cell.line(41, 18, 37, 14, iron)
+    cell.set(42, 18, ironHi)
+    // 吊环 + 顶盖
+    cell.set(35, 10, iron)
+    cell.set(35, 11, ironHi)
+    cell.hLine(32, 38, 12, iron)
+    cell.hLine(33, 37, 12, ironHi)
+    // 灯体：左右铁框 + 中间琥珀玻璃
+    cell.fillRect(31, 14, 9, 9, iron)
+    cell.fillRect(32, 15, 7, 7, amber)
+    // 内部玻璃分格与高光
+    cell.vLine(35, 15, 21, iron)
+    cell.hLine(32, 38, 18, iron)
+    cell.fillRect(33, 16, 1, 2, amberHi)
+    // 焰心
+    cell.fillRect(34, 17, 2, 4, flame)
+    cell.set(35, 16, 0xfff7dd)
+    cell.set(34, 20, 0xffcf6a)
+    // 底盖与挂饰
+    cell.hLine(31, 39, 22, iron)
+    cell.hLine(30, 40, 23, ironHi)
+    cell.set(33, 23, p.trim)
+    cell.set(37, 23, p.trim)
   }
 
   // 角色脚下/周围的符文光点
@@ -287,6 +303,9 @@ export class RoomNpc {
   private readonly ring: THREE.Mesh
   private readonly ringMat: THREE.MeshBasicMaterial
   private readonly shadow: THREE.Mesh
+  /** 引路人的提灯暖光（加法精灵，不新增实时点光） */
+  private readonly lampGlow: THREE.Sprite | null
+  private readonly lampGlowMat: THREE.SpriteMaterial | null
   private readonly phase = Math.random() * Math.PI * 2
   private clock = 0
 
@@ -335,6 +354,28 @@ export class RoomNpc {
     this.ring.scale.set(1.55, 0.96, 1)
     this.ring.renderOrder = 3
     this.group.add(this.ring)
+
+    // 提灯挂点：与 48×64 精灵里灯体的像素位置对齐，只给引路人加一层暖光
+    let glow: THREE.Sprite | null = null
+    let glowMat: THREE.SpriteMaterial | null = null
+    if (info.kind === 'guide') {
+      glowMat = new THREE.SpriteMaterial({
+        map: particleTexture('glow'),
+        color: 0xffb35c,
+        transparent: true,
+        opacity: 0.24,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        toneMapped: false,
+      })
+      glow = new THREE.Sprite(glowMat)
+      glow.position.set(0.29, 1.15, 0.02)
+      glow.scale.set(0.62, 0.72, 1)
+      glow.renderOrder = 6
+      this.group.add(glow)
+    }
+    this.lampGlow = glow
+    this.lampGlowMat = glowMat
   }
 
   update(dt: number): void {
@@ -346,6 +387,11 @@ export class RoomNpc {
     this.ring.scale.set(1.55 * pulse, 0.96 * pulse, 1)
     this.ring.rotation.z = this.clock * 0.24
     this.ringMat.opacity = 0.28 + Math.max(0, Math.sin(this.clock * 1.9 + this.phase)) * 0.12
+    if (this.lampGlow && this.lampGlowMat) {
+      const flicker = Math.sin(this.clock * 5.2 + this.phase) * 0.5 + Math.sin(this.clock * 2.3) * 0.5
+      this.lampGlowMat.opacity = 0.2 + Math.max(0, flicker) * 0.07
+      this.lampGlow.scale.set(0.6 + flicker * 0.02, 0.7 + flicker * 0.025, 1)
+    }
   }
 
   dispose(): void {
@@ -357,6 +403,7 @@ export class RoomNpc {
     ;(this.shadow.material as THREE.Material).dispose()
     this.spriteMat.dispose()
     this.texture.dispose()
+    this.lampGlowMat?.dispose()
   }
 }
 
@@ -433,5 +480,199 @@ export class RoomPortal {
     this.spriteMat.dispose()
     this.ground.geometry.dispose()
     this.groundMat.dispose()
+  }
+}
+
+interface EmberSeed {
+  x: number
+  z: number
+  phase: number
+  speed: number
+  sway: number
+}
+
+/**
+ * 休憩营地的程序化篝火：石圈 + 交叉木柴 + 三层加法火焰 + 地面暖光 + 上升余烬。
+ * 不新增实时点光：暖色氛围全部由自发光/加法贴图完成，整座篝火约 5 个 drawcall。
+ */
+export class RoomCampfire {
+  readonly group: THREE.Group
+  x: number
+  z: number
+
+  private readonly scene: THREE.Scene
+  private readonly flames: BillboardBatch
+  private readonly glow: THREE.Mesh
+  private readonly glowMat: THREE.MeshBasicMaterial
+  private readonly emberGeo: THREE.BufferGeometry
+  private readonly emberMat: THREE.PointsMaterial
+  private readonly embers: THREE.Points
+  private readonly seeds: EmberSeed[] = []
+  private readonly logMat: THREE.MeshStandardMaterial
+  private readonly logGeo: THREE.BoxGeometry
+  private readonly stoneGeo: THREE.DodecahedronGeometry
+  private readonly stoneMat: THREE.MeshStandardMaterial
+  private clock = 0
+
+  constructor(scene: THREE.Scene, x: number, z: number) {
+    this.scene = scene
+    this.x = x
+    this.z = z
+    this.group = new THREE.Group()
+    this.group.position.set(x, 0, z)
+    scene.add(this.group)
+
+    // 石圈：9 块低多边形石头，单 InstancedMesh = 1 drawcall
+    this.stoneGeo = new THREE.DodecahedronGeometry(0.5, 0)
+    this.stoneMat = new THREE.MeshStandardMaterial({
+      color: 0x50453e,
+      roughness: 1,
+      metalness: 0,
+      flatShading: true,
+    })
+    const stones = new THREE.InstancedMesh(this.stoneGeo, this.stoneMat, 9)
+    const dummy = new THREE.Object3D()
+    for (let i = 0; i < 9; i += 1) {
+      const a = (i / 9) * Math.PI * 2 + 0.18
+      const r = 0.82 + Math.sin(i * 2.13) * 0.06
+      dummy.position.set(Math.cos(a) * r, 0.1, Math.sin(a) * r)
+      dummy.rotation.set(Math.sin(i * 1.7) * 0.35, a * 1.7, Math.cos(i * 2.3) * 0.25)
+      dummy.scale.set(0.3 + Math.sin(i * 1.1) * 0.05, 0.22 + Math.cos(i * 1.3) * 0.04, 0.32)
+      dummy.updateMatrix()
+      stones.setMatrixAt(i, dummy.matrix)
+    }
+    stones.instanceMatrix.needsUpdate = true
+    this.group.add(stones)
+
+    // 木柴：交叉码放，暗木 + 一点点余烬自发光，让底部不是纯黑
+    this.logGeo = new THREE.BoxGeometry(1, 1, 1)
+    this.logMat = new THREE.MeshStandardMaterial({
+      color: 0x4a2e1c,
+      roughness: 0.95,
+      metalness: 0,
+      flatShading: true,
+      emissive: 0x3a1206,
+      emissiveIntensity: 0.45,
+    })
+    const logs = new THREE.InstancedMesh(this.logGeo, this.logMat, 6)
+    const logDefs: [number, number, number, number, number, number][] = [
+      [-0.28, 0.14, 0.02, 0.78, 0.16, 0.28],
+      [0.24, 0.14, -0.06, 0.72, -0.22, -0.24],
+      [-0.04, 0.18, 0.28, 0.66, 1.22, 0.2],
+      [0.06, 0.18, -0.27, 0.62, 1.36, -0.18],
+      [-0.34, 0.26, -0.2, 0.56, 0.62, 0.55],
+      [0.32, 0.25, 0.22, 0.54, -0.58, -0.5],
+    ]
+    for (let i = 0; i < logDefs.length; i += 1) {
+      const [lx, ly, lz, len, ry, rz] = logDefs[i]
+      dummy.position.set(lx, ly, lz)
+      dummy.rotation.set(0, ry, rz)
+      dummy.scale.set(len, 0.11, 0.11)
+      dummy.updateMatrix()
+      logs.setMatrixAt(i, dummy.matrix)
+    }
+    logs.instanceMatrix.needsUpdate = true
+    this.group.add(logs)
+
+    // 地面暖光：加法混合的径向光晕，负责把石圈和木柴边缘照亮
+    this.glowMat = new THREE.MeshBasicMaterial({
+      map: particleTexture('glow'),
+      color: 0xff7a2e,
+      transparent: true,
+      opacity: 0.3,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+    })
+    this.glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.glowMat)
+    this.glow.rotation.x = -Math.PI / 2
+    this.glow.position.y = 0.045
+    this.glow.scale.set(3.1, 3.1, 1)
+    this.glow.renderOrder = 2
+    this.group.add(this.glow)
+
+    // 三层火焰：外焰/内焰/焰心，全部走一个 billboard 批次
+    this.flames = new BillboardBatch(this.group, particleTexture('glow'), 3, {
+      renderOrder: 6,
+      blending: THREE.AdditiveBlending,
+    })
+
+    // 上升余烬：单个 Points，1 drawcall
+    const count = 18
+    this.emberGeo = new THREE.BufferGeometry()
+    const positions = new Float32Array(count * 3)
+    for (let i = 0; i < count; i += 1) {
+      const a = i * 2.399
+      const r = 0.14 + ((i * 37) % 100) / 100 * 0.34
+      this.seeds.push({
+        x: Math.cos(a) * r,
+        z: Math.sin(a) * r,
+        phase: ((i * 0.618) % 1 + 1) % 1,
+        speed: 0.34 + ((i * 53) % 100) / 100 * 0.34,
+        sway: 0.04 + ((i * 29) % 100) / 100 * 0.07,
+      })
+      positions[i * 3] = this.seeds[i].x
+      positions[i * 3 + 1] = 0.3 + this.seeds[i].phase * 1.2
+      positions[i * 3 + 2] = this.seeds[i].z
+    }
+    this.emberGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    this.emberMat = new THREE.PointsMaterial({
+      map: particleTexture('spark'),
+      color: 0xffb35c,
+      size: 0.09,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+      toneMapped: false,
+    })
+    this.embers = new THREE.Points(this.emberGeo, this.emberMat)
+    this.embers.frustumCulled = false
+    this.embers.renderOrder = 6
+    this.group.add(this.embers)
+  }
+
+  update(dt: number): void {
+    this.clock += dt
+    const t = this.clock
+    const flicker = Math.sin(t * 7.3) * 0.5 + Math.sin(t * 3.1 + 1.7) * 0.5
+    const breathe = Math.sin(t * 2.4) * 0.5 + 0.5
+
+    // 外焰 / 内焰 / 焰心
+    this.flames.set(0, 0, 0.52, 0, 0.82 + flicker * 0.08, 1.22 + flicker * 0.16, 0xff5f1e, 0.46, 0, 0, 1, 1, t * 0.7)
+    this.flames.set(1, 0.02, 0.46, 0, 0.5 + flicker * 0.05, 0.84 + flicker * 0.1, 0xffa53c, 0.58, 0, 0, 1, 1, -t * 0.9)
+    this.flames.set(2, -0.01, 0.4, 0, 0.26 + breathe * 0.03, 0.5 + flicker * 0.06, 0xfff0b0, 0.8, 0, 0, 1, 1, t * 1.3)
+    this.flames.flush()
+
+    this.glowMat.opacity = 0.24 + breathe * 0.1
+    this.logMat.emissiveIntensity = 0.38 + Math.max(0, flicker) * 0.22
+
+    const pos = this.emberGeo.getAttribute('position') as THREE.BufferAttribute
+    for (let i = 0; i < this.seeds.length; i += 1) {
+      const s = this.seeds[i]
+      const life = (s.phase + t * s.speed) % 1
+      pos.setXYZ(
+        i,
+        s.x + Math.sin(t * 1.7 + s.phase * 9) * s.sway,
+        0.3 + life * 1.25,
+        s.z + Math.cos(t * 1.4 + s.phase * 7) * s.sway,
+      )
+    }
+    pos.needsUpdate = true
+  }
+
+  dispose(): void {
+    this.scene.remove(this.group)
+    this.group.clear()
+    this.flames.dispose()
+    this.glow.geometry.dispose()
+    this.glowMat.dispose()
+    this.emberGeo.dispose()
+    this.emberMat.dispose()
+    this.logGeo.dispose()
+    this.logMat.dispose()
+    this.stoneGeo.dispose()
+    this.stoneMat.dispose()
   }
 }

@@ -55,6 +55,9 @@ export class Player {
   private readonly sprite: THREE.Mesh
   private charId: CharacterId | 'mortis'
   private readonly spriteMat: THREE.MeshBasicMaterial
+  /** 第二幕暗底上的低透明轮廓辉光：同图集放大一档 + 加法混合 */
+  private readonly outline: THREE.Mesh
+  private readonly outlineMat: THREE.MeshBasicMaterial
   private readonly shadow: THREE.Mesh
   private readonly ring: THREE.Mesh
   private readonly ghosts: Ghost[] = []
@@ -86,6 +89,16 @@ export class Player {
     this.spriteMat = this.sprite.material as THREE.MeshBasicMaterial
     this.spriteMat.color.setHex(0xffffff)
     this.group.add(this.sprite)
+
+    // 轮廓辉光：不新增光源，只用放大一档的加法精灵把角色从暗色地砖里托出来
+    this.outline = createSpriteMesh(this.anim)
+    this.outlineMat = this.outline.material as THREE.MeshBasicMaterial
+    this.outlineMat.blending = THREE.AdditiveBlending
+    this.outlineMat.opacity = 0.15
+    this.outlineMat.color.setHex(CHAR_TINT[charId].ring)
+    this.outline.renderOrder = 2
+    this.outline.scale.set(1.13, 1.08, 1)
+    this.group.add(this.outline)
 
     this.shadow = createShadowMesh(1.0, 0.62)
     this.shadow.position.y = 0.02
@@ -332,6 +345,8 @@ export class Player {
     this.group.clear()
     this.sprite.geometry.dispose()
     this.spriteMat.dispose()
+    this.outline.geometry.dispose()
+    this.outlineMat.dispose()
     this.shadow.geometry.dispose()
     ;(this.shadow.material as THREE.Material).dispose()
     this.ring.geometry.dispose()
@@ -397,6 +412,12 @@ export class Player {
     this.sprite.rotation.z = moving ? wave * (dash ? 0.10 : 0.045) : 0
     const squash = moving ? 1 - bounce * 0.03 : 1
     this.sprite.scale.set(1 + (1 - squash) * 0.7, squash, 1)
+
+    // 轮廓复用一个放大版精灵，帧/呼吸/倾斜与本体完全同步
+    setSpriteFrame(this.outline, this.anim, this.facing, frame)
+    this.outline.position.copy(this.sprite.position)
+    this.outline.rotation.copy(this.sprite.rotation)
+    this.outline.scale.set(this.sprite.scale.x * 1.13, this.sprite.scale.y * 1.08, 1)
   }
 
   private updateVisuals(dt: number): void {
@@ -407,8 +428,9 @@ export class Player {
     if (this.invuln > 0 && this.dashTimeLeft <= 0 && this.flash <= 0) {
       this.spriteMat.opacity = 0.55 + 0.45 * Math.abs(Math.sin(this.animClock * 26))
     } else {
-      this.spriteMat.opacity = 1
+       this.spriteMat.opacity = 1
     }
+    this.outlineMat.opacity = this.alive ? 0.11 + 0.035 * Math.sin(this.animClock * 2.1) : 0
 
     // 光圈：亮度呼吸 + 随拾取半径缩放
     const ringMat = this.ring.material as THREE.MeshBasicMaterial

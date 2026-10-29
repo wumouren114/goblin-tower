@@ -216,6 +216,17 @@ function colorsOf(atlas) {  const seen = new Map()
   return seen
 }
 
+/** 统计 PixelCanvas 上指定颜色（0xRRGGBB）的像素数 */
+function countPixelColors(cell, colors) {
+  let n = 0
+  for (let i = 0; i < cell.data.length; i += 4) {
+    if (cell.data[i + 3] === 0) continue
+    const c = (cell.data[i] << 16) | (cell.data[i + 1] << 8) | cell.data[i + 2]
+    if (colors.includes(c)) n += 1
+  }
+  return n
+}
+
 function rgbToHsv(r, g, b) {
   const rn = r / 255
   const gn = g / 255
@@ -284,6 +295,7 @@ function countColors(atlas, colors, minSaturation = 0) {
 const chars = await loadCharacters()
 const sprites = await import(pathToFileURL(path.join(ROOT, 'src/art/sprites.ts')).href)
 const roomNpc = await import(pathToFileURL(path.join(ROOT, 'src/entities/roomNpc.ts')).href)
+const roomIcons = await import(pathToFileURL(path.join(ROOT, 'src/art/roomIcons.ts')).href)
 const THREE = await import('three')
 const preview = process.argv.includes('--preview')
 const scaleArg = process.argv.find((a) => a.startsWith('--scale='))
@@ -553,10 +565,17 @@ check('v4.8 房间 NPC 信息 / 模型结构与出口裂隙清理', () => {
 
   const scene = new THREE.Scene()
   const npc = new roomNpc.RoomNpc(scene, 'chest', 0, 0)
-  assert(scene.children.length === 1 && npc.group.children.length === 3, '房间 NPC 结构不是 group(精灵+影子+地环)')
+  assert(
+    scene.children.length === 1 && npc.group.children.length === 4,
+    '引路人结构不是 group(精灵+影子+地环+提灯光晕)',
+  )
   npc.update(0.5)
   npc.dispose()
-  assert(scene.children.length === 0, '房间 NPC dispose 后仍留在场景')
+  assert(scene.children.length === 0 && npc.group.children.length === 0, '房间 NPC dispose 后仍留在场景')
+
+  const merchant = new roomNpc.RoomNpc(scene, 'merchant', 0, 0)
+  assert(merchant.group.children.length === 3, '商人 NPC 结构不是 group(精灵+影子+地环)')
+  merchant.dispose()
 
   const portal = new roomNpc.RoomPortal(scene, 0, 0)
   assert(scene.children.length === 1 && portal.group.children.length === 2, '出口裂隙结构不是 group(传送门+地面符文)')
@@ -564,6 +583,75 @@ check('v4.8 房间 NPC 信息 / 模型结构与出口裂隙清理', () => {
   portal.update(0.5)
   portal.dispose()
   assert(scene.children.length === 0, '出口裂隙 dispose 后仍留在场景')
+})
+
+check('v4.8 休憩营地篝火：结构 / 火焰 / 余烬 / 清理', () => {
+  const scene = new THREE.Scene()
+  const fire = new roomNpc.RoomCampfire(scene, 0.5, -0.15)
+  assert(scene.children.length === 1, '篝火没有挂到场景')
+  assert(fire.group.children.length === 5, `篝火结构 ${fire.group.children.length} 个节点，期望 5（石圈/木柴/暖光/火焰/余烬）`)
+
+  let instanced = 0
+  let points = 0
+  let lights = 0
+  fire.group.traverse((o) => {
+    if (o.isInstancedMesh) instanced += 1
+    if (o.isPoints) points += 1
+    if (o.isLight) lights += 1
+  })
+  assert(instanced === 2, `篝火 InstancedMesh 数量 ${instanced}，期望 2（石圈+木柴）`)
+  assert(points === 1, `篝火余烬 Points 数量 ${points}`)
+  assert(lights === 0, '篝火新增了实时光源，违反无点光约束')
+
+  const embers = fire.group.children.find((o) => o.isPoints)
+  assert(embers.geometry.getAttribute('position').count === 18, '篝火余烬数量不是 18')
+  const before = embers.geometry.getAttribute('position').getY(0)
+  fire.update(0.5)
+  fire.update(0.5)
+  const after = embers.geometry.getAttribute('position').getY(0)
+  assert(before !== after, '篝火余烬没有随时间上升')
+
+  fire.dispose()
+  assert(scene.children.length === 0 && fire.group.children.length === 0, '篝火 dispose 后仍留在场景')
+})
+
+check('v4.8 八类房间像素图标：24×24 / 非空 / 各自可辨识', () => {
+  const rooms = roomIcons.ROOM_ICON_ROOMS
+  assert(rooms.length === 8 && new Set(rooms).size === 8, `房间图标数量 ${rooms.length}`)
+  const expected = ['chest', 'skill-card', 'merchant', 'altar', 'mob-wave', 'elite-fight', 'boss', 'rest']
+  for (const room of expected) assert(rooms.includes(room), `缺少房间图标 ${room}`)
+
+  const seen = new Map()
+  for (const room of rooms) {
+    const cell = roomIcons.drawRoomIcon(room)
+    assert(cell.width === 24 && cell.height === 24, `${room} 图标尺寸 ${cell.width}x${cell.height}`)
+    assert(cell.data.length === 24 * 24 * 4, `${room} 图标数据长度 ${cell.data.length}`)
+    assert(cell.getAlpha(0, 0) === 0, `${room} 图标左上角不是透明`)
+    assert(cell.getAlpha(23, 23) === 0, `${room} 图标右下角不是透明`)
+    let opaque = 0
+    for (let i = 3; i < cell.data.length; i += 4) if (cell.data[i] !== 0) opaque += 1
+    assert(opaque >= 60, `${room} 图标不透明像素仅 ${opaque}`)
+    const key = Buffer.from(cell.data).toString('base64')
+    assert(!seen.has(key), `${room} 与 ${seen.get(key)} 图标像素完全相同`)
+    seen.set(key, room)
+  }
+
+  const chest = roomIcons.drawRoomIcon('chest')
+  assert(countPixelColors(chest, [0xe8b25a, 0xffe2a0, 0x8a5a22]) >= 40, '宝箱图标缺少金木配色')
+  const card = roomIcons.drawRoomIcon('skill-card')
+  assert(countPixelColors(card, [0x46d8c2, 0xb9fff4, 0xb46bff]) >= 25, '技能卡图标缺少青紫符文像素')
+  const merchant = roomIcons.drawRoomIcon('merchant')
+  assert(countPixelColors(merchant, [0x7a4a2a, 0x3a2416, 0xe8b25a]) >= 40, '商人图标缺少棕袍/金币像素')
+  const altar = roomIcons.drawRoomIcon('altar')
+  assert(countPixelColors(altar, [0xb46bff, 0x4b246e, 0xb9fff4]) >= 25, '祭坛图标缺少紫色法球像素')
+  const mob = roomIcons.drawRoomIcon('mob-wave')
+  assert(countPixelColors(mob, [0x7fb84e, 0x355524, 0xffe08a]) >= 30, '怪潮图标缺少绿皮像素')
+  const elite = roomIcons.drawRoomIcon('elite-fight')
+  assert(countPixelColors(elite, [0xe8dfcf, 0x8f8474, 0xff5f56]) >= 40, '精英图标缺少骨白/红眼像素')
+  const boss = roomIcons.drawRoomIcon('boss')
+  assert(countPixelColors(boss, [0xe8b25a, 0xffe2a0, 0xff5f56]) >= 40, '首领图标缺少金冠/红宝石像素')
+  const rest = roomIcons.drawRoomIcon('rest')
+  assert(countPixelColors(rest, [0xff8a3c, 0xffe08a, 0xfff6dd]) >= 30, '休憩图标缺少火焰像素')
 })
 
 

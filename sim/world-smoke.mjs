@@ -444,6 +444,20 @@ for (const def of allScenes) {
   eq(floor.halfSize, def.halfSize, `${tag} build 后 halfSize 正确`)
   eq(floor.spawnPoints.length, 16, `${tag} spawnPoints 四面各 4 = 16`)
   check(floor.propColliders.length > 5, `${tag} propColliders 含角柱+祭坛+道具(${floor.propColliders.length})`)
+  const boundary = floor.group.getObjectByName('ArenaBoundary')
+  check(
+    !!boundary && boundary.isInstancedMesh && boundary.count === 4 && boundary.visible,
+    `${tag} 场地边界警示线存在（4 段合批）`,
+  )
+  // 角柱必须在可行走区外：旧版把柱心放在 half-0.95，柱体被镜头隐藏后
+  // 会留下半径 1.7m 的隐形阻挡，贴墙走会像移动键失灵。
+  const walkLimit = def.halfSize - 0.95
+  let cornerBlocked = 0
+  for (const c of floor.propColliders) {
+    if (Math.abs(c.x) <= def.halfSize || Math.abs(c.z) <= def.halfSize) continue
+    if (Math.hypot(Math.abs(c.x) - walkLimit, Math.abs(c.z) - walkLimit) < c.r + 0.35) cornerBlocked++
+  }
+  eq(cornerBlocked, 0, `${tag} 角柱碰撞体不侵入可行走区`)
   check(scene3d.fog && scene3d.fog.isFogExp2, `${tag} 使用 FogExp2`)
   if (scene3d.fog && scene3d.fog.isFogExp2) {
     check(scene3d.fog.density > 0 && scene3d.fog.density < 0.1, `${tag} 雾密度在合理区间`)

@@ -147,9 +147,9 @@ function styleAngle(dirX: number, dirZ: number): number {
   return Math.atan2(dirZ, dirX)
 }
 
-/** 贴地平面的「上方」映射到本地 -Z；让纹理正面朝 dir。 */
+/** 贴地平面的上方映射到本地 +Z；让纹理正面朝 dir。 */
 function groundYaw(dirX: number, dirZ: number): number {
-  return Math.atan2(-dirX, -dirZ)
+  return Math.atan2(dirX, dirZ)
 }
 
 function rand(min: number, max: number): number {

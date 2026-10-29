@@ -134,7 +134,10 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     attack: {
       name: '拔刀斩',
       baseDamage: 19,
-      baseRange: 3.4,
+      // v4.8：3.4m 在智力 70 时只剩 2.38m，刀光看着贴脸却经常砍空，
+      // 近战清场会被远程/大体型怪拖住。抬到 4.6m（智力 70 时约 3.22m），
+      // 仍然明显短于睦月的 5.5m，保留“靠近战突进”的角色定位。
+      baseRange: 4.6,
       shape: 'cone',
       angle: 130,
       minInterval: 0.22,

@@ -108,12 +108,20 @@ export class PropSet {
     const stoneLight = this.trackMat(std(mixHex(p[1] ?? theme.wallColor, theme.wallTopColor, 0.3)))
     const wood = this.trackMat(std(mixHex(p[1] ?? 0x6a5038, 0x6b4a2a, 0.55), { roughness: 0.95 }))
     const woodDark = this.trackMat(std(mixHex(0x3a2a1c, p[0] ?? 0x4a3a2a, 0.35), { roughness: 0.95 }))
-    const metal = this.trackMat(std(0x2b2b33, { metalness: 0.72, roughness: 0.42 }))
-    const metalLight = this.trackMat(std(0x6e6a74, { metalness: 0.6, roughness: 0.35 }))
+    const metal = this.trackMat(std(0x34343d, { metalness: 0.72, roughness: 0.42 }))
+    const metalLight = this.trackMat(std(0x75707c, { metalness: 0.6, roughness: 0.35 }))
+    const warmMetal = this.trackMat(
+      std(mixHex(0x4a4048, theme.accentColor, 0.22), {
+        metalness: 0.55,
+        roughness: 0.5,
+        emissive: theme.accentColor,
+        emissiveIntensity: 0.1,
+      }),
+    )
     const gold = this.trackMat(std(mixHex(theme.accentColor, 0xe8be62, 0.55), { metalness: 0.85, roughness: 0.3, emissive: theme.accentColor, emissiveIntensity: 0.12 }))
     const wax = this.trackMat(std(mixHex(theme.accentColor, 0xf0e2c0, 0.7), { roughness: 0.85 }))
     const moss = this.trackMat(std(mixHex(theme.accentColor, 0x3d5f34, 0.65), { roughness: 1 }))
-    const lava = this.trackMat(std(0x2a1512, { emissive: theme.accentColor, emissiveIntensity: 1.6, roughness: 1 }))
+    const lava = this.trackMat(std(0x2a1512, { emissive: theme.accentColor, emissiveIntensity: 1.25, roughness: 1 }))
     const ice = this.trackMat(
       std(mixHex(theme.accentColor, 0xffffff, 0.25), {
         roughness: 0.16,
@@ -134,6 +142,7 @@ export class PropSet {
       woodDark,
       metal,
       metalLight,
+      warmMetal,
       gold,
       wax,
       moss,
@@ -336,10 +345,10 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
         weight: 3,
         colliderR: 0.72,
         parts: [
-          P(box, m.stoneDark, [0, 0.22, 0], [1.0, 0.44, 0.72]),
-          P(box, m.metal, [0, 0.6, 0], [1.45, 0.3, 0.6]),
+          P(box, m.stone, [0, 0.22, 0], [1.0, 0.44, 0.72]),
+          P(box, m.warmMetal, [0, 0.6, 0], [1.45, 0.3, 0.6]),
           P(box, m.metalLight, [0, 0.79, 0], [0.55, 0.14, 0.48]),
-          P(cone, m.metal, [0.9, 0.6, 0], [0.2, 0.42, 0.2], [0, 0, -Math.PI / 2]),
+          P(cone, m.warmMetal, [0.9, 0.6, 0], [0.2, 0.42, 0.2], [0, 0, -Math.PI / 2]),
           P(box, m.lava, [0, 0.75, 0.02], [0.3, 0.02, 0.18]),
         ],
       }
@@ -350,6 +359,7 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
         colliderR: 0.75,
         parts: [
           P(rock, m.stone, [0, 0.4, 0], [1.25, 0.9, 1.15]),
+          P(rock, m.stoneLight, [0.34, 0.3, -0.3], [0.42, 0.34, 0.4], [0.2, 0.6, 0.1]),
           P(box, m.lava, [0.12, 0.58, 0.36], [0.5, 0.1, 0.18], [0, 0.7, 0]),
           P(box, m.lava, [-0.34, 0.24, -0.2], [0.34, 0.08, 0.5], [0, 0.2, 0]),
           P(box, m.lava, [0.3, 0.16, -0.4], [0.3, 0.06, 0.22], [0, 1.2, 0]),
@@ -361,8 +371,8 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
         weight: 2,
         colliderR: 0.7,
         parts: [
-          P(box, m.stoneDark, [0, 0.45, 0], [1.3, 0.9, 1.1]),
-          P(box, m.stone, [0, 1.02, 0], [1.1, 0.24, 0.92]),
+          P(box, m.stone, [0, 0.45, 0], [1.3, 0.9, 1.1]),
+          P(box, m.stoneLight, [0, 1.02, 0], [1.1, 0.24, 0.92]),
           P(box, m.lava, [0, 0.92, 0.56], [0.8, 0.06, 0.04]),
         ],
       }
@@ -372,8 +382,8 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
         weight: 2,
         colliderR: 0.7,
         parts: [
-          P(cone, m.stoneDark, [0, 0.34, 0], [0.85, 0.68, 0.85]),
-          P(rock, m.stone, [0.42, 0.14, 0.2], [0.28, 0.24, 0.26]),
+          P(cone, m.stone, [0, 0.34, 0], [0.85, 0.68, 0.85]),
+          P(rock, m.stoneLight, [0.42, 0.14, 0.2], [0.28, 0.24, 0.26]),
           P(box, m.lava, [0.05, 0.5, 0.15], [0.18, 0.05, 0.18], [0, 0.5, 0]),
           P(box, m.lava, [-0.3, 0.28, -0.2], [0.12, 0.04, 0.12]),
         ],
