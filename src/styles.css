@@ -177,6 +177,20 @@ button:focus-visible {
   display: none;
 }
 
+/*
+ * 模态层级：隧道 / 商店 / 背包 / 暂停 / 存档 / 标题 / 结算打开时，
+ * 底层 HUD、Boss 血条、飘字和楼层横幅统一让位，避免半透明残影。
+ * 用 visibility 而不是 display，关闭时不会触发整页重排。
+ */
+body.is-modal-open .hud,
+body.is-modal-open .boss-bar,
+body.is-modal-open .dmg-layer,
+body.is-modal-open .floor-banner {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* ---------- 左上：楼层 / 目标进度 ---------- */
 
 .hud-floor {

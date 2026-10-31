@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { Circle, SceneDef, Vec2, WorldV3 } from '../types'
+import type { Circle, SceneDef, TunnelRoom, Vec2, WorldV3 } from '../types'
 import { Rng } from '../core/rng'
 import { mixHex, TextureBook } from './textures'
 import { PropSet } from './props'
@@ -40,6 +40,8 @@ interface TowerCache {
   x: number
   z: number
   used: boolean
+  /** 房间 preset 下非宝藏房会整体隐藏，避免“每个房间都能开箱”的语义冲突 */
+  hidden: boolean
   open: number
   group: THREE.Group
   lidPivot: THREE.Group
@@ -48,6 +50,7 @@ interface TowerCache {
   sealColor: number
   sealBaseY: number
   phase: number
+  collider: Circle
 }
 
 export type TowerInteractionKind = 'altar' | 'cache'
@@ -60,6 +63,181 @@ export interface TowerInteraction {
   z: number
   title: string
   hint: string
+}
+
+/** 房间专属色：同一套竞技场靠“地面印记 + 火把/旗帜染色 + 布景轮廓”区分 */
+const ROOM_ACCENT: Record<TunnelRoom, number> = {
+  chest: 0xffc84d,
+  'skill-card': 0x8fe3ff,
+  merchant: 0xffd166,
+  altar: 0xb46bff,
+  'mob-wave': 0xff6a4a,
+  'elite-fight': 0xff8a3d,
+  rest: 0x8fffc8,
+  boss: 0xff4d6d,
+}
+
+type DecorShape = 'box' | 'cyl'
+type DecorTone = 'wood' | 'stone' | 'dark' | 'accent' | 'gold'
+
+/** 布景件只用“盒/柱 + 顶点色”表达，两个 InstancedMesh 封顶，+2 drawcall */
+interface RoomDecorPiece {
+  shape: DecorShape
+  x: number
+  y: number
+  z: number
+  sx: number
+  sy: number
+  sz: number
+  ry?: number
+  tone: DecorTone
+}
+
+/**
+ * 房间布景不是几块纯色积木，而是“台面 + 腿 + 基座/檐口”的组合件：
+ * - 商人房：长柜台 + 背架 + 两张边桌，读起来是摊位而不是一堵 U 形墙
+ * - 首领土著：黑石方尖碑 + 红铜火盆，避免大块高饱和色块
+ * - 刻文房：窄碑身 + 基座 + 发光檐口，和“技能碑林”的语义一致
+ * 所有件都不进碰撞，不影响即将重写的战斗与 NPC 动线。
+ */
+function roomDecorPieces(kind: TunnelRoom): RoomDecorPiece[] {
+  const pieces: RoomDecorPiece[] = []
+  const box = (
+    x: number,
+    y: number,
+    z: number,
+    sx: number,
+    sy: number,
+    sz: number,
+    tone: DecorTone,
+    ry = 0,
+  ): void => {
+    pieces.push({ shape: 'box', x, y, z, sx, sy, sz, ry, tone })
+  }
+  const cyl = (x: number, y: number, z: number, r: number, h: number, tone: DecorTone): void => {
+    pieces.push({ shape: 'cyl', x, y, z, sx: r, sy: h, sz: r, tone })
+  }
+  const obelisk = (x: number, z: number, tone: DecorTone): void => {
+    box(x, 0.12, z, 0.92, 0.24, 0.92, tone)
+    box(x, 0.76, z, 0.52, 1.12, 0.52, tone)
+    box(x, 1.4, z, 0.74, 0.16, 0.74, 'accent')
+  }
+
+  switch (kind) {
+    case 'rest': {
+      for (const side of [-1, 1]) {
+        const x = side * 4.2
+        const z = 3.2
+        const ry = side * 0.06
+        box(x, 0.52, z, 3.0, 0.16, 0.64, 'wood', ry)
+        box(x - 1.18, 0.24, z, 0.22, 0.48, 0.52, 'wood', ry)
+        box(x + 1.18, 0.24, z, 0.22, 0.48, 0.52, 'wood', ry)
+      }
+      cyl(-5.5, 0.45, 1.0, 0.5, 0.9, 'wood')
+      cyl(5.5, 0.45, 1.0, 0.5, 0.9, 'wood')
+      box(0, 0.35, -4.6, 1.2, 0.7, 1.2, 'wood', 0.3)
+      box(0, 0.77, -4.6, 1.3, 0.14, 1.3, 'wood', 0.3)
+      break
+    }
+    case 'merchant': {
+      // 主柜台：台面 + 四条腿
+      box(0, 0.94, 2.8, 6.4, 0.16, 0.9, 'wood')
+      for (const x of [-2.8, 2.8]) {
+        for (const z of [2.5, 3.1]) box(x, 0.42, z, 0.22, 0.84, 0.22, 'wood')
+      }
+      // 背架：上檐 + 两根立柱 + 一层隔板
+      box(0, 1.68, 2.25, 6.2, 0.12, 0.34, 'wood')
+      box(-2.95, 0.84, 2.25, 0.18, 1.68, 0.18, 'wood')
+      box(2.95, 0.84, 2.25, 0.18, 1.68, 0.18, 'wood')
+      box(0, 1.24, 2.25, 5.9, 0.1, 0.28, 'wood')
+      // 两侧边桌 + 桌上的金箱
+      for (const side of [-1, 1]) {
+        const x = side * 4.4
+        box(x, 0.82, 4.4, 1.4, 0.12, 0.9, 'wood')
+        cyl(x, 0.4, 4.4, 0.3, 0.8, 'wood')
+        box(x, 1.02, 4.4, 0.55, 0.28, 0.42, 'gold', side * 0.2)
+      }
+      break
+    }
+    case 'altar': {
+      for (const x of [-3.8, 3.8]) {
+        for (const z of [-2.2, 2.2]) obelisk(x, z, 'stone')
+      }
+      break
+    }
+    case 'chest': {
+      for (const side of [-1, 1]) {
+        const x = side * 3.7
+        box(x, 0.34, 2.0, 1.1, 0.68, 1.0, 'wood', side * 0.08)
+        box(x, 0.73, 2.0, 1.2, 0.14, 1.08, 'wood', side * 0.08)
+      }
+      // 中央低台：石座 + 金边台面
+      box(0, 0.14, -2.1, 2.8, 0.28, 1.6, 'stone')
+      box(0, 0.38, -2.1, 2.3, 0.2, 1.25, 'gold')
+      for (const x of [-5.0, 5.0]) {
+        cyl(x, 0.42, 5.0, 0.38, 0.84, 'stone')
+        box(x, 0.9, 5.0, 0.8, 0.12, 0.8, 'gold')
+      }
+      break
+    }
+    case 'skill-card': {
+      for (const x of [-3.9, 3.9]) {
+        for (const z of [2.4, 6.0]) {
+          box(x, 0.1, z, 0.92, 0.2, 0.62, 'stone')
+          box(x, 1.02, z, 0.42, 1.64, 0.2, 'stone')
+          box(x, 1.92, z, 0.72, 0.16, 0.32, 'accent')
+        }
+      }
+      for (const x of [-5.7, 5.7]) {
+        cyl(x, 0.38, 4.0, 0.34, 0.76, 'stone')
+        box(x, 0.82, 4.0, 0.66, 0.1, 0.66, 'accent')
+      }
+      break
+    }
+    case 'mob-wave': {
+      for (const x of [-6.2, 6.2]) {
+        for (const z of [2.2, 5.4]) {
+          box(x, 0.9, z, 2.5, 0.2, 0.46, 'wood', x < 0 ? 0.06 : -0.06)
+          box(x - 0.9, 0.45, z, 0.22, 0.9, 0.24, 'wood')
+          box(x + 0.9, 0.45, z, 0.22, 0.9, 0.24, 'wood')
+        }
+      }
+      for (const x of [-7.4, 7.4]) {
+        cyl(x, 0.46, 4.0, 0.36, 0.92, 'stone')
+        box(x, 0.98, 4.0, 0.62, 0.12, 0.62, 'accent')
+      }
+      break
+    }
+    case 'elite-fight': {
+      for (const x of [-6.2, 6.2]) {
+        for (const z of [1.2, 4.2, 7.2]) {
+          box(x, 0.9, z, 2.5, 0.2, 0.46, 'wood', x < 0 ? 0.06 : -0.06)
+          box(x - 0.9, 0.45, z, 0.22, 0.9, 0.24, 'wood')
+          box(x + 0.9, 0.45, z, 0.22, 0.9, 0.24, 'wood')
+        }
+      }
+      for (const x of [-7.6, 7.6]) {
+        cyl(x, 0.46, 4.0, 0.38, 0.92, 'stone')
+        box(x, 0.98, 4.0, 0.66, 0.12, 0.66, 'accent')
+      }
+      break
+    }
+    case 'boss': {
+      for (const x of [-7.0, 7.0]) {
+        for (const z of [-7.0, 5.8]) {
+          box(x, 0.15, z, 1.0, 0.3, 1.0, 'dark', x * z > 0 ? 0.2 : -0.2)
+          box(x, 1.3, z, 0.56, 2.0, 0.56, 'dark', x * z > 0 ? 0.2 : -0.2)
+          box(x, 2.4, z, 0.86, 0.2, 0.86, 'accent', x * z > 0 ? 0.2 : -0.2)
+        }
+      }
+      for (const x of [-8.2, 8.2]) {
+        cyl(x, 0.48, 0, 0.52, 0.96, 'dark')
+        box(x, 1.02, 0, 0.82, 0.14, 0.82, 'accent')
+      }
+      break
+    }
+  }
+  return pieces
 }
 
 /**
@@ -120,7 +298,25 @@ export class TowerFloor implements WorldV3 {
   private altarUsed = false
   private altarFlash = 0
   private altarInteractR = 4.8
+  private altarSteps: THREE.Mesh[] = []
+  private altarCollider: Circle | null = null
+  private altarRuneSize = 1
+  private altarRuneBaseY = 0.79
+  private altarRuneBaseColor = 0xffffff
   private caches: TowerCache[] = []
+
+  /** 房间 preset 状态：null = 普通战斗层 */
+  private roomPreset: TunnelRoom | null = null
+  private roomFocus = { x: 0, z: 0 }
+  private roomAccent = 0
+  private floorMat: THREE.MeshStandardMaterial | null = null
+  private bannerClothMat: THREE.MeshStandardMaterial | null = null
+  private bannerCrestMat: THREE.MeshBasicMaterial | null = null
+  private torchFlameBase = 0xffffff
+  private torchLightBase = 0xffffff
+  private boundaryBaseColor = 0xffffff
+  private roomDecorBox: THREE.InstancedMesh | null = null
+  private roomDecorCyl: THREE.InstancedMesh | null = null
 
   /** 场景中的发光 sprite 全部合批：光晕 / 火焰 / 塔藏箱符文各 1 个 drawcall */
   private glowBatch: BillboardBatch | null = null
@@ -239,6 +435,7 @@ export class TowerFloor implements WorldV3 {
       emissive: new THREE.Color(mixHex(theme.floorColor, theme.accentColor, 0.22)),
       emissiveIntensity: 0.075,
     })
+    this.floorMat = floorMat
     const floor = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, floorSize), floorMat)
     floor.rotation.x = -Math.PI / 2
     floor.receiveShadow = true
@@ -246,20 +443,23 @@ export class TowerFloor implements WorldV3 {
 
     /* ---------------- 场地边界警示线 ---------------- */
     // 南墙/东墙等靠近镜头时会被隐藏，但碰撞边界仍在。没有墙可看时，
-    // 玩家走到 halfSize 附近会以为按键失灵；这条常驻发光细线负责把边界讲清楚。
-    // 4 段共用一个 InstancedMesh = 1 drawcall，不新增光源。
-    const boundaryInset = 0.95
+    // 玩家走到 halfSize 附近会以为按键失灵；这条常驻发光带负责把边界讲清楚。
+    // v4.9：0.16m 细线在实际镜头里几乎看不见，改成 0.52m 内嵌光带 + 四角垫片。
+    // 4 段边 + 4 个角仍共用一个 InstancedMesh = 1 drawcall，不新增光源。
+    const boundaryInset = 0.72
+    const boundaryWidth = 0.52
     const boundaryMat = new THREE.MeshBasicMaterial({
       // 偏白的暖色，避免在熔火/霜蚀主题里被同色地面吃掉；加法混合只提亮不投影。
-      color: mixHex(theme.accentColor, 0xfff3d6, 0.74),
+      color: mixHex(theme.accentColor, 0xfff3d6, 0.6),
       transparent: true,
-      opacity: 0.46,
+      opacity: 0.34,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false,
     })
-    const boundaryGeo = new THREE.BoxGeometry(1, 0.05, 0.16)
-    const boundaryMesh = new THREE.InstancedMesh(boundaryGeo, boundaryMat, 4)
+    this.boundaryBaseColor = boundaryMat.color.getHex()
+    const boundaryGeo = new THREE.BoxGeometry(1, 0.05, boundaryWidth)
+    const boundaryMesh = new THREE.InstancedMesh(boundaryGeo, boundaryMat, 8)
     boundaryMesh.name = 'ArenaBoundary'
     boundaryMesh.renderOrder = 3
     const edge = half - boundaryInset
@@ -276,6 +476,18 @@ export class TowerFloor implements WorldV3 {
     boundaryMesh.setMatrixAt(2, bm)
     bm.compose(new THREE.Vector3(-edge, 0.03, 0), rot90, new THREE.Vector3(edgeLen, 1, 1))
     boundaryMesh.setMatrixAt(3, bm)
+    // 四角垫片：让“角落”也有实体边界，而不是两条线在透视里断开
+    const corner = 1.25
+    const corners: [number, number][] = [
+      [edge, edge],
+      [edge, -edge],
+      [-edge, edge],
+      [-edge, -edge],
+    ]
+    for (let i = 0; i < corners.length; i += 1) {
+      bm.compose(new THREE.Vector3(corners[i][0], 0.03, corners[i][1]), bq, new THREE.Vector3(corner, 1, corner))
+      boundaryMesh.setMatrixAt(4 + i, bm)
+    }
     boundaryMesh.instanceMatrix.needsUpdate = true
     boundaryMesh.frustumCulled = false
     this.boundaryMesh = boundaryMesh
@@ -400,9 +612,23 @@ export class TowerFloor implements WorldV3 {
     /* ---------------- 空气浮尘 ---------------- */
     this.buildMotes(half, wallH, tex)
 
+    /* ---------------- 房间布景（默认隐藏，进房间时才显示） ---------------- */
+    this.buildRoomDecor()
+
     this.time = 0
     this.freezeShadows()
     this.built = true
+  }
+
+  /**
+   * 可交互物的强调色：
+   * 熔火主题的红色 accent 和地砖/裂缝太接近，祭坛与塔藏箱改用金色，
+   * 让“可以按 E 的东西”从背景里跳出来；其他主题保持主题 accent。
+   */
+  private interactAccent(): number {
+    const theme = this.theme
+    if (!theme) return 0xffffff
+    return theme.family === 'forge' ? mixHex(theme.accentColor, 0xffd166, 0.62) : theme.accentColor
   }
 
   /* ---------------- 祭坛 ---------------- */
@@ -430,12 +656,14 @@ export class TowerFloor implements WorldV3 {
       m.castShadow = true
       m.receiveShadow = true
       this.root.add(m)
+      this.altarSteps.push(m)
     }
 
     // 发光符文圈
+    const accent = this.interactAccent()
     const runeMat = new THREE.MeshBasicMaterial({
       map: tex.rune,
-      color: mixHex(theme.accentColor, 0xffffff, 0.12),
+      color: mixHex(accent, 0xffffff, 0.12),
       transparent: true,
       opacity: 0.72,
       blending: THREE.AdditiveBlending,
@@ -443,16 +671,19 @@ export class TowerFloor implements WorldV3 {
       side: THREE.DoubleSide,
       toneMapped: false,
     })
-    this.altarRune = new THREE.Mesh(new THREE.PlaneGeometry(stepR * 1.62, stepR * 1.62), runeMat)
+    this.altarRuneSize = stepR * 1.62
+    this.altarRuneBaseY = 0.79
+    this.altarRuneBaseColor = runeMat.color.getHex()
+    this.altarRune = new THREE.Mesh(new THREE.PlaneGeometry(this.altarRuneSize, this.altarRuneSize), runeMat)
     this.altarRune.rotation.x = -Math.PI / 2
-    this.altarRune.position.y = 0.79
+    this.altarRune.position.y = this.altarRuneBaseY
     this.altarRune.renderOrder = 2
     this.root.add(this.altarRune)
 
     // 悬浮主题晶体（构图中心）
     const crystalMat = new THREE.MeshStandardMaterial({
-      color: mixHex(theme.accentColor, 0xffffff, 0.2),
-      emissive: theme.accentColor,
+      color: mixHex(accent, 0xffffff, 0.2),
+      emissive: accent,
       emissiveIntensity: 1.35,
       roughness: 0.22,
       metalness: 0.25,
@@ -468,7 +699,7 @@ export class TowerFloor implements WorldV3 {
     // 塔心光柱：只增加一个透明自发光圆柱，不新增实时光源
     const beamMat = new THREE.MeshBasicMaterial({
       map: tex.beam,
-      color: mixHex(theme.accentColor, 0xffffff, 0.18),
+      color: mixHex(accent, 0xffffff, 0.18),
       transparent: true,
       opacity: 0.13,
       blending: THREE.AdditiveBlending,
@@ -487,7 +718,7 @@ export class TowerFloor implements WorldV3 {
     // 悬浮塔徽：复用符文贴图，作为“信标”的视觉核心
     const haloMat = new THREE.MeshBasicMaterial({
       map: tex.rune,
-      color: mixHex(theme.accentColor, 0xffffff, 0.28),
+      color: mixHex(accent, 0xffffff, 0.28),
       transparent: true,
       opacity: 0.55,
       blending: THREE.AdditiveBlending,
@@ -509,11 +740,11 @@ export class TowerFloor implements WorldV3 {
       0,
       5.4,
       5.4,
-      theme.accentColor,
+      accent,
       0.3,
     )
 
-    this.altarLight = new THREE.PointLight(theme.accentColor, 11, Math.max(13, half * 0.75), 2)
+    this.altarLight = new THREE.PointLight(accent, 11, Math.max(13, half * 0.75), 2)
     this.altarLight.position.set(0, this.crystalBaseY + 0.3, 0)
     this.root.add(this.altarLight)
 
@@ -521,7 +752,8 @@ export class TowerFloor implements WorldV3 {
     this.altarInteractR = stepR + 1.95
 
     // 祭坛单体碰撞（低矮但不可穿行）
-    this.propColliders.push({ x: 0, z: 0, r: stepR * 0.92 })
+    this.altarCollider = { x: 0, z: 0, r: stepR * 0.92 }
+    this.propColliders.push(this.altarCollider)
   }
 
   /* ---------------- 火把 ---------------- */
@@ -541,6 +773,8 @@ export class TowerFloor implements WorldV3 {
     const cupMats: THREE.Matrix4[] = []
     const flameColor = mixHex(theme.torchColor, 0xffe4a8, 0.42)
     const glowColor = theme.torchColor
+    this.torchFlameBase = flameColor
+    this.torchLightBase = theme.torchColor
 
     this.torches = []
 
@@ -646,6 +880,7 @@ export class TowerFloor implements WorldV3 {
       side: THREE.DoubleSide,
       flatShading: true,
     })
+    this.bannerClothMat = clothMat
     const rodMat = new THREE.MeshStandardMaterial({
       color: mixHex(theme.wallTopColor, 0x3a2a18, 0.42),
       roughness: 0.62,
@@ -662,6 +897,7 @@ export class TowerFloor implements WorldV3 {
       side: THREE.DoubleSide,
       toneMapped: false,
     })
+    this.bannerCrestMat = crestMat
 
     const clothGeo = new THREE.ShapeGeometry(
       (() => {
@@ -919,7 +1155,8 @@ export class TowerFloor implements WorldV3 {
       metalness: 0.68,
       flatShading: true,
     })
-    const sealColor = mixHex(theme.accentColor, 0xffffff, 0.2)
+    const accent = this.interactAccent()
+    const sealColor = mixHex(accent, 0xffffff, 0.2)
 
     const group = new THREE.Group()
     group.position.set(x, 0, z)
@@ -951,16 +1188,18 @@ export class TowerFloor implements WorldV3 {
 
     // 光晕/封印走合批：坐标是世界空间，不挂在 group 上（group 只放实体箱体）
     const glowIndex = this.glowBatch?.acquire() ?? -1
-    this.glowBatch?.set(glowIndex, x, 0.42, z, 2.1, 2.1, theme.accentColor, 0.3)
+    this.glowBatch?.set(glowIndex, x, 0.42, z, 2.1, 2.1, accent, 0.3)
     const sealIndex = this.sealBatch?.acquire() ?? -1
     this.sealBatch?.set(sealIndex, x, 1.05, z, 0.92, 0.92, sealColor, 0.9)
 
     this.root.add(group)
-    this.propColliders.push({ x, z, r: 0.72 })
+    const collider: Circle = { x, z, r: 0.72 }
+    this.propColliders.push(collider)
     this.caches.push({
       x,
       z,
       used: false,
+      hidden: false,
       open: 0,
       group,
       lidPivot,
@@ -969,6 +1208,7 @@ export class TowerFloor implements WorldV3 {
       sealColor,
       sealBaseY: 1.05,
       phase: index * 1.9 + rot,
+      collider,
     })
   }
 
@@ -1014,6 +1254,253 @@ export class TowerFloor implements WorldV3 {
   }
 
   /* ================================================================ */
+  /*  房间 preset：同一竞技场的低成本辨识度层                            */
+  /* ================================================================ */
+
+  /**
+   * 进入/离开房间时切换整层布景。
+   * - 非祭坛房隐藏中央祭坛，避免“每个房间都有一座塔心信坛”
+   * - 祭坛符文移到 NPC/篝火脚下，作为房间色环（仍是原来那 1 个 drawcall）
+   * - 非宝藏房隐藏塔藏箱，宝藏房保留
+   * - 火把、旗帜、地面自发光、边界线按房间色轻微染色
+   * - 房间布景由 2 个 InstancedMesh 承载（盒/柱），最多 +2 drawcall
+   */
+  setRoomPreset(kind: TunnelRoom | null, focusX = 0, focusZ = 0): void {
+    if (!this.built) return
+    this.roomPreset = kind
+    this.roomAccent = kind ? ROOM_ACCENT[kind] : 0
+    const altarRoom = kind === 'altar'
+    this.roomFocus.x = altarRoom ? 0 : focusX
+    this.roomFocus.z = altarRoom ? 0 : focusZ
+    this.setAltarRoomMode(kind === null || altarRoom)
+    this.setCachesRoomMode(kind === null || kind === 'chest')
+    this.applyRoomPalette(kind)
+    this.applyRoomDecor(kind)
+  }
+
+  private addCollider(target: Circle | null): void {
+    if (target && !this.propColliders.includes(target)) this.propColliders.push(target)
+  }
+
+  private removeCollider(target: Circle | null): void {
+    if (!target) return
+    const index = this.propColliders.indexOf(target)
+    if (index >= 0) this.propColliders.splice(index, 1)
+  }
+
+  private setAltarRoomMode(visible: boolean): void {
+    for (const step of this.altarSteps) step.visible = visible
+    if (this.crystal) this.crystal.visible = visible
+    if (this.altarBeam) this.altarBeam.visible = visible
+    if (this.altarHalo) this.altarHalo.visible = visible
+
+    if (this.altarRune) {
+      const mat = this.altarRune.material as THREE.MeshBasicMaterial
+      if (visible) {
+        this.altarRune.position.set(0, this.altarRuneBaseY, 0)
+        this.altarRune.scale.set(1, 1, 1)
+        mat.color.setHex(this.altarRuneBaseColor)
+      } else {
+        // 7.2m 直径的地面印记：NPC/篝火站在环心，玩家远远就能读出房间类型
+        const scale = 7.2 / Math.max(0.001, this.altarRuneSize)
+        this.altarRune.position.set(this.roomFocus.x, 0.045, this.roomFocus.z)
+        this.altarRune.scale.set(scale, scale, 1)
+        mat.color.setHex(this.roomAccent || this.altarRuneBaseColor)
+      }
+    }
+
+    if (visible) this.addCollider(this.altarCollider)
+    else this.removeCollider(this.altarCollider)
+
+    if (this.altarLight) {
+      if (visible) {
+        this.altarLight.position.set(0, this.crystalBaseY + 0.3, 0)
+        this.altarLight.color.setHex(this.interactAccent())
+        this.altarLight.intensity = 10.5
+      } else {
+        this.altarLight.position.set(this.roomFocus.x, 1.6, this.roomFocus.z)
+        this.altarLight.color.setHex(this.roomAccent)
+        this.altarLight.intensity = 7.5
+      }
+    }
+
+    if (this.altarGlowIndex >= 0 && this.glowBatch) {
+      if (visible) {
+        this.glowBatch.set(this.altarGlowIndex, 0, this.crystalBaseY + 0.25, 0, 5.4, 5.4, this.interactAccent(), 0.3)
+      } else {
+        this.glowBatch.set(
+          this.altarGlowIndex,
+          this.roomFocus.x,
+          1.35,
+          this.roomFocus.z,
+          3.8,
+          3.8,
+          this.roomAccent,
+          0.2,
+        )
+      }
+    }
+  }
+
+  private setCachesRoomMode(visible: boolean): void {
+    for (const cache of this.caches) {
+      cache.hidden = !visible
+      cache.group.visible = visible
+      if (visible) {
+        this.addCollider(cache.collider)
+        if (!cache.used) {
+          this.sealBatch?.setAlpha(cache.sealIndex, 0.9)
+          this.glowBatch?.setAlpha(cache.glowIndex, 0.3)
+        }
+      } else {
+        this.removeCollider(cache.collider)
+        this.sealBatch?.setAlpha(cache.sealIndex, 0)
+        this.glowBatch?.setAlpha(cache.glowIndex, 0)
+      }
+    }
+  }
+
+  private applyRoomPalette(kind: TunnelRoom | null): void {
+    const theme = this.theme
+    if (!theme) return
+    const accent = kind ? ROOM_ACCENT[kind] : 0
+    const clothBase = mixHex(theme.accentColor, theme.wallColor, 0.7)
+    const crestBase = mixHex(theme.accentColor, 0xffffff, 0.2)
+    const floorBase = mixHex(theme.floorColor, theme.accentColor, 0.22)
+
+    for (const torch of this.torches) {
+      torch.color = kind ? mixHex(this.torchFlameBase, accent, 0.28) : this.torchFlameBase
+      if (torch.light) {
+        torch.light.color.setHex(kind ? mixHex(this.torchLightBase, accent, 0.22) : this.torchLightBase)
+      }
+    }
+    if (this.bannerClothMat) {
+      this.bannerClothMat.color.setHex(kind ? mixHex(clothBase, accent, 0.42) : clothBase)
+    }
+    if (this.bannerCrestMat) {
+      this.bannerCrestMat.color.setHex(kind ? mixHex(crestBase, accent, 0.35) : crestBase)
+    }
+    if (this.floorMat) {
+      this.floorMat.emissive.setHex(kind ? mixHex(theme.floorColor, accent, 0.2) : floorBase)
+      this.floorMat.emissiveIntensity = kind ? 0.085 : 0.075
+    }
+    if (this.boundaryMat) {
+      this.boundaryMat.color.setHex(kind ? mixHex(this.boundaryBaseColor, accent, 0.55) : this.boundaryBaseColor)
+    }
+  }
+
+  private applyRoomDecor(kind: TunnelRoom | null): void {
+    const box = this.roomDecorBox
+    const cyl = this.roomDecorCyl
+    if (!box || !cyl) return
+    if (!kind) {
+      box.count = 0
+      cyl.count = 0
+      box.visible = false
+      cyl.visible = false
+      return
+    }
+
+    const specs = roomDecorPieces(kind)
+    const matrix = new THREE.Matrix4()
+    const quat = new THREE.Quaternion()
+    const pos = new THREE.Vector3()
+    const scale = new THREE.Vector3()
+    const color = new THREE.Color()
+    let boxCount = 0
+    let cylCount = 0
+
+    for (const spec of specs) {
+      const mesh = spec.shape === 'box' ? box : cyl
+      const index = spec.shape === 'box' ? boxCount++ : cylCount++
+      pos.set(spec.x, spec.y, spec.z)
+      quat.setFromAxisAngle(UP, spec.ry ?? 0)
+      scale.set(spec.sx, spec.sy, spec.sz)
+      matrix.compose(pos, quat, scale)
+      mesh.setMatrixAt(index, matrix)
+      color.setHex(this.decorColor(spec.tone, this.roomAccent))
+      // 逐件轻微明度差，避免同色家具像一整块塑料
+      color.offsetHSL(0, 0, ((index % 5) - 2) * 0.012)
+      mesh.setColorAt(index, color)
+    }
+
+    box.count = boxCount
+    cyl.count = cylCount
+    box.visible = boxCount > 0
+    cyl.visible = cylCount > 0
+    box.instanceMatrix.needsUpdate = true
+    cyl.instanceMatrix.needsUpdate = true
+    if (box.instanceColor) box.instanceColor.needsUpdate = true
+    if (cyl.instanceColor) cyl.instanceColor.needsUpdate = true
+  }
+
+  private decorColor(tone: DecorTone, accent: number): number {
+    const theme = this.theme
+    if (!theme) return 0xffffff
+    const p0 = theme.propColors[0] ?? theme.wallColor
+    const p1 = theme.propColors[1] ?? theme.wallColor
+    const p2 = theme.propColors[2] ?? theme.wallColor
+    switch (tone) {
+      case 'wood':
+        return mixHex(mixHex(p1, 0x5c3a24, 0.45), accent, 0.06)
+      case 'gold':
+        return mixHex(mixHex(theme.accentColor, 0xffd166, 0.55), 0x3a2a16, 0.18)
+      case 'stone':
+        return mixHex(mixHex(mixHex(theme.wallColor, p0, 0.6), p2, 0.3), accent, 0.08)
+      case 'dark':
+        return mixHex(mixHex(theme.wallColor, p2, 0.4), 0x0e1118, 0.35)
+      case 'accent':
+      default:
+        // 檐口/灯火帽：保留房间色，但压进石色里，避免大块高饱和色块
+        return mixHex(mixHex(theme.accentColor, accent, 0.7), theme.wallColor, 0.38)
+    }
+  }
+
+  private buildRoomDecor(): void {
+    const boxGeo = new THREE.BoxGeometry(1, 1, 1)
+    const cylGeo = new THREE.CylinderGeometry(1, 1, 1, 10, 1)
+    const boxMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.92,
+      metalness: 0.02,
+      flatShading: true,
+    })
+    const cylMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.92,
+      metalness: 0.02,
+      flatShading: true,
+    })
+    // 最多的一间是精英房：20 个盒件；留 4 个余量给后续微调。
+    const box = new THREE.InstancedMesh(boxGeo, boxMat, 24)
+    const cyl = new THREE.InstancedMesh(cylGeo, cylMat, 8)
+    box.name = 'RoomDecorBox'
+    cyl.name = 'RoomDecorCyl'
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0)
+    const white = new THREE.Color(0xffffff)
+    for (const [mesh, cap] of [
+      [box, 24],
+      [cyl, 8],
+    ] as const) {
+      mesh.frustumCulled = false
+      // 阴影贴图已在 build 末尾冻结；房间布景不进阴影，避免进房时重算导致闪影。
+      mesh.castShadow = false
+      mesh.receiveShadow = true
+      for (let i = 0; i < cap; i += 1) {
+        mesh.setMatrixAt(i, zero)
+        mesh.setColorAt(i, white)
+      }
+      mesh.instanceMatrix.needsUpdate = true
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+      mesh.count = 0
+      mesh.visible = false
+      this.root.add(mesh)
+    }
+    this.roomDecorBox = box
+    this.roomDecorCyl = cyl
+  }
+
+  /* ================================================================ */
   /*  每帧更新                                                          */
   /* ================================================================ */
 
@@ -1022,16 +1509,20 @@ export class TowerFloor implements WorldV3 {
     this.time += dt
     const t = this.time
     if (this.boundaryMat) {
-      // 很轻的呼吸，不抢角色；墙被隐藏时这条线就是唯一的边界提示。
-      this.boundaryMat.opacity = 0.4 + Math.sin(t * 1.7) * 0.06
+      // 很轻的呼吸，不抢角色；墙被隐藏时这条光带就是唯一的边界提示。
+      this.boundaryMat.opacity = 0.3 + Math.sin(t * 1.7) * 0.05
     }
     this.altarFlash = Math.max(0, this.altarFlash - dt * 0.7)
 
-    // 塔心信标：符文旋转 + 晶体呼吸 + 光柱脉冲
+    // 塔心信标：符文旋转 + 晶体呼吸 + 光柱脉冲。
+    // 进房间后非祭坛房会把符文移到 NPC 脚下当地面印记，动效也换成更慢的呼吸。
+    const roomRing = this.roomPreset !== null && this.roomPreset !== 'altar'
     if (this.altarRune) {
-      this.altarRune.rotation.z = t * (this.altarUsed ? 0.18 : 0.12)
+      this.altarRune.rotation.z = t * (roomRing ? 0.06 : this.altarUsed ? 0.18 : 0.12)
       const mat = this.altarRune.material as THREE.MeshBasicMaterial
-      mat.opacity = 0.66 + (this.altarUsed ? 0.12 : 0) + this.altarFlash * 0.18
+      mat.opacity = roomRing
+        ? 0.42 + Math.sin(t * 1.2) * 0.05
+        : 0.66 + (this.altarUsed ? 0.12 : 0) + this.altarFlash * 0.18
     }
     if (this.crystal) {
       this.crystal.rotation.y = t * 0.55
@@ -1048,17 +1539,21 @@ export class TowerFloor implements WorldV3 {
       mat.opacity = 0.46 + Math.sin(t * 1.6) * 0.08 + this.altarFlash * 0.3
     }
     if (this.altarGlowIndex >= 0 && this.glowBatch) {
-      const s = 5.2 + Math.sin(t * 1.2) * 0.35 + this.altarFlash * 1.4
-      const alpha = 0.27 + Math.sin(t * 1.7) * 0.04 + this.altarFlash * 0.2
-      const c = this.theme?.accentColor ?? 0xffffff
-      this.glowBatch.set(this.altarGlowIndex, 0, this.crystalBaseY + 0.25, 0, s, s, c, alpha)
+      const fx = roomRing ? this.roomFocus.x : 0
+      const fz = roomRing ? this.roomFocus.z : 0
+      const s = (roomRing ? 3.8 : 5.2) + Math.sin(t * 1.2) * 0.35 + this.altarFlash * 1.4
+      const alpha = (roomRing ? 0.2 : 0.27) + Math.sin(t * 1.7) * 0.04 + this.altarFlash * 0.2
+      const c = roomRing ? this.roomAccent : this.interactAccent()
+      this.glowBatch.set(this.altarGlowIndex, fx, roomRing ? 1.35 : this.crystalBaseY + 0.25, fz, s, s, c, alpha)
     }
     if (this.altarLight) {
-      this.altarLight.intensity = (this.altarUsed ? 13.5 : 10.5) + Math.sin(t * 1.5) * 0.7 + this.altarFlash * 6
+      const base = roomRing ? 7.5 : this.altarUsed ? 13.5 : 10.5
+      this.altarLight.intensity = base + Math.sin(t * 1.5) * 0.7 + this.altarFlash * 6
     }
 
     // 塔藏箱：未开启时封印悬浮旋转，开启后箱盖翻开
     for (const cache of this.caches) {
+      if (cache.hidden) continue
       if (cache.used) {
         cache.open = Math.min(1, cache.open + dt * 3.8)
         const e = 1 - (1 - cache.open) * (1 - cache.open)
@@ -1139,7 +1634,7 @@ export class TowerFloor implements WorldV3 {
 
     for (let i = 0; i < this.caches.length; i++) {
       const c = this.caches[i]
-      if (c.used) continue
+      if (c.used || c.hidden) continue
       const d = Math.hypot(px - c.x, pz - c.z)
       if (d > 2.2 || d >= bestD) continue
       best = {
@@ -1284,7 +1779,19 @@ export class TowerFloor implements WorldV3 {
     this.altarGlowIndex = -1
     this.altarUsed = false
     this.altarFlash = 0
+    this.altarSteps.length = 0
+    this.altarCollider = null
     this.caches.length = 0
+    this.keyLight = null
+    this.floorMat = null
+    this.bannerClothMat = null
+    this.bannerCrestMat = null
+    this.roomDecorBox = null
+    this.roomDecorCyl = null
+    this.roomPreset = null
+    this.roomAccent = 0
+    this.roomFocus.x = 0
+    this.roomFocus.z = 0
     this.mote = null
     this.moteBase = null
     this.motePhase = null

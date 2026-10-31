@@ -295,7 +295,7 @@ function statsOf(group) {
     /** InstancedBufferGeometry 合批（火把/光晕/粒子等） */
     billboards: 0,
   }
-  group.traverse((obj) => {
+  group.traverseVisible((obj) => {
     out.nodes++
     if (obj.isInstancedMesh) {
       out.instanced++
@@ -446,8 +446,12 @@ for (const def of allScenes) {
   check(floor.propColliders.length > 5, `${tag} propColliders 含角柱+祭坛+道具(${floor.propColliders.length})`)
   const boundary = floor.group.getObjectByName('ArenaBoundary')
   check(
-    !!boundary && boundary.isInstancedMesh && boundary.count === 4 && boundary.visible,
-    `${tag} 场地边界警示线存在（4 段合批）`,
+    !!boundary && boundary.isInstancedMesh && boundary.count === 8 && boundary.visible,
+    `${tag} 场地边界光带存在（4 边 + 4 角合批）`,
+  )
+  check(
+    !!boundary && boundary.geometry?.parameters?.depth >= 0.4,
+    `${tag} 边界光带宽度 >= 0.4m（不再是细线）`,
   )
   // 角柱必须在可行走区外：旧版把柱心放在 half-0.95，柱体被镜头隐藏后
   // 会留下半径 1.7m 的隐形阻挡，贴墙走会像移动键失灵。
@@ -563,6 +567,61 @@ for (const def of allScenes) {
     freedMat: freedThisRound.material,
     freedTex: freedThisRound.texture,
   })
+}
+
+/* ------------------------------------------------------------------ */
+/*  7b. 房间 preset：同一竞技场的辨识度层                              */
+/* ------------------------------------------------------------------ */
+
+section('房间 preset / 祭坛与塔藏箱显隐 / 布景合批')
+
+{
+  const roomScene = new THREE.Scene()
+  const roomFloor = new TowerFloor(roomScene)
+  const def = allScenes.find((s) => s.themeId === 'stage2-slag') ?? allScenes[0]
+  roomFloor.build(def)
+  const baseStats = statsOf(roomFloor.group)
+  const baseColliders = roomFloor.propColliders.length
+  const basePoints = countPointLightsInScene(roomScene)
+
+  roomFloor.setRoomPreset('merchant', 0, 4.2)
+  const merchantStats = statsOf(roomFloor.group)
+  const merchantColliders = roomFloor.propColliders.length
+  const decorBox = roomFloor.group.getObjectByName('RoomDecorBox')
+  const decorCyl = roomFloor.group.getObjectByName('RoomDecorCyl')
+
+  check(
+    !!decorBox && decorBox.isInstancedMesh && decorBox.visible && decorBox.count > 0,
+    '商人房布景盒可见且有实例',
+  )
+  check(
+    !!decorCyl && decorCyl.isInstancedMesh && decorCyl.visible && decorCyl.count > 0,
+    '商人房布景柱可见且有实例',
+  )
+  check(!!decorBox?.instanceColor, '房间布景使用逐实例颜色')
+  check(merchantStats.drawcalls < 80, `商人房 drawcall ${merchantStats.drawcalls} < 80`)
+  check(merchantStats.drawcalls <= baseStats.drawcalls, '房间 preset 不增加总 drawcall（隐藏祭坛/塔藏箱抵消布景）')
+  eq(countPointLightsInScene(roomScene), basePoints, '房间 preset 不新增实时点光')
+  check(merchantColliders < baseColliders, '商人房移除中央祭坛/塔藏箱碰撞体')
+
+  const merchantRing = roomFloor.group.getObjectByName('ArenaBoundary')
+  check(
+    !!merchantRing && merchantRing.isInstancedMesh && merchantRing.count === 8,
+    '房间内边界光带仍为 8 段合批',
+  )
+
+  roomFloor.setRoomPreset('chest', 0, 4.2)
+  check(roomFloor.propColliders.length > merchantColliders, '宝藏房恢复塔藏箱碰撞体')
+
+  roomFloor.setRoomPreset('altar', 0, 0)
+  check(roomFloor.propColliders.length < baseColliders, '祭坛房隐藏塔藏箱但保留中央祭坛')
+
+  roomFloor.setRoomPreset(null)
+  eq(roomFloor.propColliders.length, baseColliders, '离开房间后碰撞体数量恢复')
+  const restoredBox = roomFloor.group.getObjectByName('RoomDecorBox')
+  check(!!restoredBox && !restoredBox.visible, '离开房间后布景隐藏')
+  eq(statsOf(roomFloor.group).drawcalls, baseStats.drawcalls, '离开房间后 drawcall 恢复')
+  roomFloor.dispose()
 }
 
 /* ------------------------------------------------------------------ */

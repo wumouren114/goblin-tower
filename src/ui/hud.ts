@@ -1141,6 +1141,7 @@ class HudImpl implements HudV3 {
 
   hideSaveSlots(): void {
     this.slotsEl.classList.remove('is-open')
+    this.refreshHud()
   }
 
   showDefeat(_reason: DefeatReason, stats: RunStatsV3): void {
@@ -2239,6 +2240,17 @@ class HudImpl implements HudV3 {
   private refreshHud(): void {
     const titleOpen = this.titleEl.classList.contains('is-open')
     const endOpen = this.endEl.classList.contains('is-open')
+    const modalOpen =
+      titleOpen ||
+      endOpen ||
+      this.tunnelEl.classList.contains('is-open') ||
+      this.shopEl.classList.contains('is-open') ||
+      this.invEl.classList.contains('is-open') ||
+      this.pauseEl.classList.contains('is-open') ||
+      this.slotsEl.classList.contains('is-open')
+    // 标题/结算走 [hidden]；隧道/商店/背包/暂停/存档用 body 统一压掉底层 HUD，
+    // 避免血条、充能、层数进度与模态内容抢注意力。
+    document.body.classList.toggle('is-modal-open', modalOpen)
     this.hudEl.hidden = titleOpen || endOpen
   }
 

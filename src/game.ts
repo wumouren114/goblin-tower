@@ -2073,6 +2073,11 @@ export class Game {
     const npc = new RoomNpc(this.scene, offer.room, npcX, npcZ)
     const campfire = restRoom ? new RoomCampfire(this.scene, 0.5, npcZ - 0.15) : null
     this.roomMap = { offer, npc, campfire, portal: null, resolved: false }
+    // 同一张竞技场靠 room preset 区分：隐藏中央祭坛、把符文环移到 NPC/篝火脚下、
+    // 只保留宝藏房的塔藏箱，并用房间色给火把/旗帜/地面/边界做轻微染色。
+    const focusX = restRoom ? 0.5 : npcX
+    const focusZ = restRoom ? npcZ - 0.15 : npcZ
+    floor.setRoomPreset(offer.room, focusX, focusZ)
     audio.startBgm('shop')
     audio.setBgmIntensity(0)
     audio.duck(false)
@@ -2208,6 +2213,7 @@ export class Game {
 
   private disposeRoomMap(): void {
     if (!this.roomMap) return
+    this.floor?.setRoomPreset(null)
     this.roomMap.npc.dispose()
     this.roomMap.campfire?.dispose()
     this.roomMap.portal?.dispose()
