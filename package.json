@@ -12,7 +12,7 @@
     "art:check": "node scripts/check-art.mjs",
     "audio": "node scripts/make-audio.mjs",
     "audio:check": "node scripts/check-audio.mjs",
-    "smoke": "node sim/world-smoke.mjs && node sim/combat-smoke.mjs && node sim/economy-smoke.mjs && node sim/art-smoke.mjs",
+    "smoke": "node sim/world-smoke.mjs && node sim/combat-smoke.mjs && node sim/economy-smoke.mjs && node sim/art-smoke.mjs && node sim/beat-smoke.mjs && node sim/potential-smoke.mjs",
     "pack": "node scripts/pack-single.mjs"
   },
   "dependencies": {
