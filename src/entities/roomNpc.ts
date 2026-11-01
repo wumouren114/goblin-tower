@@ -70,14 +70,14 @@ const PALETTES: Record<RoomNpcKind, NpcPalette> = {
 }
 
 const NPC_INFO: Record<TunnelRoom, { kind: RoomNpcKind; title: string; hint: string }> = {
-  chest: { kind: 'guide', title: '宝藏守卫', hint: '按 E 领取密室宝藏' },
-  'skill-card': { kind: 'guide', title: '刻文石灵', hint: '按 E 领取技能卡' },
-  merchant: { kind: 'merchant', title: '流浪商人', hint: '按 E 查看额外货架' },
-  altar: { kind: 'oracle', title: '古老祭坛', hint: '按 E 献金换取祝福' },
-  'mob-wave': { kind: 'warden', title: '战鼓卫兵', hint: '按 E 敲响战鼓，迎接怪潮' },
-  'elite-fight': { kind: 'warden', title: '战鼓卫兵', hint: '按 E 敲响战鼓，挑战精英' },
-  boss: { kind: 'warden', title: '战鼓卫兵', hint: '按 E 敲响战鼓，唤醒首领' },
-  rest: { kind: 'guide', title: '篝火守夜人', hint: '按 E 在营地休整' },
+  chest: { kind: 'guide', title: '宝藏守卫', hint: '按 Enter 领取密室宝藏' },
+  'skill-card': { kind: 'guide', title: '刻文石灵', hint: '按 Enter 领取技能卡' },
+  merchant: { kind: 'merchant', title: '流浪商人', hint: '按 Enter 查看额外货架' },
+  altar: { kind: 'oracle', title: '古老祭坛', hint: '按 Enter 献金换取祝福' },
+  'mob-wave': { kind: 'warden', title: '战鼓卫兵', hint: '按 Enter 敲响战鼓，迎接怪潮' },
+  'elite-fight': { kind: 'warden', title: '战鼓卫兵', hint: '按 Enter 敲响战鼓，挑战精英' },
+  boss: { kind: 'warden', title: '战鼓卫兵', hint: '按 Enter 敲响战鼓，唤醒首领' },
+  rest: { kind: 'guide', title: '篝火守夜人', hint: '按 Enter 在营地休整' },
 }
 
 export function roomNpcInfo(room: TunnelRoom): { kind: RoomNpcKind; title: string; hint: string } {
@@ -410,7 +410,7 @@ export class RoomNpc {
 /** 出口裂隙：竖直传送门 + 地面符文，共 2 个 drawcall，不新增光源 */
 export class RoomPortal {
   readonly title = '时空裂隙'
-  readonly hint = '按 E 离开房间'
+  readonly hint = '按 Enter 离开房间'
   readonly group: THREE.Group
   x: number
   z: number

@@ -2037,7 +2037,7 @@ export class Game {
     this.enterRoomMap(offer)
   }
 
-  /** 选完路线后真正进入房间地图：玩家可以走动，找到 NPC 按 E 开启房间内容 */
+  /** 选完路线后真正进入房间地图：玩家可以走动，找到 NPC 按 Enter 开启房间内容 */
   private enterRoomMap(offer: TunnelOffer): void {
     const p = this.player
     const floor = this.floor

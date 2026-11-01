@@ -504,11 +504,16 @@ export class TowerFloor implements WorldV3 {
     tex.wall.wrapT = THREE.RepeatWrapping
     tex.wall.repeat.set(Math.max(2, Math.round(size / 3.4)), Math.max(1, Math.round(wallH / 3)))
     tex.wall.anisotropy = 8
+    // 墙色必须跟主题走：早先为了提亮写死成纯白 (1.08,1.08,1.08)，
+    // 结果第二阶段靛蓝地面配白墙，场景直接割裂。这里取主题墙色向白提 42%，
+    // 再乘 1.04 保持原来的轻微过曝。
+    const wallTint = new THREE.Color(mixHex(theme.wallColor, 0xffffff, 0.42))
+    wallTint.multiplyScalar(1.04)
     const wallMat = new THREE.MeshStandardMaterial({
       map: tex.wall,
       roughness: 0.97,
       metalness: 0.02,
-      color: new THREE.Color(1.08, 1.08, 1.08),
+      color: wallTint,
       emissive: new THREE.Color(mixHex(theme.wallColor, theme.accentColor, 0.12)),
       emissiveIntensity: 0.045,
     })
@@ -628,7 +633,7 @@ export class TowerFloor implements WorldV3 {
   /**
    * 可交互物的强调色：
    * 熔火主题的红色 accent 和地砖/裂缝太接近，祭坛与塔藏箱改用金色，
-   * 让“可以按 E 的东西”从背景里跳出来；其他主题保持主题 accent。
+   * 让“可以按 Enter 交互的东西”从背景里跳出来；其他主题保持主题 accent。
    */
   private interactAccent(): number {
     const theme = this.theme
@@ -753,7 +758,7 @@ export class TowerFloor implements WorldV3 {
     this.altarLight.position.set(0, this.crystalBaseY + 0.3, 0)
     this.root.add(this.altarLight)
 
-    // 塔心信标交互半径：站在台阶外沿也能按 E
+    // 塔心信标交互半径：站在台阶外沿也能按 Enter
     this.altarInteractR = stepR + 1.95
 
     // 祭坛单体碰撞（低矮但不可穿行）

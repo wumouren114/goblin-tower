@@ -1,4 +1,4 @@
-import type { DifficultyId, EnemyDef, PlayerStats, ThemeDef } from '../types'
+import type { DifficultyId, EnemyDef, PlayerStats } from '../types'
 
 /**
  * ============================================================
@@ -142,95 +142,6 @@ export const BASE_STATS: PlayerStats = {
   chargeGain: 0,
 }
 
-
-/** 五层塔的视觉主题 */
-export const THEMES: Record<string, ThemeDef> = {
-  moss: {
-    id: 'moss',
-    name: '苔石前厅',
-    floorColor: 0x5d6b57,
-    floorAltColor: 0x4a5746,
-    wallColor: 0x3b4438,
-    wallTopColor: 0x66705f,
-    accentColor: 0x9fe3b0,
-    fogColor: 0x0d1512,
-    fogDensity: 0.026,
-    ambientColor: 0x5f7f8a,
-    ambientIntensity: 0.75,
-    keyColor: 0xffe3b0,
-    keyIntensity: 2.2,
-    propColors: [0x51604c, 0x6f7a63, 0x3f4b3c],
-    torchColor: 0xffb35c,
-  },
-  candle: {
-    id: 'candle',
-    name: '烛影回廊',
-    floorColor: 0x6b5a4c,
-    floorAltColor: 0x594a3f,
-    wallColor: 0x463730,
-    wallTopColor: 0x7a6555,
-    accentColor: 0xffc46b,
-    fogColor: 0x140d09,
-    fogDensity: 0.03,
-    ambientColor: 0x7a5a4a,
-    ambientIntensity: 0.7,
-    keyColor: 0xffb066,
-    keyIntensity: 2.5,
-    propColors: [0x5c4a3d, 0x7d6450, 0x453832],
-    torchColor: 0xffa53c,
-  },
-  forge: {
-    id: 'forge',
-    name: '熔火铁砧',
-    floorColor: 0x4a3f3c,
-    floorAltColor: 0x3b312f,
-    wallColor: 0x2e2624,
-    wallTopColor: 0x6a4c3a,
-    accentColor: 0xff7a3c,
-    fogColor: 0x180a06,
-    fogDensity: 0.034,
-    ambientColor: 0x8a4a3a,
-    ambientIntensity: 0.65,
-    keyColor: 0xff8a4a,
-    keyIntensity: 2.7,
-    propColors: [0x54413a, 0x6d5044, 0x332a27],
-    torchColor: 0xff6a1f,
-  },
-  frost: {
-    id: 'frost',
-    name: '霜蚀圣所',
-    floorColor: 0x5a6b78,
-    floorAltColor: 0x4a5a66,
-    wallColor: 0x38454f,
-    wallTopColor: 0x8ea6b5,
-    accentColor: 0x8fe3ff,
-    fogColor: 0x08121a,
-    fogDensity: 0.03,
-    ambientColor: 0x6a93b0,
-    ambientIntensity: 0.85,
-    keyColor: 0xcfe8ff,
-    keyIntensity: 2.3,
-    propColors: [0x4e5f6c, 0x6d8494, 0x33414c],
-    torchColor: 0x7fdcff,
-  },
-  throne: {
-    id: 'throne',
-    name: '王座之巅',
-    floorColor: 0x554052,
-    floorAltColor: 0x453343,
-    wallColor: 0x2f2130,
-    wallTopColor: 0x7a4a6a,
-    accentColor: 0xffcc55,
-    fogColor: 0x140814,
-    fogDensity: 0.032,
-    ambientColor: 0x7a4a80,
-    ambientIntensity: 0.8,
-    keyColor: 0xffd27a,
-    keyIntensity: 2.6,
-    propColors: [0x4c3550, 0x6a4a66, 0x2a1e2b],
-    torchColor: 0xff5c8a,
-  },
-}
 
 export const GOBLIN_SMALL: EnemyDef = {
   id: 'goblin',
