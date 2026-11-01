@@ -669,8 +669,9 @@ export class Game {
       if (this.inventoryOpen()) this.closeInventory()
       else if (this.phase === 'shop') this.openInventory()
     }
-    // 塔内互动：祭坛共鸣 / 开启塔藏箱。只在局内有效，避免和标题页、商店的 E 冲突。
-    if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('KeyE')) {
+    // 场景互动统一用 Enter（祭坛 / 商人 / 可交互物件）。只在局内有效，
+    // 避免和隧道三选一的确认键冲突。E 留作战斗键（处决 / 推开 / 回收）。
+    if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('Enter')) {
       this.tryTowerInteract()
     }
   }

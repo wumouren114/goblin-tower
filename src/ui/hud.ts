@@ -439,7 +439,7 @@ const UI_TEMPLATE = /* html */ `
         <span class="key-hint"><kbd>WASD/方向键</kbd>移动</span>
         <span class="key-hint"><kbd>左键</kbd>点击普攻</span>
         <span class="key-hint"><kbd>右键</kbd>技能</span>
-        <span class="key-hint"><kbd>E</kbd>塔内互动</span>
+        <span class="key-hint"><kbd>Enter</kbd>互动</span>
         <button class="key-hint js-hud-pause" type="button"><kbd>P</kbd>暂停</button>
       </div>
       <div class="objective js-objective">清空本层敌人</div>
