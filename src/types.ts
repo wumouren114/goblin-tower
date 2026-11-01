@@ -224,6 +224,14 @@ export interface SceneDef {
   props: number
   /** 地面色调提示（HUD/横幅用） */
   accent: string
+  /**
+   * 中央地标：替换掉原来每层都有的「塔心信标」。
+   * - 'windmill' 风车（云上花庭）
+   * - 'orrery'  黄道仪（星砂观星台）
+   * - 'gear'    巨型齿轮（黄铜钟塔）
+   * 不填 = 保留旧行为（中央信标可交互），保证老场景不炸。
+   */
+  landmark?: 'windmill' | 'orrery' | 'gear'
 }
 
 /** v3 世界层接口（world/floor.ts 实现） */

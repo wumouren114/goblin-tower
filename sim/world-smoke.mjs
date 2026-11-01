@@ -352,9 +352,9 @@ const CONTRACT_HALF = [
 section('场景数据（stages.ts）')
 
 eq(STAGE_NAMES.length, 3, 'STAGE_NAMES 有 3 个阶段名')
-eq(STAGE_NAMES[0], '苔石遗迹', "阶段 1 = '苔石遗迹'")
-eq(STAGE_NAMES[1], '熔火工坊', "阶段 2 = '熔火工坊'")
-eq(STAGE_NAMES[2], '霜蚀圣所', "阶段 3 = '霜蚀圣所'")
+eq(STAGE_NAMES[0], '云上花庭', "阶段 1 = '云上花庭'")
+eq(STAGE_NAMES[1], '星砂观星台', "阶段 2 = '星砂观星台'")
+eq(STAGE_NAMES[2], '黄铜钟塔', "阶段 3 = '黄铜钟塔'")
 eq(STAGE_SCENES.length, 3, 'STAGE_SCENES 有 3 个阶段')
 eq(THEMES_V3 && Object.keys(THEMES_V3).length, 9, 'THEMES_V3 共 9 套主题')
 
@@ -404,7 +404,7 @@ for (let s = 0; s < 3; s++) {
   check(pickScene(9, false, rng) !== undefined, 'stage 9 被夹到阶段 3')
   check(scenesOfStage(2).length === 3, 'scenesOfStage(2) 返回 3 个场景')
   check(sceneById('stage3-throne') === STAGE_SCENES[2][2], 'sceneById 能反查王座之巅')
-  check(stageName(2) === '熔火工坊', 'stageName(2) = 熔火工坊')
+  check(stageName(2) === '星砂观星台', 'stageName(2) = 星砂观星台')
   const missing = sceneById('nope')
   check(missing === undefined, 'sceneById 未命中返回 undefined')
 }

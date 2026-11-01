@@ -14,26 +14,28 @@ import type { Rng } from '../core/rng'
  */
 
 /** 阶段名（HUD 横幅 / 存档 / 结算展示） */
-export const STAGE_NAMES: string[] = ['苔石遗迹', '熔火工坊', '霜蚀圣所']
+export const STAGE_NAMES: string[] = ['云上花庭', '星砂观星台', '黄铜钟塔']
 
 /** 3 阶段 × 3 场景（下标 = stage-1, 场景序号） */
 export const STAGE_SCENES: SceneDef[][] = [
   [
     {
       id: 'stage1-hall',
-      name: '苔石前厅',
-      subtitle: '哥布林把守着塔的第一道门',
+      name: '云上花庭 · 晨光',
+      subtitle: '云海之上，被吞下的第一个世界',
       themeId: 'stage1-hall',
+      landmark: 'windmill',
       stage: 1,
       halfSize: 15,
       props: 7,
-      accent: '#9fe3b0',
+      accent: '#a8d8ff',
     },
     {
       id: 'stage1-candle',
-      name: '烛影回廊',
-      subtitle: '烛火照不亮所有角落',
+      name: '云上花庭 · 风起',
+      subtitle: '风把花瓣吹进空无一人的长廊',
       themeId: 'stage1-candle',
+      landmark: 'windmill',
       stage: 1,
       halfSize: 16,
       props: 8,
@@ -41,9 +43,10 @@ export const STAGE_SCENES: SceneDef[][] = [
     },
     {
       id: 'stage1-courtyard',
-      name: '荒弃庭院',
-      subtitle: '苔痕爬满了被遗忘的石阶',
+      name: '云上花庭 · 花落',
+      subtitle: '石阶悬在云端，走一步落一步花',
       themeId: 'stage1-courtyard',
+      landmark: 'windmill',
       stage: 1,
       halfSize: 14,
       props: 6,
@@ -53,9 +56,10 @@ export const STAGE_SCENES: SceneDef[][] = [
   [
     {
       id: 'stage2-forge',
-      name: '熔火铁砧',
+      name: '星砂观星台 · 暮色',
       subtitle: '铁砧的节奏，就是哥布林的心跳',
       themeId: 'stage2-forge',
+      landmark: 'orrery',
       stage: 2,
       halfSize: 18,
       props: 7,
@@ -63,9 +67,10 @@ export const STAGE_SCENES: SceneDef[][] = [
     },
     {
       id: 'stage2-slag',
-      name: '熔渣坑道',
+      name: '星砂观星台 · 砂河',
       subtitle: '脚下每一步都在发烫',
       themeId: 'stage2-slag',
+      landmark: 'orrery',
       stage: 2,
       halfSize: 19,
       props: 8,
@@ -73,9 +78,10 @@ export const STAGE_SCENES: SceneDef[][] = [
     },
     {
       id: 'stage2-ember',
-      name: '焦土祭坛',
+      name: '星砂观星台 · 流星',
       subtitle: '余烬里还埋着没烧完的骨头',
       themeId: 'stage2-ember',
+      landmark: 'orrery',
       stage: 2,
       halfSize: 17,
       props: 7,
@@ -85,29 +91,32 @@ export const STAGE_SCENES: SceneDef[][] = [
   [
     {
       id: 'stage3-frost',
-      name: '霜蚀圣所',
-      subtitle: '这里冻住过无数的挑战者',
+      name: '黄铜钟塔 · 齿轮厅',
+      subtitle: '巨大的齿轮在你头顶缓慢咬合',
       themeId: 'stage3-frost',
+      landmark: 'gear',
       stage: 3,
       halfSize: 21,
       props: 7,
-      accent: '#8fe3ff',
+      accent: '#64e0c0',
     },
     {
       id: 'stage3-iron',
-      name: '寒铁回廊',
-      subtitle: '铁与冰一起锈进了墙里',
+      name: '黄铜钟塔 · 熔金槽',
+      subtitle: '熔金顺着铜槽流进塔的深处',
       themeId: 'stage3-iron',
+      landmark: 'gear',
       stage: 3,
       halfSize: 22,
       props: 7,
-      accent: '#9fd8ff',
+      accent: '#ff9a3c',
     },
     {
       id: 'stage3-throne',
-      name: '王座之巅',
-      subtitle: '哥布林之王戴着偷来的王冠',
+      name: '黄铜钟塔 · 塔心',
+      subtitle: '钟摆之下，哥布林之王戴着偷来的王冠',
       themeId: 'stage3-throne',
+      landmark: 'gear',
       stage: 3,
       halfSize: 24,
       props: 6,

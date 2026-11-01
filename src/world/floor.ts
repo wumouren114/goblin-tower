@@ -288,6 +288,10 @@ export class TowerFloor implements WorldV3 {
   private boundaryMesh: THREE.InstancedMesh | null = null
   private boundaryMat: THREE.MeshBasicMaterial | null = null
 
+  /** 中央地标（替换塔心信标）；null = 该层仍用旧信标 */
+  private landmarkSpin: THREE.Group | null = null
+  private hasLandmark = false
+
   private altarRune: THREE.Mesh | null = null
   private crystal: THREE.Mesh | null = null
   private crystalBaseY = 1.4
@@ -594,8 +598,9 @@ export class TowerFloor implements WorldV3 {
     // 入口：南墙中点内侧（玩家从这里进场，也是 5m 净空区的圆心）
     this.entrance = { x: 0, z: half - 2.4 }
 
-    /* ---------------- 中央祭坛 ---------------- */
-    this.buildAltar(half, wallH, tex)
+    /* ---------------- 中央祭坛 / 地标 ---------------- */
+    if (def.landmark) this.buildLandmark(def.landmark, half, tex)
+    else this.buildAltar(half, wallH, tex)
 
     /* ---------------- 火把 ---------------- */
     this.buildTorches(half, wallH, tex)
@@ -757,6 +762,101 @@ export class TowerFloor implements WorldV3 {
   }
 
   /* ---------------- 火把 ---------------- */
+  /* ---------------- 中央地标（替换塔心信标） ---------------- */
+  /**
+   * 每层中央放一个"一眼能认出这是什么地方"的地标。
+   * 纯程序化几何 + 主题色，9 套主题共用同一套实现；不可交互，但有碰撞。
+   */
+  private buildLandmark(kind: 'windmill' | 'orrery' | 'gear', half: number, tex: TextureBook): void {
+    void tex
+    const theme = this.theme
+    if (!theme) return
+    this.hasLandmark = true
+
+    const group = new THREE.Group()
+    this.root.add(group)
+
+    const stoneMat = new THREE.MeshStandardMaterial({
+      color: mixHex(theme.wallColor, 0xffffff, 0.3),
+      roughness: 0.92,
+      metalness: 0.02,
+    })
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: mixHex(theme.floorColor, 0xffffff, 0.5),
+      roughness: 0.85,
+    })
+    const accentMat = new THREE.MeshStandardMaterial({
+      color: theme.accentColor,
+      roughness: 0.5,
+      metalness: 0.18,
+    })
+    const bladeMat = new THREE.MeshStandardMaterial({ color: 0x7a5a3c, roughness: 0.82 })
+
+    const add = (mesh: THREE.Mesh, y: number): void => {
+      mesh.position.y = y
+      mesh.castShadow = true
+      mesh.receiveShadow = true
+      group.add(mesh)
+    }
+
+    const spin = new THREE.Group()
+    this.landmarkSpin = spin
+
+    if (kind === 'windmill') {
+      add(new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.35, 0.55, 14), stoneMat), 0.28)
+      add(new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.3, 2.9, 12), bodyMat), 2.0)
+      add(new THREE.Mesh(new THREE.ConeGeometry(1.2, 0.95, 12), accentMat), 3.9)
+      // 四片风车叶：几何沿 +Y 平移后绕 Z 轴均分；用深木色保证在浅色场景里有剪影
+      const bladeGeo = new THREE.BoxGeometry(0.24, 2.0, 0.1)
+      bladeGeo.translate(0, 1.1, 0)
+      const sails = new THREE.Group()
+      for (let i = 0; i < 4; i += 1) {
+        const blade = new THREE.Mesh(bladeGeo, bladeMat)
+        blade.rotation.z = (i * Math.PI) / 2
+        blade.castShadow = true
+        sails.add(blade)
+      }
+      sails.rotation.y = Math.PI / 2
+      spin.add(sails)
+      spin.position.set(0, 2.95, 1.15)
+      group.add(spin)
+    } else if (kind === 'orrery') {
+      add(new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.8, 0.6, 14), stoneMat), 0.3)
+      add(new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.6, 3.2, 10), stoneMat), 2.2)
+      for (let i = 0; i < 3; i += 1) {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(2.1 - i * 0.35, 0.09, 8, 40), accentMat)
+        ring.rotation.x = Math.PI / 2 + i * 0.42
+        ring.rotation.z = i * 0.6
+        ring.position.y = 4.1
+        ring.castShadow = true
+        spin.add(ring)
+      }
+      const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.62, 1), accentMat)
+      core.position.y = 4.1
+      spin.add(core)
+      group.add(spin)
+    } else {
+      add(new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.9, 0.8, 16), stoneMat), 0.4)
+      add(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 3.6, 10), stoneMat), 2.0)
+      const gear = new THREE.Mesh(new THREE.TorusGeometry(2.0, 0.42, 8, 24), accentMat)
+      gear.position.y = 4.2
+      gear.castShadow = true
+      spin.add(gear)
+      for (let i = 0; i < 8; i += 1) {
+        const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.72), accentMat)
+        const a = (i * Math.PI) / 4
+        tooth.position.set(Math.cos(a) * 2.4, 4.2, Math.sin(a) * 2.4)
+        tooth.rotation.y = -a
+        tooth.castShadow = true
+        spin.add(tooth)
+      }
+      group.add(spin)
+    }
+
+    // 碰撞按底座半径，不按叶片：挡路但不挡视线
+    this.propColliders.push({ x: 0, z: 0, r: Math.min(3.2, 2.6 + Math.max(0, half - 15) * 0.08) })
+  }
+
   private buildTorches(half: number, wallH: number, tex: TextureBook): void {
     const theme = this.theme
     if (!theme) return
@@ -1508,6 +1608,7 @@ export class TowerFloor implements WorldV3 {
     if (!this.built) return
     this.time += dt
     const t = this.time
+    if (this.landmarkSpin) this.landmarkSpin.rotation.y += dt * 0.5
     if (this.boundaryMat) {
       // 很轻的呼吸，不抢角色；墙被隐藏时这条光带就是唯一的边界提示。
       this.boundaryMat.opacity = 0.3 + Math.sin(t * 1.7) * 0.05
@@ -1617,7 +1718,7 @@ export class TowerFloor implements WorldV3 {
     let best: TowerInteraction | null = null
     let bestD = Infinity
 
-    if (!this.altarUsed) {
+    if (!this.altarUsed && !this.hasLandmark) {
       const d = Math.hypot(px, pz)
       if (d <= this.altarInteractR) {
         best = {
