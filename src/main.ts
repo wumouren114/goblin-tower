@@ -109,6 +109,8 @@ async function boot(): Promise<void> {
     if (params.get('autoattack') === '1') game.debugAutoAttack(true)
     if (warmup > 0) game.debugAdvance(warmup)
     if (params.get('pickbonus') === '1') game.debugPickFirstBonus()
+    if (params.get('event') === '1') game.debugOpenEventNow()
+    if (params.get('eventpick') === '1') game.debugPickEventFirst()
     if (params.get('saveloop') === '1') {
       game.debugSaveLoadLoop()
       game.debugAdvance(1)

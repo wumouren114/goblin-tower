@@ -24,6 +24,9 @@ import { Rng } from './core/rng'
 import { rotateInput } from './core/math'
 import { TowerFloor } from './world/floor'
 import { pickScene, STAGE_NAMES } from './data/stages'
+import { EVENTS, type EventEffect } from './data/events'
+import { EventState } from './systems/eventState'
+import { EventPanel } from './ui/eventPanel'
 import { CHARACTERS, CHARGE_FLOOR_START_RATIO, skillRange } from './data/characters'
 import { getWeaponTier, charTakeDamageMul, tierNum, MAX_WEAPON_LV } from './data/characterRuntime'
 import {
@@ -232,6 +235,9 @@ export class Game {
   private run: RunState = makeRunState('mutsumi', 'normal')
   private cards: Record<CardStat, number> = emptyCards()
   private inventory = new Inventory()
+  /** 探索事件状态（线索 / 伏笔 / 记忆碎片），目前只用于事件原型 */
+  private readonly eventState = new EventState()
+  private readonly eventPanel = new EventPanel()
   private prevMaxHp = 100
 
   private layerTotal = 0
@@ -674,6 +680,11 @@ export class Game {
     if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('Enter')) {
       this.tryTowerInteract()
     }
+
+    // 临时：V 直接抽一个探索事件（事件房间接通前用来验证面板与结算）
+    if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('KeyV')) {
+      this.openDebugEvent()
+    }
   }
 
   /** 结算页「重新爬塔」/ R：用当前角色与难度立刻开新局 */
@@ -902,6 +913,68 @@ export class Game {
     }
     const info = floor.interactionAt(p.x, p.z)
     this.hud.setInteractPrompt(info ? `${info.title} · ${info.hint}` : null)
+  }
+
+  /**
+   * 临时调试入口：抽一个事件 + 一个隐藏真身，打开面板。
+   * 等事件房间接进隧道后，改由房间触发这里。
+   */
+  /** 调试：立即打开一个随机事件（?event=1） */
+  debugOpenEventNow(): void {
+    this.openDebugEvent()
+  }
+
+  /** 调试：事件面板里直接选第一个选项（?eventpick=1） */
+  debugPickEventFirst(): void {
+    this.eventPanel.pickIndex(0)
+  }
+
+  private openDebugEvent(): void {
+    if (this.eventPanel.isOpen) return
+    const def = EVENTS[this.rng.int(0, EVENTS.length - 1)]
+    const role = def.roles ? def.roles[this.rng.int(0, def.roles.length - 1)] : null
+    this.eventPanel.open(
+      def,
+      this.eventState,
+      { gold: this.run.gold, cards: this.inventory.count, role },
+      {
+        onPick: (option) => {
+          if (option.costGold) this.run.gold = Math.max(0, this.run.gold - option.costGold)
+          const outcome = this.eventState.pickOutcome(option, role, this.rng)
+          if (outcome) this.applyEventEffects(outcome.effects)
+          return outcome
+        },
+        onClose: () => this.hud.toast('事件结束', 'info'),
+      },
+    )
+  }
+
+  /** 事件效果结算：先落地金币/线索/伏笔/记忆，其余效果按"待接线"提示 */
+  private applyEventEffects(effects: EventEffect[]): void {
+    for (const eff of effects) {
+      if (eff.kind === 'gold') {
+        this.run.gold = Math.max(0, this.run.gold + eff.value)
+      } else if (eff.kind === 'heal') {
+        if (this.player && eff.ratio >= 0) this.player.heal(this.player.stats.maxHp * eff.ratio)
+        else if (eff.ratio < 0) this.hud.toast('失去了一部分生命（待接线）', 'bad')
+      } else if (eff.kind === 'clue') {
+        this.eventState.addClue(eff.id)
+        this.hud.toast(`线索：${eff.id}`, 'good')
+      } else if (eff.kind === 'arc') {
+        this.eventState.addArc(eff.id, this.run.layer)
+        this.hud.toast('你记住了这件事', 'info')
+      } else if (eff.kind === 'memory') {
+        this.eventState.addMemory(eff.id)
+        this.hud.toast('记忆碎片 +1', 'good')
+      } else if (eff.kind === 'card') {
+        const label = eff.tier === 'gold' ? '金' : eff.tier === 'purple' ? '紫' : '蓝'
+        this.hud.toast(`获得${label}卡（待接线）`, 'good')
+      } else if (eff.kind === 'buff' || eff.kind === 'debuff') {
+        this.hud.toast(`${eff.stat} ${eff.kind === 'buff' ? '+' : '-'}（待接线）`, eff.kind === 'buff' ? 'good' : 'bad')
+      } else if (eff.kind === 'battle') {
+        this.hud.toast(`遭遇战 ×${eff.count}（待接线）`, 'bad')
+      }
+    }
   }
 
   /** 塔内互动结算：祭坛给护盾/治疗/充能，塔藏箱随机给金币/治疗/充能 */
