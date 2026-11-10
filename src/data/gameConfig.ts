@@ -26,7 +26,8 @@ export const CONFIG = {
     dashSpeed: 19,
     dashDuration: 0.16,
     /** 受击后无敌时间 */
-    iFrames: 0.65,
+    /** 受击后无敌：从 0.65 降到 0.3，避免高密度下"越被围越无敌" */
+    iFrames: 0.3,
     radius: 0.42,
   } as PlayerStats & { dashSpeed: number; dashDuration: number; iFrames: number; radius: number },
 

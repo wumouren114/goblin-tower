@@ -812,10 +812,7 @@ export class Game {
     p.x = clamped.x
     p.z = clamped.z
 
-    if (this.input.justPressed('ShiftLeft') || this.input.justPressed('Space')) {
-      if (p.tryDash(axis.x, axis.z)) audio.dash()
-    }
-
+    // v5：删除 Shift 冲刺（唯一位移由技能负责），玩家防御手段只有走位
     const drag = this.input.consumeDrag()
     this.rig.addYaw(drag.x * 0.005)
     this.rig.zoom(this.input.consumeWheel() * 0.9)
@@ -2674,7 +2671,7 @@ export class Game {
       armorRate: Math.min(0.6, c.armor ?? 0),
       dodge: Math.min(0.24, (c.dodge ?? 0) + ((tier.dodgeChance as number) ?? 0)),
       critChance: Math.min(0.6, 0.08 + (c.crit ?? 0)),
-      critMultiplier: 1.8,
+      critMultiplier: 2.0,
       pickupRadius: 2.0,
       goldGain: 1,
       xpGain: 1,

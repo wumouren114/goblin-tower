@@ -527,7 +527,6 @@ const UI_TEMPLATE = /* html */ `
           <div class="howto-list">
             <div class="howto-row"><span class="howto-keys"><kbd>WASD / 方向键</kbd></span><span>移动躲闪，左键点击普攻（自动锁敌）</span></div>
             <div class="howto-row"><span class="howto-keys"><kbd>右键</kbd></span><span>释放专武技能，充能靠击杀</span></div>
-            <div class="howto-row"><span class="howto-keys"><kbd>Shift / 空格</kbd></span><span>冲刺，短暂无敌</span></div>
             <div class="howto-row"><span class="howto-keys"><kbd>TAB / I</kbd></span><span>商店中查看背包，两张同级同类卡可合成，点格子右上角 × 可丢弃</span></div>
             <div class="howto-row"><span class="howto-keys"><kbd>P</kbd></span><span>暂停 / 存档</span></div>
           </div>
