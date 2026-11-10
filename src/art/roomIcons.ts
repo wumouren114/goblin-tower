@@ -254,7 +254,27 @@ function restIcon(): PixelCanvas {
   return p
 }
 
+function eventIcon(): PixelCanvas {
+  const p = new PixelCanvas(24, 24)
+  // 摊开的羊皮纸（探索事件）
+  for (let y = 6; y <= 18; y += 1) p.hLine(6, 17, y, C.bone)
+  for (let y = 6; y <= 18; y += 1) {
+    p.set(5, y, C.woodDark)
+    p.set(18, y, C.woodDark)
+  }
+  // 文字行
+  for (let y = 9; y <= 15; y += 3) p.hLine(8, 15, y, C.woodDark)
+  // 问号
+  p.set(12, 8, C.gold)
+  p.set(13, 8, C.gold)
+  p.set(13, 9, C.gold)
+  p.set(12, 10, C.gold)
+  p.set(12, 12, C.gold)
+  return p
+}
+
 const DRAWERS: Record<TunnelRoom, () => PixelCanvas> = {
+  event: eventIcon,
   chest: chestIcon,
   'skill-card': skillCardIcon,
   merchant: merchantIcon,

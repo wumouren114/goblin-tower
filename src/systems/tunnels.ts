@@ -17,6 +17,7 @@ import type { Rng } from '../core/rng'
 import { BALANCE, DIFFICULTIES, quotaFor, type DifficultyId } from '../data/balance'
 import { makeCardItem, qualityFor } from './economy'
 import { generateOffers } from './shop'
+import { EVENTS } from '../data/events'
 
 // ── balance.json 段落（balance.ts 未声明类型，本模块只读）──
 interface PortalsCfg {
@@ -84,6 +85,7 @@ const CARD_LABEL: Record<CardStat, string> = {
 }
 
 const ROOM_ICON: Record<TunnelRoom, string> = {
+  event: '❔',
   chest: '🎁',
   'skill-card': '🃏',
   merchant: '🛒',
@@ -95,6 +97,8 @@ const ROOM_ICON: Record<TunnelRoom, string> = {
 }
 
 const ROOM_KIND: Record<TunnelRoom, TunnelType> = {
+  // 探索类暂时挂在 reward 下（TunnelType 还没拆出 explore），权重靠 reward 池控制
+  event: 'reward',
   chest: 'reward',
   'skill-card': 'reward',
   merchant: 'trade',
@@ -107,6 +111,7 @@ const ROOM_KIND: Record<TunnelRoom, TunnelType> = {
 
 export interface RoomResolution {
   gold?: number
+  event?: { id: string }
   card?: InventoryItem
   shopOffers?: ShopOffer[]
   altarCost?: number
@@ -189,7 +194,7 @@ function rollAltarReward(layer: number, rng: Rng): { stat: CardStat; value: numb
 function roomsOfKind(kind: TunnelType, layer: number): TunnelRoom[] {
   switch (kind) {
     case 'reward':
-      return ['chest', 'skill-card']
+      return ['chest', 'skill-card', 'event']
     case 'trade':
       return ['merchant', 'altar']
     case 'battle':
@@ -227,7 +232,9 @@ function rollRoomType(rng: Rng, layer: number, used: Set<TunnelRoom>): TunnelRoo
     const candidates = roomsOfKind(kind, layer).filter((room) => !used.has(room))
     if (candidates.length === 0) continue
     if (kind === 'reward') {
-      const prefer = rng.chance(PORTALS.reward.chest) ? 'chest' : 'skill-card'
+      // 奖励类内部的子权重：宝箱沿用 balance，技能卡次之，事件最少（5%）
+      const roll = rng.next()
+      const prefer: TunnelRoom = roll < PORTALS.reward.chest ? 'chest' : roll < 0.95 ? 'skill-card' : 'event'
       return candidates.includes(prefer) ? prefer : candidates[0]
     }
     if (kind === 'trade') {
@@ -264,6 +271,8 @@ function makePayload(
     }
     case 'skill-card':
       return { skillCard: rollSkillCard(rng) }
+    case 'event':
+      return { event: { id: rng.pick(EVENTS).id } }
     case 'merchant':
       return { shopOffers: generateOffers(layer, charId, 0, rng, undefined, weaponLv, trainingBuys) }
     case 'altar':
@@ -290,6 +299,8 @@ function describePayload(room: TunnelRoom, payload: TunnelPayload): { title: str
       const cardText = payload.card ? `，获得「${payload.card.name}」` : ''
       return { title: '宝藏密室', desc: `打开宝箱：金币 +${gold}${cardText}` }
     }
+    case 'event':
+      return { title: '陌生的旅人', desc: '有人靠在墙边，似乎想和你说点什么' }
     case 'skill-card': {
       const skill = payload.skillCard
       return {
@@ -382,6 +393,8 @@ export function resolveRoom(
   const current = clampLayer(layer)
   const payload = offer.payload
   switch (offer.room) {
+    case 'event':
+      return { event: payload.event }
     case 'chest': {
       // 预览与结算必须同一次掷骰：payload.card 为 undefined 就是没出卡，
       // 不能在这里再掷一次 chestCardChance（否则实际出卡率会被抬高）。

@@ -184,6 +184,7 @@ const TUNNEL_META: Record<TunnelType, { label: string; hint: string }> = {
 }
 
 const ROOM_LABEL: Record<TunnelRoom, string> = {
+  event: '陌生旅人',
   chest: '宝箱密室',
   'skill-card': '技能圣所',
   merchant: '流浪商人',

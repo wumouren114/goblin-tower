@@ -80,6 +80,7 @@ export type DefeatReason = 'hp'
 export type TunnelType = 'reward' | 'trade' | 'battle' | 'rest'
 
 export type TunnelRoom =
+  | 'event'
   | 'chest'
   | 'skill-card'
   | 'merchant'
@@ -144,6 +145,8 @@ export interface TunnelPayload {
   eliteCount?: number
   bossLayer?: boolean
   rest?: { healRatio: number; chargeRatio: number }
+  /** 探索事件房：进场后按 id 打开事件面板 */
+  event?: { id: string }
 }
 
 export interface ShopOffer {

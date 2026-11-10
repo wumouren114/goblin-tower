@@ -24,7 +24,7 @@ import { Rng } from './core/rng'
 import { rotateInput } from './core/math'
 import { TowerFloor } from './world/floor'
 import { pickScene, STAGE_NAMES } from './data/stages'
-import { EVENTS, type EventEffect } from './data/events'
+import { EVENTS, eventOf, type EventEffect } from './data/events'
 import { EventState } from './systems/eventState'
 import { EventPanel } from './ui/eventPanel'
 import { CHARACTERS, CHARGE_FLOOR_START_RATIO, skillRange } from './data/characters'
@@ -930,8 +930,13 @@ export class Game {
   }
 
   private openDebugEvent(): void {
+    this.openEventById(EVENTS[this.rng.int(0, EVENTS.length - 1)].id)
+  }
+
+  /** 打开指定事件；onDone 在面板关闭后调用（事件房用它收尾） */
+  private openEventById(id: string, onDone?: () => void): void {
     if (this.eventPanel.isOpen) return
-    const def = EVENTS[this.rng.int(0, EVENTS.length - 1)]
+    const def = eventOf(id) ?? EVENTS[0]
     const role = def.roles ? def.roles[this.rng.int(0, def.roles.length - 1)] : null
     this.eventPanel.open(
       def,
@@ -944,7 +949,10 @@ export class Game {
           if (outcome) this.applyEventEffects(outcome.effects)
           return outcome
         },
-        onClose: () => this.hud.toast('事件结束', 'info'),
+        onClose: () => {
+          if (onDone) onDone()
+          else this.hud.toast('事件结束', 'info')
+        },
       },
     )
   }
@@ -2190,6 +2198,11 @@ export class Game {
       this.run.difficulty,
     )
 
+    if (res.event) {
+      room.resolved = true
+      this.openEventById(res.event.id, () => this.completeRoomMap('你离开了那个旅人'))
+      return
+    }
     if (res.gold) {
       this.run.gold += res.gold
       this.hud.toast(`+${res.gold} 金币`, 'good')

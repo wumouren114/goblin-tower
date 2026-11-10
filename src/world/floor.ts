@@ -67,6 +67,7 @@ export interface TowerInteraction {
 
 /** 房间专属色：同一套竞技场靠“地面印记 + 火把/旗帜染色 + 布景轮廓”区分 */
 const ROOM_ACCENT: Record<TunnelRoom, number> = {
+  event: 0x9fd8ff,
   chest: 0xffc84d,
   'skill-card': 0x8fe3ff,
   merchant: 0xffd166,

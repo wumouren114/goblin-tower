@@ -70,6 +70,7 @@ const PALETTES: Record<RoomNpcKind, NpcPalette> = {
 }
 
 const NPC_INFO: Record<TunnelRoom, { kind: RoomNpcKind; title: string; hint: string }> = {
+  event: { kind: 'guide', title: '陌生的旅人', hint: '按 Enter 交谈' },
   chest: { kind: 'guide', title: '宝藏守卫', hint: '按 Enter 领取密室宝藏' },
   'skill-card': { kind: 'guide', title: '刻文石灵', hint: '按 Enter 领取技能卡' },
   merchant: { kind: 'merchant', title: '流浪商人', hint: '按 Enter 查看额外货架' },
