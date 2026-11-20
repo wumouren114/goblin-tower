@@ -5,7 +5,7 @@
   "channels": 1,
   "bitsPerSample": 16,
   "targetPeakDb": -1,
-  "totalBytes": 6933312,
+  "totalBytes": 7023938,
   "files": [
     {
       "file": "bgm_title.wav",
@@ -493,6 +493,91 @@
       "durationRangeS": [
         0.18,
         0.32
+      ]
+    },
+    {
+      "file": "sfx_execute.wav",
+      "kind": "sfx",
+      "bytes": 13274,
+      "sha256": "b949f9851a19b9b360c401b52d7f2788fd30a622a8f957e0b2d7649d673359cb",
+      "samples": 6615,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.3,
+      "peakDb": -4,
+      "rmsDb": -17.35,
+      "durationRangeS": [
+        0.22,
+        0.38
+      ]
+    },
+    {
+      "file": "sfx_block.wav",
+      "kind": "sfx",
+      "bytes": 11070,
+      "sha256": "1e2e0ba6105476a15583661d695d6ac6cd80546a6d2ffff4e4c42c25a5680460",
+      "samples": 5513,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.25,
+      "peakDb": -4,
+      "rmsDb": -20.17,
+      "durationRangeS": [
+        0.18,
+        0.32
+      ]
+    },
+    {
+      "file": "sfx_recall.wav",
+      "kind": "sfx",
+      "bytes": 13274,
+      "sha256": "b6ef0fd949e1dce2ca11fc97294058253eeb49619017df709e0bd1b17171e708",
+      "samples": 6615,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.3,
+      "peakDb": -6,
+      "rmsDb": -17.32,
+      "durationRangeS": [
+        0.22,
+        0.38
+      ]
+    },
+    {
+      "file": "sfx_watergun.wav",
+      "kind": "sfx",
+      "bytes": 44144,
+      "sha256": "3647cb94aaa2f29912994ece0fdc0c2f78f5dc39a85939b15648e5ace622dd2f",
+      "samples": 22050,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 1,
+      "peakDb": -6,
+      "rmsDb": -17.91,
+      "durationRangeS": [
+        0.85,
+        1.15
+      ]
+    },
+    {
+      "file": "sfx_push.wav",
+      "kind": "sfx",
+      "bytes": 8864,
+      "sha256": "6312892cfd929c0627b5bedde437f9cfac225b51133383ac1a0150daf492e9a3",
+      "samples": 4410,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.2,
+      "peakDb": -5,
+      "rmsDb": -17.09,
+      "durationRangeS": [
+        0.15,
+        0.26
       ]
     }
   ]

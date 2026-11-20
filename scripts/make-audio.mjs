@@ -1105,6 +1105,76 @@ const SFX_SPECS = {
       delay(b, 0.055, 0.22, 0.2, false)
     },
   },
+  sfx_execute: {
+    peakDb: -4,
+    durationS: 0.3,
+    render: (b) => {
+      // 处决：低频重斩 + 刃锋短尖啸（300ms）
+      tone(b, false, 0, 0.24, 145, { type: 'sine', vol: 0.48, a: 0.001, pdecay: 0.095, slideTo: 42 })
+      tone(b, false, 0, 0.2, 112, { type: 'saw', vol: 0.2, a: 0.001, pdecay: 0.075, slideTo: 48 })
+      noiseVoice(b, false, 0, 0.095, { vol: 0.32, a: 0.0005, hp: 1600, lp: 9600, decay: 0.025 })
+      tone(b, false, 0.02, 0.22, 1960, { type: 'square', duty: 0.25, vol: 0.16, a: 0.002, pdecay: 0.06, slideTo: 3180 })
+      tone(b, false, 0.028, 0.2, 2950, { type: 'sine', vol: 0.18, a: 0.002, pdecay: 0.065, slideTo: 2250 })
+    },
+  },
+  sfx_block: {
+    peakDb: -4,
+    durationS: 0.25,
+    render: (b) => {
+      // 格挡：金属撞击 + 清脆余韵（250ms）
+      noiseVoice(b, false, 0, 0.036, { vol: 0.34, a: 0.0005, hp: 3000, lp: 10500, decay: 0.01 })
+      tone(b, false, 0, 0.07, 380, { type: 'tri', vol: 0.24, a: 0.0005, pdecay: 0.024, slideTo: 240 })
+      tone(b, false, 0, 0.23, 1480, { type: 'sine', vol: 0.26, a: 0.0005, pdecay: 0.092 })
+      tone(b, false, 0, 0.22, 2310, { type: 'sine', vol: 0.2, a: 0.0005, pdecay: 0.082 })
+      tone(b, false, 0.004, 0.19, 3520, { type: 'tri', vol: 0.12, a: 0.0005, pdecay: 0.062 })
+      tone(b, false, 0, 0.12, 1480, { type: 'square', duty: 0.25, vol: 0.1, a: 0.0005, pdecay: 0.042, slideTo: 1440 })
+      delay(b, 0.045, 0.24, 0.18, false)
+    },
+  },
+  sfx_recall: {
+    peakDb: -6,
+    durationS: 0.3,
+    render: (b) => {
+      // 回收：三连上扬水泡音 + 轻水波吸回感（300ms）
+      tone(b, false, 0, 0.09, 320, { type: 'sine', vol: 0.32, a: 0.002, pdecay: 0.038, slideTo: 740 })
+      tone(b, false, 0.075, 0.1, 460, { type: 'sine', vol: 0.34, a: 0.002, pdecay: 0.042, slideTo: 1020 })
+      tone(b, false, 0.155, 0.135, 640, { type: 'sine', vol: 0.36, a: 0.002, pdecay: 0.055, slideTo: 1480 })
+      tone(b, false, 0.16, 0.11, 1280, { type: 'tri', vol: 0.12, a: 0.002, pdecay: 0.04, slideTo: 2200 })
+      noiseVoice(b, false, 0, 0.26, { vol: 0.12, a: 0.015, hp: 500, lp: 2200, sweepHp: 1400, sweepLp: 4800, decay: 0.18 })
+    },
+  },
+  sfx_watergun: {
+    peakDb: -6,
+    durationS: 1.0,
+    render: (b) => {
+      // 水枪扫射：1s 持续高压水柱喷射，8Hz 周期脉动带循环感
+      noiseVoice(b, true, 0, 1.0, { vol: 0.24, a: 0.004, hp: 900, lp: 5800, decay: 8 })
+      noiseVoice(b, true, 0, 1.0, { vol: 0.12, a: 0.004, hp: 4200, lp: 9600, decay: 8 })
+      for (let i = 0; i < 8; i += 1) {
+        const t0 = i * 0.125
+        tone(b, true, t0, 0.11, 260 + (i % 2) * 45, {
+          type: 'sine',
+          vol: 0.11,
+          a: 0.01,
+          d: 0.04,
+          s: 0.5,
+          r: 0.04,
+          slideTo: 420 + (i % 2) * 50,
+        })
+        noiseVoice(b, true, t0, 0.1, { vol: 0.15, a: 0.012, hp: 1400, lp: 4600, sweepLp: 6800, decay: 0.055 })
+      }
+    },
+  },
+  sfx_push: {
+    peakDb: -5,
+    durationS: 0.2,
+    render: (b) => {
+      // 推敌：低沉推击 + 气流震荡（200ms）
+      tone(b, false, 0, 0.19, 125, { type: 'sine', vol: 0.52, a: 0.002, pdecay: 0.075, slideTo: 44 })
+      tone(b, false, 0, 0.17, 90, { type: 'tri', vol: 0.26, a: 0.003, pdecay: 0.065, slideTo: 38 })
+      noiseVoice(b, false, 0, 0.18, { vol: 0.3, a: 0.002, hp: 160, lp: 2200, sweepLp: 480, decay: 0.065 })
+    },
+  },
 }
 
 /** 文档 08 里的时长要求（秒），make 时自检、check 时也会再验一遍 */
@@ -1133,6 +1203,11 @@ const SFX_DURATION_RANGE = {
   sfx_enemy_bomber_fuse: [0.38, 0.62],
   sfx_potential_pick: [0.22, 0.38],
   sfx_mark_settle: [0.18, 0.32],
+  sfx_execute: [0.22, 0.38],
+  sfx_block: [0.18, 0.32],
+  sfx_recall: [0.22, 0.38],
+  sfx_watergun: [0.85, 1.15],
+  sfx_push: [0.15, 0.26],
 }
 
 function renderSfx(name, spec) {

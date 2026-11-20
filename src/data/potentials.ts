@@ -62,6 +62,13 @@ export interface Resonance {
   effect: string
 }
 
+export interface CharacterSkillInfo {
+  name: string
+  desc: string
+  cooldown: number
+  unlock: string
+}
+
 export interface PotentialSet {
   character: CharacterId
   branches: readonly [PotentialBranch, PotentialBranch, PotentialBranch]
@@ -69,6 +76,12 @@ export interface PotentialSet {
   resonances: readonly Resonance[]
   /** 通用项：不绑分支，不限数量 */
   commons: readonly PotentialNode[]
+  /** Q 通用主动技能 */
+  qSkill: CharacterSkillInfo
+  /** F 通用主动技能 */
+  fSkill: CharacterSkillInfo
+  /** 通用项/节点补充说明（按节点 id 索引） */
+  extraNotes?: Readonly<Record<string, string>>
 }
 
 /* ─────────────────────────── 丛雨 ─────────────────────────── */
@@ -141,6 +154,18 @@ const murasame: PotentialSet = {
     { id: 'murasame-common-threshold', name: '斩杀线', effect: '对 <30% 血量的敌人伤害 +25%', tags: ['execute', 'burst'] },
     { id: 'murasame-common-chain', name: '连斩', effect: '3 秒内连续击杀，每次 +8% 攻速，最多 3 层', tags: ['combo'] },
   ],
+  qSkill: {
+    name: '处决',
+    desc: '瞬斩处决血量低于 12% 的敌人，立刻收割残血目标（Boss 与精英不受处决效果影响）。',
+    cooldown: 12,
+    unlock: '选中任一潜能分支',
+  },
+  fSkill: {
+    name: '格挡',
+    desc: '举刀格挡远程攻击；在命中瞬间精准格挡时，立刻瞬移至攻击者身后反击。',
+    cooldown: 8,
+    unlock: '任一分支节点点满 2 个',
+  },
 }
 
 /* ─────────────────────────── 大肥鱼 ─────────────────────────── */
@@ -215,6 +240,22 @@ const fish: PotentialSet = {
     { id: 'fish-common-recall', name: 'E 回收', effect: '回收场上召唤物，获得 15 金，cd 20 秒（仅战斗关可用）', tags: ['gold', 'summon'] },
     { id: 'fish-common-hose', name: 'F 水枪', effect: '切换为持续水柱扫射 10 秒（不再是单发泡泡，DPS 提升），cd 30 秒', tags: ['burst'] },
   ],
+  qSkill: {
+    name: '回收',
+    desc: '召回场上所有召唤物并结算收益，立刻获得 +15 金币（仅战斗关可用）。',
+    cooldown: 10,
+    unlock: '选中任一潜能分支',
+  },
+  fSkill: {
+    name: '水枪扫射',
+    desc: '开启高压水枪强化 10 秒，期间普攻改为持续扫射倾泻火力。',
+    cooldown: 20,
+    unlock: '任一分支节点点满 2 个',
+  },
+  extraNotes: {
+    'fish-common-rice': '拾取白米饭时附带短暂提速与少量回血，便于残血拉扯与续战。',
+    'fish-bubble-giant': '巨化在提升生命与伤害的同时，攻速也会小幅降低。',
+  },
 }
 
 /* ─────────────────────────── 若叶睦 ─────────────────────────── */
@@ -295,6 +336,18 @@ const mutsumi: PotentialSet = {
     },
     { id: 'mutsumi-common-push', name: 'E 推开', effect: '推开周围一定范围内的敌人（cd 10 秒）', tags: ['aoe', 'shield'] },
   ],
+  qSkill: {
+    name: '推敌',
+    desc: '拨弦震开周围 3m 内的敌人并向后短距撤步，快速拉开安全输出距离。',
+    cooldown: 10,
+    unlock: '选中任一潜能分支',
+  },
+  fSkill: {
+    name: '强拍闪避',
+    desc: '踏准强拍灵巧闪避；闪避后 0.5 秒内的普攻必定视为 perfect 判定。',
+    cooldown: 8,
+    unlock: '任一分支节点点满 2 个',
+  },
 }
 
 export const POTENTIALS: Record<CharacterId, PotentialSet> = {
