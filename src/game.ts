@@ -1057,7 +1057,7 @@ export class Game {
   /** 把 run.potential 同步给战斗系统（换分支/读档后都要调） */
   private syncPotential(): void {
     this.combat?.setPotential(
-      [this.run.potential?.branch, this.run.potential?.branch2],
+      [this.run.potential?.branch, this.run.potential?.branch2, this.run.potential?.branch3],
       this.run.potential?.nodes ?? [],
     )
     this.combat?.setResonances(this.run.potential?.resonances ?? [])
@@ -2348,7 +2348,7 @@ export class Game {
   private activateResonances(): string[] {
     const pot = this.run.potential
     if (!pot) return []
-    const have = new Set([pot.branch, pot.branch2].filter(Boolean))
+    const have = new Set([pot.branch, pot.branch2, pot.branch3].filter(Boolean))
     const combos: { id: string; a: string; b: string; name: string }[] = [
       { id: 'res-liushang-jianyi', a: 'murasame-liushang', b: 'murasame-jianyi', name: '流殇 × 剑意 · 血雨斩' },
       { id: 'res-shunshan-liushang', a: 'murasame-shunshan', b: 'murasame-liushang', name: '瞬闪 × 流殇 · 回潮' },
@@ -2369,6 +2369,7 @@ export class Game {
         }
       }
       pot.resonances = [...(pot.resonances ?? []), ...active]
+      this.combat?.setResonances(pot.resonances)
       this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
       audio.levelUp()
       this.saveRun(AUTOSAVE_SLOT)
@@ -2401,9 +2402,11 @@ export class Game {
     const branchId = this.run.potential?.branch
     const offers: TunnelOffer[] = []
 
-    const owned = new Set([this.run.potential?.branch, this.run.potential?.branch2].filter(Boolean))
-    const maxBranches = 2
-    // 还有分支空位：给未拥有的分支卡（普通/困难都可点满 2 条 → 1 组跨枝反应）
+    const owned = new Set(
+      [this.run.potential?.branch, this.run.potential?.branch2, this.run.potential?.branch3].filter(Boolean),
+    )
+    const maxBranches = this.run.difficulty === 'hard' ? 3 : 2
+    // 还有分支空位：普通/简单最多 2 条（最多 1 组反应），困难开放第 3 分支位（可同时成立 3 组反应）
     if (owned.size < maxBranches) {
       for (const branch of set.branches) {
         if (owned.has(branch.id)) continue
@@ -2543,11 +2546,15 @@ export class Game {
       const current = this.run.potential
       const nodes = [...(current?.nodes ?? [])]
       if (choice.nodeId) nodes.push(choice.nodeId)
-      const isSecond = Boolean(this.run.potential?.branch) && !choice.nodeId
+      const isNewBranch = !choice.nodeId
+      const isSecond = isNewBranch && Boolean(current?.branch) && !current?.branch2
+      const isThird = isNewBranch && Boolean(current?.branch) && Boolean(current?.branch2) && !current?.branch3
       this.run.potential = {
-        branch: this.run.potential?.branch ?? choice.branch,
-        branch2: isSecond ? choice.branch : this.run.potential?.branch2,
+        branch: current?.branch ?? choice.branch,
+        branch2: isSecond ? choice.branch : current?.branch2,
+        branch3: isThird ? choice.branch : current?.branch3,
         nodes,
+        resonances: current?.resonances,
       }
       this.syncPotential()
       this.activateResonances()

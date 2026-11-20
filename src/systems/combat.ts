@@ -224,6 +224,8 @@ export class Combat {
   private potentialBranch: PotentialBranchId | null = null
   /** 第二分支（跨枝反应用）：代价与被动同样生效 */
   private potentialBranch2: PotentialBranchId | null = null
+  /** 第三分支（困难难度开放）：代价与被动同样生效 */
+  private potentialBranch3: PotentialBranchId | null = null
   /** 已发动的跨枝反应 */
   private readonly resonances = new Set<string>()
   private potentialNodes: ReadonlySet<string> = new Set()
@@ -312,6 +314,7 @@ export class Combat {
     const ids = branches.map((b) => normalizeBranch(b)).filter((b): b is PotentialBranchId => b !== null)
     this.potentialBranch = ids[0] ?? null
     this.potentialBranch2 = ids[1] ?? null
+    this.potentialBranch3 = ids[2] ?? null
     this.potentialNodes = new Set(nodes)
     this.bleeds.clear()
     this.marks.clearAll()
@@ -391,7 +394,7 @@ export class Combat {
   }
 
   private hasBranch(id: PotentialBranchId): boolean {
-    return this.potentialBranch === id || this.potentialBranch2 === id
+    return this.potentialBranch === id || this.potentialBranch2 === id || this.potentialBranch3 === id
   }
 
   private hasNode(id: string): boolean {
