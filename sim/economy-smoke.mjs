@@ -572,8 +572,8 @@ check('旧二合一合成入口已删除（无 autoMerge/merge 字段）', () =>
   const stamina = economy.makeCardItem('stamina', 1)
   bag.add(magic)
   bag.add(stamina)
-  eq((bag as any).autoMerge, undefined, 'autoMerge 应不存在')
-  eq((bag as any).merge, undefined, 'merge 应不存在')
+  eq(bag.autoMerge, undefined, 'autoMerge 应不存在')
+  eq(bag.merge, undefined, 'merge 应不存在')
   eq(bag.count, 2)
 })
 
