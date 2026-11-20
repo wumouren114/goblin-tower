@@ -55,15 +55,15 @@ function approx(actual, expected, tolerance = 1e-6, hint = '') {
   }
 }
 
-/** 134 BPM 八分音符网格 */
-const GRID = 60000 / 134 / 2
+/** 120 BPM 八分音符网格 */
+const GRID = 60000 / 120 / 2
 
 console.log('\n节拍时钟 · beat-smoke')
 
-check('134 BPM 八分音符网格 = 223.88ms', () => {
+check('120 BPM 八分音符网格 = 250ms', () => {
   const clock = new BeatClock()
   approx(clock.gridMs, GRID, 1e-9)
-  approx(GRID, 223.880597, 1e-5)
+  approx(GRID, 250, 1e-5)
 })
 
 check('默认 miss 带 > 0（否则 miss 永远判不出来）', () => {
@@ -79,17 +79,17 @@ check('正拍 = perfect', () => {
   eq(clock.judge(GRID * 3), 'perfect')
 })
 
-check('窗口分层：30=perfect / 45=good / 100=miss', () => {
+check('窗口分层：40=perfect / 80=good / 115=miss', () => {
   const clock = new BeatClock()
-  eq(clock.judge(30), 'perfect')
-  eq(clock.judge(45), 'good')
-  eq(clock.judge(100), 'miss')
+  eq(clock.judge(40), 'perfect')
+  eq(clock.judge(80), 'good')
+  eq(clock.judge(115), 'miss')
 })
 
 check('提前与滞后对称', () => {
   const clock = new BeatClock()
   eq(clock.judge(-60), 'good')
-  eq(clock.judge(-100), 'miss')
+  eq(clock.judge(-115), 'miss')
 })
 
 check('半个网格处判 miss（不会算到隔壁拍点）', () => {
@@ -157,11 +157,11 @@ check('describe 输出可读', () => {
   ok(text.includes('good'), text)
 })
 
-check('默认配置口径（134 / 八分 / 35 / 60）', () => {
-  eq(DEFAULT_BEAT_CLOCK.bpm, 134)
+check('默认配置口径（120 / 八分 / 50 / 100）', () => {
+  eq(DEFAULT_BEAT_CLOCK.bpm, 120)
   eq(DEFAULT_BEAT_CLOCK.subdivision, 2)
-  eq(DEFAULT_BEAT_CLOCK.perfectMs, 35)
-  eq(DEFAULT_BEAT_CLOCK.goodMs, 60)
+  eq(DEFAULT_BEAT_CLOCK.perfectMs, 50)
+  eq(DEFAULT_BEAT_CLOCK.goodMs, 100)
 })
 
 console.log(`\n通过 ${passed}，失败 ${failures.length}`)

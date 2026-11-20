@@ -3,6 +3,7 @@ import { createHud, type HudV3 } from './ui/hud'
 import { Game } from './game'
 import { preloadArt } from './art/atlasImport'
 import { audio } from './core/audio'
+import { parseBpmParam, setDefaultBpm } from './core/beatClock'
 import type { CharacterId, DifficultyId } from './types'
 import type { StyleId } from './data/awakenings'
 
@@ -96,6 +97,11 @@ async function boot(): Promise<void> {
   const style = (params.get('style') ?? undefined) as StyleId | undefined
   const floor = Number(params.get('floor') ?? '1')
   const warmup = Number(params.get('warmup') ?? '0')
+  if (params.get('bpm') !== null) {
+    const bpm = parseBpmParam(params.get('bpm'))
+    setDefaultBpm(bpm)
+    ;(game as unknown as { combat?: { setBpm?: (v: number) => void } }).combat?.setBpm?.(bpm)
+  }
   if (params.get('seed') !== null) game.setDebugSeed(Number(params.get('seed')))
   if (diff) {
     game.debugJump(Number.isFinite(floor) ? floor : 1, diff, char, style)

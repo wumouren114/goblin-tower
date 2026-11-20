@@ -55,6 +55,14 @@ export interface Hittable {
 }
 
 /** 潜能分支：数据层用完整 id（murasame-liushang），战斗内部用短名 */
+/** 节奏连击伤害倍率：20→1.15 / 40→1.30 / 60→1.50 封顶（60 以上只计数） */
+export function rhythmComboMul(combo: number): number {
+  if (combo >= 60) return 1.5
+  if (combo >= 40) return 1.3
+  if (combo >= 20) return 1.15
+  return 1
+}
+
 export type PotentialBranchId =
   | 'liushang'
   | 'shunshan'
@@ -212,6 +220,10 @@ export class Combat {
   private potentialTransformExtra = 0
   /** 节奏分支的连击数 */
   private rhythmCombo = 0
+  /** 节奏 miss 眩晕 10s 冷却截止时间（combatTime 轴） */
+  private rhythmMissStunCdUntil = -Infinity
+  /** 最近一次普攻是否踩准（节奏分支用于 2m/50% 溅射） */
+  private lastAttackRhythmOnBeat = false
   private pulseLeft = 0
   private mods = { ...IDENTITY_MODS }
   private readonly rice: RiceDrop[] = []
@@ -285,10 +297,15 @@ export class Combat {
   // ───────────────────────── 面板/武器 ─────────────────────────
 
   /** game.ts 唯一面板入口：换角色、买卡、专武升级、变身 modifiers 都在这里同步 */
+  private effectiveChargeMax(rawMax = this.stats.chargeMax): number {
+    const mul = this.charId === 'mutsumi' && this.hasBranch('duet') ? 1.2 : 1
+    return Math.max(1, Math.round(rawMax * mul))
+  }
+
   setStats(stats: PlayerStats): void {
     const ratio = this.meter.ratio
     this.stats = { ...stats }
-    this.meter.reset(Math.max(1, stats.chargeMax), ratio)
+    this.meter.reset(this.effectiveChargeMax(stats.chargeMax), ratio)
   }
 
   setCharacter(id: CharacterId): void {
@@ -318,6 +335,18 @@ export class Combat {
     this.potentialNodes = new Set(nodes)
     this.bleeds.clear()
     this.marks.clearAll()
+    if (this.stats.chargeMax > 0) {
+      this.meter.reset(this.effectiveChargeMax(this.stats.chargeMax), this.meter.ratio)
+    }
+  }
+
+  /** 调整节拍 BPM（90~150，非法值回退 120） */
+  setBpm(bpm: number): void {
+    this.beat.setBpm(bpm)
+  }
+
+  get bpm(): number {
+    return this.beat.config.bpm
   }
 
   /** 重新对齐节拍网格（进层 / 换曲时调） */
@@ -556,10 +585,10 @@ export class Combat {
         if (lust >= 3) this.meter.add(5)
       }
     }
-    // 双重人格·同化：变身期每击杀延长 0.2s（每次变身最多 +3s）
+    // 双重人格·同化：变身期每击杀延长 0.3s（每次变身最多 +5s）
     if (this.hasBranch('duet') && this.transformActive && this.hasNode('mutsumi-duet-core')) {
-      if (this.potentialTransformExtra < 3) {
-        const add = Math.min(0.2, 3 - this.potentialTransformExtra)
+      if (this.potentialTransformExtra < 5) {
+        const add = Math.min(0.3, 5 - this.potentialTransformExtra)
         this.transformTime += add
         this.potentialTransformExtra += add
       }
@@ -590,7 +619,9 @@ export class Combat {
     this.mods = { ...IDENTITY_MODS }
     this.cooldownLeft = 0
     this.lockedLeft = 0
-    this.meter.reset(this.stats.chargeMax, clamp01(chargeRatio))
+    this.rhythmMissStunCdUntil = -Infinity
+    this.lastAttackRhythmOnBeat = false
+    this.meter.reset(this.effectiveChargeMax(this.stats.chargeMax), clamp01(chargeRatio))
     this.riceTimer = 0
   }
 
@@ -608,34 +639,52 @@ export class Combat {
     aimX: number,
     aimZ: number,
     world: CombatWorld,
+    nowMs: number = performance.now(),
   ): boolean {
     if (this.lockedLeft > 0) return false
     this.cooldownLeft = Math.max(0, this.cooldownLeft - dt)
     if (this.cooldownLeft > 0) return false
     const def = CHARACTERS[this.charId]
     const rhythm = this.hasBranch('rhythm')
-    // 节奏分支（v2）：攻速完全自由，踩到拍点只给奖励（miss 无惩罚、不断连击）——
-    // 节奏从「强制门槛」改成「可选增益博弈」
-    const interval = attackInterval(this.stats.stamina, def.attack.minInterval) *
-        this.styleAttackIntervalMul() *
-        (this.hasBranch('bubble') ? 1.15 : 1) *
-        (this.combatTime < this.rapidUntil ? 0.55 : 1) *
-        (1 - Math.min(0.3, this.trialAttackSpeed)) *
-        (this.hasBranch('bubble') && this.hasNode('fish-bubble-giant') ? 1.1 : 1)
+    // 节奏分支：攻击间隔由节拍网格锁定，攻速加成（耐力/誓约/水枪等）对其无效
+    const interval = rhythm
+      ? this.beat.gridMs / 1000
+      : attackInterval(this.stats.stamina, def.attack.minInterval) *
+          this.styleAttackIntervalMul() *
+          (this.hasBranch('bubble') ? 1.15 : 1) *
+          (this.combatTime < this.rapidUntil ? 0.55 : 1) *
+          (1 - Math.min(0.3, this.trialAttackSpeed)) *
+          (this.hasBranch('bubble') && this.hasNode('fish-bubble-giant') ? 1.1 : 1)
     this.cooldownLeft = Math.max(0.01, interval)
     const forced = this.combatTime < this.forcePerfectUntil
-    const judge = rhythm
-      ? this.beat.judge(performance.now())
-      : forced
-        ? 'perfect'
-        : null
-    let rhythmMul = judge === 'perfect' ? 1.25 : judge === 'good' ? 1.1 : 1
+    let judge: 'perfect' | 'good' | 'miss' | null = null
+    let rhythmMul = 1
+    this.lastAttackRhythmOnBeat = false
     if (rhythm) {
-      // miss 不惩罚也不清连击：乱按不亏，踩拍才赚
-      if (judge !== 'miss') this.rhythmCombo += 1
-      if (this.rhythmCombo >= 60) rhythmMul *= 1.2
-      else if (this.rhythmCombo >= 40) rhythmMul *= 1.2
-      else if (this.rhythmCombo >= 20) rhythmMul *= 1.1
+      if (this.transformActive) {
+        // 大招/变身期间：每次攻击固定 +2 连击（无需踩拍）
+        judge = 'perfect'
+        this.rhythmCombo += 2
+        this.lastAttackRhythmOnBeat = true
+        rhythmMul = rhythmComboMul(this.rhythmCombo)
+      } else {
+        judge = forced ? 'perfect' : this.beat.judge(nowMs)
+        if (judge === 'perfect' || judge === 'good') {
+          this.rhythmCombo += 1
+          this.lastAttackRhythmOnBeat = true
+        } else {
+          // miss：连击减半 + 眩晕 0.3s（10s 冷却，防止连续卡死）
+          this.rhythmCombo = Math.floor(this.rhythmCombo / 2)
+          if (this.combatTime >= this.rhythmMissStunCdUntil) {
+            this.lockedLeft = Math.max(this.lockedLeft, 0.3)
+            this.rhythmMissStunCdUntil = this.combatTime + 10
+          }
+        }
+        rhythmMul = rhythmComboMul(this.rhythmCombo)
+      }
+    } else if (forced) {
+      judge = 'perfect'
+      rhythmMul = 1.25
     }
     if (judge === 'perfect') this.hooks.onSfx('crit')
     const dir = this.dirFromAim(px, pz, aimX, aimZ)
@@ -676,8 +725,13 @@ export class Combat {
     const rangeMul = chord ? (requiem ? 1.4 : 1.2) : 1
     const chordPierce = chord ? (requiem ? 5 : 3) : 0
     const duetBonus = this.transformActive && this.hasBranch('duet') ? 1.15 : 1
+    const symphonySkillAtkMul = this.transformActive && this.hasBranch('symphony') ? 0.7 : 1
     const damage =
-      baseDamage * chordMul * (!this.transformActive && this.style.id === 'mutsumi-duet' ? 0.9 : 1) * duetBonus
+      baseDamage *
+      chordMul *
+      (!this.transformActive && this.style.id === 'mutsumi-duet' ? 0.9 : 1) *
+      duetBonus *
+      symphonySkillAtkMul
     const chordColor = chord ? 0xffe6ad : undefined
     this.characterFx.mutsumiShot(px, pz, dir.x, dir.z, chord)
 
@@ -931,7 +985,10 @@ export class Combat {
 
   private skillCost(tier: WeaponTier, fallback: number): number {
     if (this.charId === 'murasame') return Math.max(20, tierNum(tier, 'skillCharge', fallback))
-    return Math.max(20, fallback * (this.hasBranch('swarm') ? 1.2 : 1))
+    const mul =
+      (this.hasBranch('swarm') ? 1.2 : 1) *
+      (this.charId === 'mutsumi' && this.hasBranch('duet') ? 1.2 : 1)
+    return Math.max(20, Math.round(fallback * mul))
   }
 
   private startTransform(
@@ -958,11 +1015,12 @@ export class Combat {
       moveSpeedMul: p.moveSpeedMul ?? 0.9,
       damageReduction: p.damageReduction ?? 0.15,
     }
-    // 变身瞬间：半径爆发 + 击退
+    // 变身瞬间：半径爆发 + 击退（双重人格技能范围 +25%）
     const radius =
       (p.pulseBaseRadius ?? 4.3) *
       (this.stats.intelligence / 100) *
-      tierNum(tier, 'mortisRadiusMul', 1)
+      tierNum(tier, 'mortisRadiusMul', 1) *
+      (this.hasBranch('duet') ? 1.25 : 1)
     const amount = hitDamage(p.burstDamage ?? 40, this.stats.magic)
     const knocked = p.burstKnockback ?? 3
     for (const t of world.enemies) {
@@ -1402,8 +1460,13 @@ export class Combat {
       (this.stats.intelligence / 100) *
       tierNum(tier, 'mortisRadiusMul', 1) *
       (chord ? (requiem ? 1.4 : 1.2) : 1) *
+      (this.hasBranch('duet') ? 1.25 : 1) *
       (this.hasBranch('duet') && this.hasNode('mutsumi-duet-range') ? 1.15 : 1)
-    const baseAmount = hitDamage(p.pulseBaseDamage ?? 11, this.stats.magic) * tierNum(tier, 'mortisPulseMul', 1)
+    const symphonyPulseMul = this.hasBranch('symphony') ? 0.75 : 1
+    const baseAmount =
+      hitDamage(p.pulseBaseDamage ?? 11, this.stats.magic) *
+      tierNum(tier, 'mortisPulseMul', 1) *
+      symphonyPulseMul
     const amount = baseAmount * (chord ? (requiem ? 2.2 : 1.6) : 1)
     const lifesteal = tierNum(tier, 'mortisLifesteal', 0)
     let drained = 0
@@ -1489,16 +1552,16 @@ export class Combat {
       }
       this.burstAt(t.x, t.z, 0x8ff6ff, 8)
     }
-    // 节奏·60 连击：命中附带 3m 爆炸（60% 伤害）
-    if (this.hasBranch('rhythm') && this.rhythmCombo >= 60 && t.alive) {
+    // 节奏·踩准：命中附带 2m / 50% 溅射（音符追击节点同口径）
+    if (this.hasBranch('rhythm') && this.lastAttackRhythmOnBeat && ctx.source === 'player' && t.alive) {
       const world = this.activeWorld
       if (world) {
         for (const near of world.enemies) {
           if (!near.alive || near === t) continue
-          if (Math.hypot(near.x - t.x, near.z - t.z) > 3) continue
-          near.hit(amount * 0.6, 0, 0)
+          if (Math.hypot(near.x - t.x, near.z - t.z) > 2) continue
+          near.hit(amount * 0.5, 0, 0)
         }
-        this.burstAt(t.x, t.z, 0xffd479, 10)
+        this.burstAt(t.x, t.z, 0xe48cff, 8)
       }
     }
 
