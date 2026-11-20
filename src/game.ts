@@ -28,6 +28,7 @@ import { EVENTS, eventOf, type EventEffect } from './data/events'
 import { EventState } from './systems/eventState'
 import { EventPanel } from './ui/eventPanel'
 import { ExchangePanel } from './ui/exchangePanel'
+import { HazardField, type HazardState } from './systems/hazardZone'
 import { cardIdOfItem } from './data/cards'
 import { CHARACTERS, CHARGE_FLOOR_START_RATIO, skillRange } from './data/characters'
 import { getWeaponTier, charTakeDamageMul, tierNum, MAX_WEAPON_LV } from './data/characterRuntime'
@@ -243,6 +244,9 @@ export class Game {
   /** 流浪商人「交换」：价格按同一房间内的次数递增，离开房间重置 */
   private readonly merchantExchange = new MerchantExchange()
   private readonly exchangePanel = new ExchangePanel()
+  /** 持续伤害区域（封路原型）：纯逻辑在本类，渲染用下面的 mesh 表 */
+  private readonly hazards = new HazardField()
+  private readonly hazardMeshes = new Map<HazardState, THREE.Mesh>()
   private prevMaxHp = 100
 
   private layerTotal = 0
@@ -311,6 +315,7 @@ export class Game {
   // ---------- 生命周期 ----------
 
   startRun(character: CharacterId, difficulty: DifficultyId, styleId?: StyleId): void {
+    this.clearHazards()
     this.cleanupFloor()
     // 重新爬塔/调试跳层时旧角色不能只从场景逻辑里移除，否则会留下幽灵立绘
     this.player?.dispose()
@@ -686,6 +691,12 @@ export class Game {
       this.tryTowerInteract()
     }
 
+    // 调试：J 在面前铺一块持续伤害区域（封路原型验证用）
+    if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('KeyJ') && this.player) {
+      const p = this.player
+      this.spawnHazard({ x: p.x, z: p.z - 4, radius: 3, dps: 12, life: 8, armDelay: 0.6 })
+    }
+
     // 商店里按 X 打开流浪商人的「交换」
     if (this.phase === 'shop' && !this.inventoryOpen() && this.input.justPressed('KeyX')) {
       this.openExchange()
@@ -823,6 +834,18 @@ export class Game {
     p.z = clamped.z
 
     // v5：删除 Shift 冲刺（唯一位移由技能负责），玩家防御手段只有走位
+    // 持续伤害区域结算（封路原型）
+    const hazardTick = this.hazards.update(dt, { x: p.x, z: p.z })
+    if (hazardTick.damage > 0) {
+      const dealt = p.takeDamage(hazardTick.damage)
+      if (dealt > 0) {
+        this.run.hp = p.hp
+        audio.hurt()
+        this.vfx.burst(p.x, p.z, { color: 0xb47bff, count: 6, speed: 2.4, life: 0.3, size: 0.2, y: 0.7 })
+      }
+    }
+    this.syncHazardMeshes()
+
     const drag = this.input.consumeDrag()
     this.rig.addYaw(drag.x * 0.005)
     this.rig.zoom(this.input.consumeWheel() * 0.9)
@@ -926,6 +949,12 @@ export class Game {
    * 临时调试入口：抽一个事件 + 一个隐藏真身，打开面板。
    * 等事件房间接进隧道后，改由房间触发这里。
    */
+  /** 调试：在玩家脚下铺一块区域（?hazard=1） */
+  debugSpawnHazard(): void {
+    if (!this.player) return
+    this.spawnHazard({ x: this.player.x, z: this.player.z - 2.5, radius: 3.2, dps: 0, life: 999, armDelay: 0 })
+  }
+
   /** 调试：直接打开商店（?shop=1），用于验证交换入口 */
   debugOpenShop(): void {
     this.shopOffers = generateOffers(this.run.layer, this.run.character, 0, this.rng)
@@ -998,6 +1027,59 @@ export class Game {
       } else if (eff.kind === 'battle') {
         this.hud.toast(`遭遇战 ×${eff.count}（待接线）`, 'bad')
       }
+    }
+  }
+
+  /** 在指定位置铺一块持续伤害区域（封路原型施放） */
+  spawnHazard(spec: { x: number; z: number; radius: number; dps: number; life: number; armDelay?: number }): void {
+    this.hazards.spawn(spec)
+    this.vfx.ring(spec.x, spec.z, { color: 0xb47bff, radius: spec.radius, life: 0.35, grow: 1.6, y: 0.07 })
+  }
+
+  private clearHazards(): void {
+    this.hazards.clear()
+    for (const mesh of this.hazardMeshes.values()) {
+      this.scene.remove(mesh)
+      mesh.geometry.dispose()
+      ;(mesh.material as THREE.Material).dispose()
+    }
+    this.hazardMeshes.clear()
+  }
+
+  /** 把逻辑区域同步成地面光环：新出现的建 mesh，消失的销毁 */
+  private syncHazardMeshes(): void {
+    const alive = new Set<HazardState>(this.hazards.all)
+    for (const [zone, mesh] of this.hazardMeshes) {
+      if (alive.has(zone)) continue
+      this.scene.remove(mesh)
+      mesh.geometry.dispose()
+      ;(mesh.material as THREE.Material).dispose()
+      this.hazardMeshes.delete(zone)
+    }
+    for (const zone of this.hazards.all) {
+      let mesh = this.hazardMeshes.get(zone)
+      if (!mesh) {
+        const geo = new THREE.RingGeometry(0.82, 1, 40)
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0xb47bff,
+          transparent: true,
+          opacity: 0.32,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false,
+        })
+        mesh = new THREE.Mesh(geo, mat)
+        mesh.rotation.x = -Math.PI / 2
+        mesh.position.y = 0.05
+        this.scene.add(mesh)
+        this.hazardMeshes.set(zone, mesh)
+      }
+      const arm = zone.age < zone.armDelay ? 0.5 : 1
+      mesh.position.set(zone.x, 0.05, zone.z)
+      mesh.scale.setScalar(zone.radius)
+      const mat = mesh.material as THREE.MeshBasicMaterial
+      mat.opacity = 0.18 + 0.16 * arm * (0.7 + 0.3 * Math.sin(zone.age * 5))
     }
   }
 

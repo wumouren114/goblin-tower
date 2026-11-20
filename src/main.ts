@@ -110,6 +110,7 @@ async function boot(): Promise<void> {
     if (params.get('autoattack') === '1') game.debugAutoAttack(true)
     if (warmup > 0) game.debugAdvance(warmup)
     if (params.get('pickbonus') === '1') game.debugPickFirstBonus()
+    if (params.get('hazard') === '1') game.debugSpawnHazard()
     if (params.get('shop') === '1') game.debugOpenShop()
     if (params.get('exchange') === '1') {
       game.debugOpenShop()
