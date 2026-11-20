@@ -1078,7 +1078,7 @@ export class Game {
   }
 
   /** 调试：直接打开一个小游戏（?minigame=windmill），用于验收 */
-  debugMinigame(id: 'windmill' | 'starlines' | 'gears' | 'tower-drop' | 'mole-tap'): void {
+  debugMinigame(id: 'windmill' | 'starlines' | 'gears' | 'tower-drop' | 'mole-tap' | 'echo-memory'): void {
     const game = MINIGAMES[id]
     const root = document.createElement('div')
     root.style.cssText = 'position:fixed;inset:0;z-index:950;background:#0b0d14'
