@@ -27,7 +27,7 @@ import { TowerFloor } from './world/floor'
 import { pickScene, STAGE_NAMES } from './data/stages'
 import { EVENTS, eventOf, type EventEffect } from './data/events'
 import { POTENTIALS } from './data/potentials'
-import { MINIGAMES } from './minigames'
+import { MINIGAMES, minigameForLayer } from './minigames'
 import { EventState } from './systems/eventState'
 import { EventPanel } from './ui/eventPanel'
 import { ExchangePanel } from './ui/exchangePanel'
@@ -1969,7 +1969,9 @@ export class Game {
     this.run.kills += 1
     this.layerKilled += 1
     this.combat?.onKill(g, this.buildWorld())
-    const rewardKind = kind === 'elite' ? 'elite' : kind === 'brute' ? 'brute' : 'small'
+    // 精英最高、特殊怪（术士/爆破手/封路者/长矛）比普通怪多
+    const special = kind === 'caster' || kind === 'bomber' || kind === 'blocker' || kind === 'spear'
+    const rewardKind = kind === 'elite' ? 'elite' : kind === 'brute' || special ? 'brute' : 'small'
     const gold = killGold(this.run.layer, rewardKind)
     this.pickups.spawn('gold', g.x, g.z, gold)
     if (kind === 'elite') {
@@ -2054,8 +2056,8 @@ export class Game {
 
   private onLayerCleared(): void {
     const picked = this.collectRemainingPickups()
-    const gold = clearGoldFor(this.run.difficulty, this.run.layer)
-    this.addGold(gold)
+    // 战斗结束不再结算金币：金币只来自击杀掉落与「金币关」
+    const gold = 0
     const bossLayer = isBossLayer(this.run.difficulty, this.run.layer)
     const autoNote = picked.count > 0
       ? `（自动吸取 ${picked.count} 件${picked.gold > 0 ? `，+${picked.gold} 金币` : ''}）`
@@ -2343,11 +2345,35 @@ export class Game {
     this.enterRoomMap(offer)
   }
 
+  /** 探索·游戏门：挂载对应阶段的小游戏，赢了给小奖励 */
+  private startMinigameRoom(): void {
+    const game = minigameForLayer(this.run.layer)
+    const root = document.createElement('div')
+    root.style.cssText = 'position:fixed;inset:0;z-index:950;background:#0b0d14'
+    document.body.appendChild(root)
+    audio.duck(true)
+    void game
+      .mount(root, { layer: this.run.layer, rng: () => this.rng.next(), stake: 0 })
+      .then((res) => {
+        root.remove()
+        audio.duck(false)
+        if (res.win) {
+          const gold = 90 + 25 * this.run.layer
+          this.addGold(gold)
+          this.hud.toast(`称量通过：金币 +${gold}`, 'good')
+          this.completeRoomMap('你通过了塔的称量')
+        } else {
+          this.hud.toast('称量未过，塔放你走了', 'info')
+          this.completeRoomMap('你离开了称量台')
+        }
+      })
+  }
+
   /** 战斗门的战后奖励：专武方向 / 一笔金币 / 三选一卡 */
   private grantBattleDoorReward(): void {
     const reward = this.currentDoor?.payload.reward ?? 'gold'
     if (reward === 'gold') {
-      const gold = Math.round(clearGoldFor(this.run.difficulty, this.run.layer) * 1.4)
+      const gold = 140 + 45 * this.run.layer
       this.addGold(gold)
       this.hud.toast(`战斗奖励：金币 +${gold}`, 'good')
       this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
@@ -2515,6 +2541,11 @@ export class Game {
       this.run.difficulty,
     )
 
+    if (res.minigame) {
+      room.resolved = true
+      this.startMinigameRoom()
+      return
+    }
     if (res.event) {
       room.resolved = true
       this.openEventById(res.event.id, () => this.completeRoomMap('你离开了那个旅人'))
@@ -2698,7 +2729,6 @@ export class Game {
       this.completeRoomMap('战斗房已清空')
       return
     }
-    this.addGold(clearGoldFor(this.run.difficulty, this.run.layer))
     this.hud.toast(picked.count > 0 ? `房间清空！自动吸取 ${picked.count} 件掉落` : '房间清空！', 'good')
     this.grantBattleDoorReward()
   }

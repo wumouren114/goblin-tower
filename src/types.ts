@@ -87,6 +87,8 @@ export type TunnelRoom =
   | 'altar'
   | 'mob-wave'
   | 'elite-fight'
+  | 'minigame'
+  | 'trial'
   | 'rest'
   | 'boss'
 
@@ -121,7 +123,12 @@ export interface AwakeningChoice {
   currentDesc?: string
 }
 
+/** 战斗门的战后奖励：专武 / 金币 / 道具（三选一由门决定） */
+export type BattleReward = 'weapon' | 'gold' | 'card'
+
 export interface TunnelPayload {
+  /** 战斗门的战后奖励类型 */
+  reward?: BattleReward
   /** v4.6 角色觉醒二选一（复用隧道卡 UI） */
   awakening?: AwakeningChoice
   gold?: number

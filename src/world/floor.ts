@@ -75,6 +75,8 @@ const ROOM_ACCENT: Record<TunnelRoom, number> = {
   'mob-wave': 0xff6a4a,
   'elite-fight': 0xff8a3d,
   rest: 0x8fffc8,
+  minigame: 0x9fe8ff,
+  trial: 0xffe08a,
   boss: 0xff4d6d,
 }
 

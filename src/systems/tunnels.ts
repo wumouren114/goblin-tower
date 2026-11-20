@@ -4,6 +4,7 @@
  * 纯数据层：不 import three.js、不碰 DOM；随机走传入的 Rng。
  */
 import type {
+  BattleReward,
   CardStat,
   CharacterId,
   InventoryItem,
@@ -16,6 +17,7 @@ import type {
 import type { Rng } from '../core/rng'
 import { BALANCE, DIFFICULTIES, quotaFor, type DifficultyId } from '../data/balance'
 import { makeCardItem, qualityFor } from './economy'
+import { ITEM_CARDS } from '../data/cards'
 import { generateOffers } from './shop'
 import { EVENTS } from '../data/events'
 
@@ -94,6 +96,8 @@ const ROOM_ICON: Record<TunnelRoom, string> = {
   'elite-fight': '💀',
   boss: '👑',
   rest: '⛺',
+  minigame: '🎲',
+  trial: '⚖️',
 }
 
 const ROOM_KIND: Record<TunnelRoom, TunnelType> = {
@@ -101,8 +105,10 @@ const ROOM_KIND: Record<TunnelRoom, TunnelType> = {
   event: 'reward',
   chest: 'reward',
   'skill-card': 'reward',
+  minigame: 'reward',
   merchant: 'trade',
   altar: 'trade',
+  trial: 'trade',
   'mob-wave': 'battle',
   'elite-fight': 'battle',
   boss: 'battle',
@@ -119,6 +125,8 @@ export interface RoomResolution {
   enemies?: { count: number; elite: number }
   bossLayer?: boolean
   rest?: { healRatio: number; chargeRatio: number }
+  /** 探索·游戏门：由 game.ts 挂载对应阶段的小游戏 */
+  minigame?: boolean
 }
 
 /** 技能卡三选一的结果条目（TunnelPayload.skillCard 的非空形状） */
@@ -194,8 +202,11 @@ function rollAltarReward(layer: number, rng: Rng): { stat: CardStat; value: numb
 function roomsOfKind(kind: TunnelType, layer: number): TunnelRoom[] {
   switch (kind) {
     case 'reward':
-      return ['chest', 'skill-card', 'event']
+      // 探索类：事件 / 奖励 / 小游戏
+      return ['event', 'chest', 'skill-card', 'minigame']
     case 'trade':
+      // 交易类：商店 / 祭坛 / 考验
+      // 考验房等 trials.ts 数据到位后再加入池（现在进来会是空门）
       return ['merchant', 'altar']
     case 'battle':
       return clampLayer(layer) >= ELITE_FIGHT_MIN_LAYER ? ['mob-wave', 'elite-fight'] : ['mob-wave']
@@ -232,9 +243,10 @@ function rollRoomType(rng: Rng, layer: number, used: Set<TunnelRoom>): TunnelRoo
     const candidates = roomsOfKind(kind, layer).filter((room) => !used.has(room))
     if (candidates.length === 0) continue
     if (kind === 'reward') {
-      // 奖励类内部的子权重：宝箱沿用 balance，技能卡次之，事件最少（5%）
+      // 探索类内部的子权重：宝箱 / 小游戏 / 技能卡 / 事件
       const roll = rng.next()
-      const prefer: TunnelRoom = roll < PORTALS.reward.chest ? 'chest' : roll < 0.95 ? 'skill-card' : 'event'
+      const prefer: TunnelRoom =
+        roll < 0.8 ? 'chest' : roll < 0.87 ? 'minigame' : roll < 0.94 ? 'skill-card' : 'event'
       return candidates.includes(prefer) ? prefer : candidates[0]
     }
     if (kind === 'trade') {
@@ -262,12 +274,9 @@ function makePayload(
 ): TunnelPayload {
   switch (room) {
     case 'chest': {
-      const gold = chestGold(layer, difficulty)
-      const wantCard = rng.chance(PORTALS.chestCardChance)
-      const card = wantCard
-        ? makeCardItem(rng.pick(BUFF_CARDS).id, qualityFor(layer, rng).tier)
-        : undefined
-      return { gold, card }
+      // 宝箱不再出金币（金币只来自击杀与「金币关」），必出一张三档卡
+      const card = makeCardItem(rng.pick(ITEM_CARDS).id, qualityFor(layer, rng).tier)
+      return { card }
     }
     case 'skill-card':
       return { skillCard: rollSkillCard(rng) }
@@ -278,13 +287,25 @@ function makePayload(
     case 'altar':
       return { altarCost: altarCost(layer), altarReward: rollAltarReward(layer, rng) }
     case 'mob-wave':
-      return { gold: battleGold(layer, false, difficulty), enemyCount: mobWaveCount(layer, difficulty) }
+      return {
+        gold: battleGold(layer, false, difficulty),
+        enemyCount: mobWaveCount(layer, difficulty),
+        reward: rollBattleReward(rng),
+      }
     case 'elite-fight': {
       const comp = eliteFightComposition(layer)
-      return { gold: battleGold(layer, true, difficulty), enemyCount: comp.count, eliteCount: comp.elite }
+      return {
+        gold: battleGold(layer, true, difficulty),
+        enemyCount: comp.count,
+        eliteCount: comp.elite,
+        reward: rollBattleReward(rng),
+      }
     }
     case 'boss':
       return { gold: battleGold(layer, true, difficulty), enemyCount: 1, bossLayer: true }
+    case 'minigame':
+    case 'trial':
+      return {}
     case 'rest':
       return { rest: { healRatio: REST_HEAL_RATIO, chargeRatio: REST_CHARGE_RATIO } }
     default:
@@ -292,13 +313,31 @@ function makePayload(
   }
 }
 
+/** 战斗门的战后奖励：专武 / 金币 / 道具 各 1/3 */
+function rollBattleReward(rng: Rng): BattleReward {
+  const r = rng.next()
+  return r < 1 / 3 ? 'weapon' : r < 2 / 3 ? 'gold' : 'card'
+}
+
+const BATTLE_REWARD_TITLE: Record<BattleReward, string> = {
+  weapon: '战斗 · 专武',
+  gold: '战斗 · 金币',
+  card: '战斗 · 道具',
+}
+
+const BATTLE_REWARD_DESC: Record<BattleReward, string> = {
+  weapon: '战后三选一：专武升级方向',
+  gold: '战后获得一笔金币',
+  card: '战后三选一：增益卡',
+}
+
 function describePayload(room: TunnelRoom, payload: TunnelPayload): { title: string; desc: string } {
   switch (room) {
-    case 'chest': {
-      const gold = payload.gold ?? 0
-      const cardText = payload.card ? `，获得「${payload.card.name}」` : ''
-      return { title: '宝藏密室', desc: `打开宝箱：金币 +${gold}${cardText}` }
-    }
+    case 'chest':
+      return {
+        title: '宝藏密室',
+        desc: payload.card ? `打开宝箱：获得「${payload.card.name}」` : '打开宝箱：获得一张卡',
+      }
     case 'event':
       return { title: '陌生的旅人', desc: '有人靠在墙边，似乎想和你说点什么' }
     case 'skill-card': {
@@ -318,21 +357,27 @@ function describePayload(room: TunnelRoom, payload: TunnelPayload): { title: str
         desc: `${payload.altarCost ?? 0} 金换永久祝福（${statText}）`,
       }
     }
-    case 'mob-wave':
+    case 'mob-wave': {
+      const reward = payload.reward ?? 'gold'
       return {
-        title: '怪潮',
-        desc: `${payload.enemyCount ?? 0} 只哥布林涌来，金币 +${payload.gold ?? 0}`,
+        title: BATTLE_REWARD_TITLE[reward],
+        desc: `${payload.enemyCount ?? 0} 只哥布林涌来 · ${BATTLE_REWARD_DESC[reward]}`,
       }
+    }
     case 'elite-fight': {
       const elite = payload.eliteCount ?? 0
       const guards = Math.max(0, (payload.enemyCount ?? elite) - elite)
       return {
-        title: '精英伏击',
-        desc: `${elite} 精英 + ${guards} 随从，金币 +${payload.gold ?? 0}`,
+        title: `精英伏击 · ${BATTLE_REWARD_TITLE[payload.reward ?? 'gold'].split(' · ')[1]}`,
+        desc: `${elite} 精英 + ${guards} 随从 · ${BATTLE_REWARD_DESC[payload.reward ?? 'gold']}`,
       }
     }
     case 'boss':
       return { title: 'Boss 房间', desc: '正面击破最终阶段 Boss，锁定通关' }
+    case 'minigame':
+      return { title: '塔的称量', desc: '一场小小的试炼，赢了它便漏一点东西给你' }
+    case 'trial':
+      return { title: '立约者', desc: '他愿意先借你力量，代价写在契约背面' }
     case 'rest':
       return {
         title: '休憩营地',
@@ -395,12 +440,8 @@ export function resolveRoom(
   switch (offer.room) {
     case 'event':
       return { event: payload.event }
-    case 'chest': {
-      // 预览与结算必须同一次掷骰：payload.card 为 undefined 就是没出卡，
-      // 不能在这里再掷一次 chestCardChance（否则实际出卡率会被抬高）。
-      const card = payload.card
-      return { gold: payload.gold ?? chestGold(current, difficulty), card }
-    }
+    case 'chest':
+      return { card: payload.card }
     case 'skill-card': {
       const skill = payload.skillCard ?? rollSkillCard(rng)
       return { card: skillCardToItem(skill) }
@@ -436,6 +477,10 @@ export function resolveRoom(
         enemies: { count: payload.enemyCount ?? 1, elite: 0 },
         bossLayer: true,
       }
+    case 'minigame':
+      return { minigame: true }
+    case 'trial':
+      return {}
     case 'rest':
       return { rest: { healRatio: REST_HEAL_RATIO, chargeRatio: REST_CHARGE_RATIO } }
     default:

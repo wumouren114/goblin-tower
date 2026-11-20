@@ -193,6 +193,8 @@ const ROOM_LABEL: Record<TunnelRoom, string> = {
   'elite-fight': '精英巢穴',
   boss: '首领之间',
   rest: '休憩营地',
+  minigame: '塔的称量',
+  trial: '立约者',
 }
 
 const STAT_ORDER: CardStat[] = [

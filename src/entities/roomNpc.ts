@@ -79,6 +79,8 @@ const NPC_INFO: Record<TunnelRoom, { kind: RoomNpcKind; title: string; hint: str
   'elite-fight': { kind: 'warden', title: '战鼓卫兵', hint: '按 Enter 敲响战鼓，挑战精英' },
   boss: { kind: 'warden', title: '战鼓卫兵', hint: '按 Enter 敲响战鼓，唤醒首领' },
   rest: { kind: 'guide', title: '篝火守夜人', hint: '按 Enter 在营地休整' },
+  minigame: { kind: 'guide', title: '塔的执秤人', hint: '按 Enter 接受一次称量' },
+  trial: { kind: 'oracle', title: '立约者', hint: '按 Enter 听他说完' },
 }
 
 export function roomNpcInfo(room: TunnelRoom): { kind: RoomNpcKind; title: string; hint: string } {

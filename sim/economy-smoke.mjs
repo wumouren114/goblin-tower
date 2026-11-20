@@ -331,17 +331,13 @@ check('即将进入最后一层（layer >= totalLayers）也给出 boss 房', ()
   ok(offers.every((offer) => offer.room === 'boss'), 'layer=totalLayers 应全为 boss')
 })
 
-check('奖励房金币显著高于对战房', () => {
+check('宝箱只出卡、不给金币（金币只来自击杀与金币关）', () => {
   for (let layer = 1; layer <= 15; layer += 1) {
     const offers = tunnels.rollTunnels(layer, 15, false, 'mutsumi', new Rng(100 + layer))
     const chest = offers.find((offer) => offer.room === 'chest')
-    const wave = offers.find((offer) => offer.room === 'mob-wave')
-    if (chest && wave) {
-      ok(
-        (chest.payload.gold ?? 0) > (wave.payload.gold ?? 0),
-        `第 ${layer} 层奖励房 ${chest.payload.gold} 应高于怪潮 ${wave.payload.gold}`,
-      )
-    }
+    if (!chest) continue
+    eq(chest.payload.gold ?? 0, 0, `第 ${layer} 层宝箱不应带金币`)
+    ok(chest.payload.card, `第 ${layer} 层宝箱应必出一张卡`)
   }
   // 直接构造保证覆盖：奖励房 = 80 + 14×(layer-1)，怪潮 = 0.6 × 1.2 倍
   const reward = 80 + 14 * 9
@@ -358,9 +354,8 @@ check('resolveRoom 产出可直接结算的结果', () => {
     res[room] = result
     switch (room) {
       case 'chest': {
-        ok((result.gold ?? 0) > 0, 'chest 金币')
-        ok(result.card === undefined || typeof result.card.uid === 'string', 'chest 卡')
-        eq(result.gold, offer.payload.gold, 'chest 金币应与预览一致')
+        ok(result.card && typeof result.card.uid === 'string', 'chest 必出卡')
+        eq(result.gold ?? 0, 0, 'chest 不给金币')
         break
       }
       case 'skill-card': {
@@ -475,7 +470,8 @@ check('宝箱预览与结算使用同一张卡（2A 回归）', () => {
     if (previewUid) withCard += 1
     else withoutCard += 1
   }
-  ok(withCard > 0 && withoutCard > 0, '样本应同时覆盖出卡与不出卡')
+  ok(withCard > 0, '样本应覆盖出卡')
+  eq(withoutCard, 0, '宝箱应必出卡')
 })
 
 check('怪潮数量/金币接入难度参数（3B 回归）', () => {

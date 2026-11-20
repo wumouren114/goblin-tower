@@ -283,6 +283,8 @@ const DRAWERS: Record<TunnelRoom, () => PixelCanvas> = {
   'elite-fight': eliteFightIcon,
   boss: bossIcon,
   rest: restIcon,
+  minigame: eventIcon,
+  trial: altarIcon,
 }
 
 /** 纯像素数据版本（无 DOM，Node 冒烟测试可直接断言） */
