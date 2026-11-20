@@ -38,6 +38,11 @@ export type SfxName =
   | 'tunnel'
   | 'caster_shot'
   | 'beat_tick'
+  | 'enemy_charger_windup'
+  | 'enemy_summoner_cast'
+  | 'enemy_bomber_fuse'
+  | 'potential_pick'
+  | 'mark_settle'
 
 export type AudioState = 'idle' | 'loading' | 'ready' | 'unavailable'
 

@@ -358,6 +358,7 @@ export class Game {
         else if (name === 'crit') audio.crit()
         else if (name === 'dash') audio.dash()
         else if (name === 'summon') audio.levelUp()
+        else if (name === 'mark_settle') audio.play('mark_settle', { volume: 0.7 })
         else audio.click()
       },
     })
@@ -408,6 +409,7 @@ export class Game {
         else if (name === 'crit') audio.crit()
         else if (name === 'dash') audio.dash()
         else if (name === 'summon') audio.levelUp()
+        else if (name === 'mark_settle') audio.play('mark_settle', { volume: 0.7 })
         else audio.click()
       },
     })
@@ -1538,6 +1540,7 @@ export class Game {
         const cd = (this.casterCd.get(g) ?? 0) - dt
         if (kind === 'bomber') {
           if (cd <= 0 && d < 12) {
+            audio.play('enemy_bomber_fuse', { volume: 0.6 })
             this.throwBomb(g.x, g.z, p.x, p.z, g.damage * 1.25)
             this.casterCd.set(g, 3.0 + this.rng.next() * 0.8)
             this.hud.floatText(new THREE.Vector3(g.x, 1.5, g.z), '炸弹来袭！', 'crit')
@@ -2183,7 +2186,7 @@ export class Game {
       (this.run.potential.nodes ?? []).includes('fish-clone-gold')
         ? 1.15
         : 1
-    this.addGold(Math.round(amount * boost))
+    this.run.gold += Math.round(amount * boost)
   }
 
   private openPotential(): void {
@@ -2279,6 +2282,7 @@ export class Game {
       const label = choice.nodeId ? POTENTIALS[this.run.character].branches
         .flatMap((b) => b.nodes)
         .find((n) => n.id === choice.nodeId)?.name ?? '节点' : '分支'
+      audio.play('potential_pick', { volume: 0.8 })
       this.hud.toast(`潜能：${label}`, 'good')
       this.openTunnels()
       return

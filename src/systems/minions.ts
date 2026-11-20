@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { getBillboardYaw } from '../art/sprites'
-import { createMinionMesh } from '../art/minions'
+import { createMinionMesh, createMinionMeshVariant, type MinionVariant } from '../art/minions'
 import { nearestEnemy } from './attack'
 import type { ProjectileSystem } from './projectiles'
 import type { CombatWorld, Hittable } from './combat'
@@ -34,6 +34,8 @@ export interface MinionSpec {
   bubbleScale?: number
   /** 更多子代理·环绕：只靠碰撞造成伤害，不发射泡泡 */
   contactDamage?: number
+  /** 外观变体（默认 small） */
+  variant?: MinionVariant
 }
 
 /**
@@ -89,7 +91,9 @@ export class Minion {
     this.life = this.duration
     this.nextShot = this.interval * (0.4 + 0.2 * index)
     this.orbit = index * 1.7
-    this.mesh = createMinionMesh(spec.scale ?? 1)
+    this.mesh = spec.variant
+      ? createMinionMeshVariant(spec.variant, spec.scale ?? 1)
+      : createMinionMesh(spec.scale ?? 1)
     this.mesh.position.set(this.x, 0, this.z)
     this.mesh.rotation.set(0, getBillboardYaw() + Math.PI / 2, 0)
     scene.add(this.mesh)

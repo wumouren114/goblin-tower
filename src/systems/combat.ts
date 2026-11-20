@@ -95,7 +95,7 @@ export interface CombatWorld {
 /** 事件回给 game.ts：飘字/音效/结算都归它 */
 export interface CombatHooks {
   onHit(t: Hittable, amount: number, crit: boolean, killed: boolean): void
-  onSfx(name: 'attack' | 'crit' | 'skill' | 'summon' | 'dash'): void
+  onSfx(name: 'attack' | 'crit' | 'skill' | 'summon' | 'dash' | 'mark_settle'): void
   /** 请求对范围内敌人施加眩晕（毫秒）；不实现则忽略 */
   onStun?(x: number, z: number, radius: number, durationMs: number): void
 }
@@ -934,6 +934,7 @@ export class Combat {
           const settled = t.hit(settle, 0, 0)
           this.hooks.onHit(t, settle, false, settled)
           dealt += settle
+          this.hooks.onSfx('mark_settle')
           this.burstAt(t.x, t.z, 0xffb347, 6)
           if (this.hasNode('murasame-jianyi-boom')) {
             for (const near of world.enemies) {
@@ -1041,7 +1042,14 @@ export class Combat {
     const bubbleScale = this.hasNode('fish-bubble-share') ? 1.35 : 0.8
 
     const specs: MinionSpec[] = []
-    const push = (i: number, total: number, damageMul: number, scale: number, opts: Partial<MinionSpec> = {}) => {
+    const push = (
+      i: number,
+      total: number,
+      damageMul: number,
+      scale: number,
+      opts: Partial<MinionSpec> = {},
+      variant: 'small' | 'clone' | 'orbit' = 'small',
+    ) => {
       const ang = (i / total) * Math.PI * 2 + 0.4
       specs.push({
         x: px + Math.cos(ang) * 1.15,
@@ -1057,6 +1065,7 @@ export class Combat {
         bubbleRange: p.minionRange ?? 7,
         bubbleHitRadius: 0.3,
         scale: legacy && this.style.id === 'fish-whale' ? scale * 1.18 : scale,
+        variant,
         bubbleScale,
         taunt: tierNum(tier, 'minionTaunt', 0) > 0,
         slow: tierNum(tier, 'minionSlow', 0) > 0 ? tierNum(tier, 'minionSlow', 0) : undefined,
@@ -1067,14 +1076,14 @@ export class Combat {
 
     if (isClone) {
       // 分身本体：1.0 倍面板，体型明显更大
-      push(0, 1, 1.0, 1.7)
+      push(0, 1, 1.0, 1.7, {}, 'clone')
       // 分身召出的小鲸子：0.4 倍面板，不会再召唤（结构上无套娃）
       for (let i = 0; i < 3; i += 1) push(i, 3, 0.4, 0.9)
     } else {
       for (let i = 0; i < count; i += 1) push(i, count, p.minionDamageRatio ?? 0.4, 1)
       if (isSwarm && this.hasNode('fish-swarm-orbit')) {
         for (let i = 0; i < 3; i += 1) {
-          push(i, 3, 0, 0.7, { contactDamage: baseDamage * 0.35, bubbleScale: 0 })
+          push(i, 3, 0, 0.7, { contactDamage: baseDamage * 0.35, bubbleScale: 0 }, 'orbit')
         }
       }
     }
