@@ -223,8 +223,8 @@ export interface RunState {
   mysteryPulls?: number
   /** v5 考验：立约中的誓约（层数与起始击杀数用于结算） */
   trial?: { id: string; layersLeft: number; killsAtStart: number }
-  /** v5 潜能：已选分支 + 已点节点（一级，不升级） */
-  potential?: { branch: string; nodes: string[] }
+  /** v5 潜能：主分支 + 第二分支 + 已点节点 + 已发动的跨枝反应 */
+  potential?: { branch: string; branch2?: string; nodes: string[]; resonances?: string[] }
   /** v4.6 战斗风格；旧档缺省时按角色默认风格补齐 */
   style?: StyleId
   /** v4.6 已拥有觉醒 → 等级（1..3）；旧档缺省为空 */

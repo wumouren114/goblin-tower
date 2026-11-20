@@ -1032,7 +1032,11 @@ export class Game {
    */
   /** 把 run.potential 同步给战斗系统（换分支/读档后都要调） */
   private syncPotential(): void {
-    this.combat?.setPotential(this.run.potential?.branch, this.run.potential?.nodes ?? [])
+    this.combat?.setPotential(
+      [this.run.potential?.branch, this.run.potential?.branch2],
+      this.run.potential?.nodes ?? [],
+    )
+    this.combat?.setResonances(this.run.potential?.resonances ?? [])
   }
 
   /** 调试：直接设定潜能（?potential=liushang&pnodes=murasame-liushang-rate,...） */
@@ -2282,6 +2286,33 @@ export class Game {
    * - 已选分支 → 该分支未点的节点，每个节点只有一级
    * 节点点完后直接进隧道。
    */
+  /** 跨枝反应：两分支齐备即发动，返回命中的反应 id */
+  private activateResonances(): string[] {
+    const pot = this.run.potential
+    if (!pot) return []
+    const have = new Set([pot.branch, pot.branch2].filter(Boolean))
+    const combos: { id: string; a: string; b: string; name: string }[] = [
+      { id: 'res-liushang-jianyi', a: 'murasame-liushang', b: 'murasame-jianyi', name: '流殇 × 剑意 · 血雨斩' },
+      { id: 'res-shunshan-liushang', a: 'murasame-shunshan', b: 'murasame-liushang', name: '瞬闪 × 流殇 · 回潮' },
+      { id: 'res-jianyi-shunshan', a: 'murasame-jianyi', b: 'murasame-shunshan', name: '剑意 × 瞬闪 · 满弦' },
+    ]
+    const active: string[] = []
+    for (const combo of combos) {
+      if (have.has(combo.a) && have.has(combo.b) && !(pot.resonances ?? []).includes(combo.id)) {
+        active.push(combo.id)
+        this.hud.floatText(new THREE.Vector3(this.player?.x ?? 0, 2.2, this.player?.z ?? 0), `组合发动：${combo.name}`, 'crit')
+        this.hud.toast(`跨枝反应：${combo.name}`, 'good')
+      }
+    }
+    if (active.length > 0) {
+      pot.resonances = [...(pot.resonances ?? []), ...active]
+      this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
+      audio.levelUp()
+      this.saveRun(AUTOSAVE_SLOT)
+    }
+    return active
+  }
+
   /** 记录本层已经做过潜能选择（复用旧的 awakeningLayers 字段，避免动存档结构） */
   private addAwakeningLayer(): void {
     const layer = this.run.layer
@@ -2307,31 +2338,36 @@ export class Game {
     const branchId = this.run.potential?.branch
     const offers: TunnelOffer[] = []
 
-    if (!branchId) {
+    const owned = new Set([this.run.potential?.branch, this.run.potential?.branch2].filter(Boolean))
+    const maxBranches = 2
+    // 还有分支空位：给未拥有的分支卡（普通/困难都可点满 2 条 → 1 组跨枝反应）
+    if (owned.size < maxBranches) {
       for (const branch of set.branches) {
+        if (owned.has(branch.id)) continue
         offers.push({
           id: `potential-${branch.id}`,
           kind: 'reward',
           room: 'skill-card',
-          title: branch.name,
+          title: `${branch.name}（第 ${owned.size + 1} 分支）`,
           desc: `${branch.identity}｜代价：${branch.cost}`,
           icon: '✦',
           payload: { potential: { branch: branch.id } },
         })
       }
-    } else {
-      const branch = set.branches.find((b) => b.id === branchId)
-      const picked = new Set(this.run.potential?.nodes ?? [])
-      const nodes = branch?.nodes.filter((n) => !picked.has(n.id)) ?? []
-      for (const node of nodes) {
+    }
+    // 已有分支的全部未点节点
+    const picked = new Set(this.run.potential?.nodes ?? [])
+    for (const branch of set.branches) {
+      if (!owned.has(branch.id)) continue
+      for (const node of branch.nodes.filter((n) => !picked.has(n.id))) {
         offers.push({
           id: `potential-${node.id}`,
           kind: 'reward',
           room: 'skill-card',
-          title: node.name,
+          title: `${node.name}（${branch.name}）`,
           desc: node.effect,
           icon: '◇',
-          payload: { potential: { branch: branchId, nodeId: node.id } },
+          payload: { potential: { branch: branch.id, nodeId: node.id } },
         })
       }
     }
@@ -2444,8 +2480,14 @@ export class Game {
       const current = this.run.potential
       const nodes = [...(current?.nodes ?? [])]
       if (choice.nodeId) nodes.push(choice.nodeId)
-      this.run.potential = { branch: choice.branch, nodes }
+      const isSecond = Boolean(this.run.potential?.branch) && !choice.nodeId
+      this.run.potential = {
+        branch: this.run.potential?.branch ?? choice.branch,
+        branch2: isSecond ? choice.branch : this.run.potential?.branch2,
+        nodes,
+      }
       this.syncPotential()
+      this.activateResonances()
       this.addAwakeningLayer()
       this.saveRun(AUTOSAVE_SLOT)
       audio.levelUp()

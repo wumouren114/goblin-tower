@@ -221,6 +221,10 @@ export class Combat {
   private style: StyleDef = defaultStyle('mutsumi')
   /** 潜能分支与已点节点（一级，不升级）；目前接了丛雨三条 */
   private potentialBranch: PotentialBranchId | null = null
+  /** 第二分支（跨枝反应用）：代价与被动同样生效 */
+  private potentialBranch2: PotentialBranchId | null = null
+  /** 已发动的跨枝反应 */
+  private readonly resonances = new Set<string>()
   private potentialNodes: ReadonlySet<string> = new Set()
   /** 节奏普攻的节拍时钟（134 BPM 八分音符网格） */
   private readonly beat = new BeatClock()
@@ -296,8 +300,10 @@ export class Combat {
 
   /** v4.6：开局/读档/重试时设置风格与觉醒，并清空短循环资源 */
   /** 设置潜能：分支 + 已点节点。换分支会清掉旧流血，避免残留 */
-  setPotential(branch: string | null | undefined, nodes: readonly string[]): void {
-    this.potentialBranch = normalizeBranch(branch)
+  setPotential(branches: readonly (string | null | undefined)[], nodes: readonly string[]): void {
+    const ids = branches.map((b) => normalizeBranch(b)).filter((b): b is PotentialBranchId => b !== null)
+    this.potentialBranch = ids[0] ?? null
+    this.potentialBranch2 = ids[1] ?? null
     this.potentialNodes = new Set(nodes)
     this.bleeds.clear()
     this.marks.clearAll()
@@ -310,29 +316,30 @@ export class Combat {
 
   /** 节奏分支当前连击数（非节奏分支为 0） */
   get combo(): number {
-    return this.potentialBranch === 'rhythm' ? this.rhythmCombo : 0
+    return this.hasBranch('rhythm') ? this.rhythmCombo : 0
   }
 
   /** 当前节拍相位 0..1（HUD 节拍环用；非节奏分支返回 null） */
   get beatPhase(): number | null {
-    return this.potentialBranch === 'rhythm' ? this.beat.position(performance.now()).phase : null
+    return this.hasBranch('rhythm') ? this.beat.position(performance.now()).phase : null
   }
 
   /** 当前节拍判定（HUD 可用；非节奏分支返回 null） */
   get beatJudge(): 'perfect' | 'good' | 'miss' | null {
-    return this.potentialBranch === 'rhythm' ? this.beat.judge(performance.now()) : null
+    return this.hasBranch('rhythm') ? this.beat.judge(performance.now()) : null
   }
 
   /** 分支代价：流殇/瞬闪砍普攻，剑意砍技能（标记结算不吃） */
   private potentialAtkMul(): number {
-    if (this.potentialBranch === 'liushang') return 0.8
-    if (this.potentialBranch === 'shunshan') return 0.85
-    return 1
+    let mul = 1
+    if (this.hasBranch('liushang')) mul *= 0.8
+    if (this.hasBranch('shunshan')) mul *= 0.85
+    return mul
   }
 
   private potentialSkillMul(): number {
-    let mul = this.potentialBranch === 'jianyi' ? 0.8 : 1
-    if (this.potentialBranch === 'shunshan' && this.hasNode('murasame-shunshan-power')) mul *= 1.2
+    let mul = this.hasBranch('jianyi') ? 0.8 : 1
+    if (this.hasBranch('shunshan') && this.hasNode('murasame-shunshan-power')) mul *= 1.2
     return mul
   }
 
@@ -362,6 +369,21 @@ export class Combat {
       this.targetIds.set(t, id)
     }
     return id
+  }
+
+  /** 是否持有某分支（主或副） */
+  /** 设置已发动的跨枝反应 */
+  setResonances(ids: readonly string[]): void {
+    this.resonances.clear()
+    for (const id of ids) this.resonances.add(id)
+  }
+
+  private hasResonance(id: string): boolean {
+    return this.resonances.has(id)
+  }
+
+  private hasBranch(id: PotentialBranchId): boolean {
+    return this.potentialBranch === id || this.potentialBranch2 === id
   }
 
   private hasNode(id: string): boolean {
@@ -513,7 +535,7 @@ export class Combat {
       }
     }
     // 双重人格·同化：变身期每击杀延长 0.2s（每次变身最多 +3s）
-    if (this.potentialBranch === 'duet' && this.transformActive && this.hasNode('mutsumi-duet-core')) {
+    if (this.hasBranch('duet') && this.transformActive && this.hasNode('mutsumi-duet-core')) {
       if (this.potentialTransformExtra < 3) {
         const add = Math.min(0.2, 3 - this.potentialTransformExtra)
         this.transformTime += add
@@ -569,16 +591,16 @@ export class Combat {
     this.cooldownLeft = Math.max(0, this.cooldownLeft - dt)
     if (this.cooldownLeft > 0) return false
     const def = CHARACTERS[this.charId]
-    const rhythm = this.potentialBranch === 'rhythm'
+    const rhythm = this.hasBranch('rhythm')
     // 节奏分支：攻速锁到拍点（不再随耐力变化）
     // A 方案：连发上限比网格快 30%，想踩准就得主动等拍点
     const interval = rhythm
       ? (this.beat.gridMs / 1000) * 0.7
       : attackInterval(this.stats.stamina, def.attack.minInterval) *
         this.styleAttackIntervalMul() *
-        (this.potentialBranch === 'bubble' ? 1.15 : 1) *
+        (this.hasBranch('bubble') ? 1.15 : 1) *
         (this.combatTime < this.rapidUntil ? 0.55 : 1) *
-        (this.potentialBranch === 'bubble' && this.hasNode('fish-bubble-giant') ? 1.1 : 1)
+        (this.hasBranch('bubble') && this.hasNode('fish-bubble-giant') ? 1.1 : 1)
     this.cooldownLeft = Math.max(0.01, interval)
     const forced = this.combatTime < this.forcePerfectUntil
     const judge = rhythm
@@ -637,7 +659,7 @@ export class Combat {
     const chordMul = chord ? (requiem ? 2.2 : 1.6) : 1
     const rangeMul = chord ? (requiem ? 1.4 : 1.2) : 1
     const chordPierce = chord ? (requiem ? 5 : 3) : 0
-    const duetBonus = this.transformActive && this.potentialBranch === 'duet' ? 1.15 : 1
+    const duetBonus = this.transformActive && this.hasBranch('duet') ? 1.15 : 1
     const damage =
       baseDamage * chordMul * (!this.transformActive && this.style.id === 'mutsumi-duet' ? 0.9 : 1) * duetBonus
     const chordColor = chord ? 0xffe6ad : undefined
@@ -664,7 +686,7 @@ export class Combat {
         canCrit: true,
         chord,
         color: chordColor,
-        wallBounce: !chord && this.potentialBranch === 'symphony' && this.hasNode('mutsumi-symphony-bounce') ? 1 : 0,
+        wallBounce: !chord && this.hasBranch('symphony') && this.hasNode('mutsumi-symphony-bounce') ? 1 : 0,
       })
       if (!chord) this.gainResource(1)
       return
@@ -698,11 +720,11 @@ export class Combat {
         canCrit: true,
         chord,
         color: chordColor,
-        wallBounce: !chord && this.potentialBranch === 'symphony' && this.hasNode('mutsumi-symphony-bounce') ? 1 : 0,
+        wallBounce: !chord && this.hasBranch('symphony') && this.hasNode('mutsumi-symphony-bounce') ? 1 : 0,
       })
     }
     // 交响·根被动：额外一发（60% 伤害）；回声节点让这一发再 +20%
-    if (this.potentialBranch === 'symphony' && !chord) {
+    if (this.hasBranch('symphony') && !chord) {
       const ang = 0.16
       const cos = Math.cos(ang)
       const sin = Math.sin(ang)
@@ -846,8 +868,8 @@ export class Combat {
       speed: def.attack.projectileSpeed ?? 13,
       damage,
       range: skillRange(def.attack.baseRange, this.stats.intelligence),
-      hitRadius: 0.3 + pierce * 0.05 + (big ? 0.16 : 0) + (this.potentialBranch === 'bubble' ? 0.14 : 0),
-      scale: 1 + pierce * 0.18 + (big ? 0.55 : 0) + (this.potentialBranch === 'bubble' ? 0.4 : 0),
+      hitRadius: 0.3 + pierce * 0.05 + (big ? 0.16 : 0) + (this.hasBranch('bubble') ? 0.14 : 0),
+      scale: 1 + pierce * 0.18 + (big ? 0.55 : 0) + (this.hasBranch('bubble') ? 0.4 : 0),
       pierce: big ? 0 : pierce,
       canCrit: true,
       big,
@@ -893,7 +915,7 @@ export class Combat {
 
   private skillCost(tier: WeaponTier, fallback: number): number {
     if (this.charId === 'murasame') return Math.max(20, tierNum(tier, 'skillCharge', fallback))
-    return Math.max(20, fallback * (this.potentialBranch === 'swarm' ? 1.2 : 1))
+    return Math.max(20, fallback * (this.hasBranch('swarm') ? 1.2 : 1))
   }
 
   private startTransform(
@@ -908,7 +930,7 @@ export class Combat {
     this.transformTime = Math.max(2, baseDuration - (this.style.id === 'mutsumi-solo' ? 2 : 0))
     this.potentialTransformExtra = 0
     // 双重人格·压场：变身瞬间晕眩 3m 内小怪 1 秒
-    if (this.potentialBranch === 'duet' && this.hasNode('mutsumi-duet-stun')) {
+    if (this.hasBranch('duet') && this.hasNode('mutsumi-duet-stun')) {
       this.hooks.onStun?.(px, pz, 3, 1000)
     }
     this.encoreExtension = 0
@@ -970,12 +992,17 @@ export class Combat {
       const killed = t.hit(dmg, dir.x * 1.2, dir.z * 1.2)
       this.hooks.onHit(t, dmg, crit, killed)
       dealt += dmg
+      // 瞬闪 × 流殇 · 回潮：技能命中带流血目标，返还 25% 充能
+      if (this.hasResonance('res-shunshan-liushang') && this.bleeds.has(t)) {
+        this.grantCharge(0.25)
+      }
       // 剑意·根被动：技能命中「带标记」的目标时结算，每层 25% 技能伤害
-      if (this.potentialBranch === 'jianyi' && t.alive) {
+      if (this.hasBranch('jianyi') && t.alive) {
         const key = this.keyOf(t)
         const stacks = this.marks.consume('mark', key)
         if (stacks > 0) {
-          const settle = dmg * 0.25 * stacks
+          const chargeBoost = this.hasResonance('res-jianyi-shunshan') ? 1 + 0.3 * this.meter.ratio : 1
+          const settle = dmg * 0.25 * stacks * chargeBoost
           const settled = t.hit(settle, 0, 0)
           this.hooks.onHit(t, settle, false, settled)
           dealt += settle
@@ -991,7 +1018,7 @@ export class Combat {
         }
       }
       // 瞬闪·断流：技能击杀返还 20 充能
-      if (killed && this.potentialBranch === 'shunshan' && this.hasNode('murasame-shunshan-kill')) {
+      if (killed && this.hasBranch('shunshan') && this.hasNode('murasame-shunshan-kill')) {
         this.grantCharge(0.25)
       }
       // 技能把路径上命中的敌人也拉到终点，方便接普攻
@@ -1063,8 +1090,8 @@ export class Combat {
 
     // 潜能：分身 = 1 只 1.0 倍面板的「小肥鱼」 + 3 只 0.4 倍面板的小鲸子（不再套娃）
     //       群体 = 数量 3→5；环绕节点额外 3 只碰撞体
-    const isClone = this.potentialBranch === 'clone'
-    const isSwarm = this.potentialBranch === 'swarm'
+    const isClone = this.hasBranch('clone')
+    const isSwarm = this.hasBranch('swarm')
     // 旧风格加成：潜能分支接管后不再叠加（潜能取代风格）
     const legacy = this.potentialBranch === null
     const tactics = this.al('fish-school-tactics')
@@ -1265,7 +1292,8 @@ export class Combat {
       bleed.tickLeft -= step
       while (bleed.tickLeft <= 0 && bleed.until > this.combatTime) {
         bleed.tickLeft += 0.5
-        const tick = bleed.dps * 0.5
+        const markMul = this.hasResonance('res-liushang-jianyi') && this.marks.has('mark', this.keyOf(t)) ? 1.4 : 1
+        const tick = bleed.dps * 0.5 * markMul
         const killed = t.hit(tick, 0, 0)
         this.hooks.onHit(t, tick, false, killed)
         if (killed) {
@@ -1292,7 +1320,7 @@ export class Combat {
         }
       }
     }
-    if (this.potentialBranch === 'jianyi' && this.hasNode('murasame-jianyi-regen')) {
+    if (this.hasBranch('jianyi') && this.hasNode('murasame-jianyi-regen')) {
       this.jianyiRegenTimer -= step
       if (this.jianyiRegenTimer <= 0) {
         this.jianyiRegenTimer += 1
@@ -1356,7 +1384,7 @@ export class Combat {
       (this.stats.intelligence / 100) *
       tierNum(tier, 'mortisRadiusMul', 1) *
       (chord ? (requiem ? 1.4 : 1.2) : 1) *
-      (this.potentialBranch === 'duet' && this.hasNode('mutsumi-duet-range') ? 1.15 : 1)
+      (this.hasBranch('duet') && this.hasNode('mutsumi-duet-range') ? 1.15 : 1)
     const baseAmount = hitDamage(p.pulseBaseDamage ?? 11, this.stats.magic) * tierNum(tier, 'mortisPulseMul', 1)
     const amount = baseAmount * (chord ? (requiem ? 2.2 : 1.6) : 1)
     const lifesteal = tierNum(tier, 'mortisLifesteal', 0)
@@ -1393,7 +1421,7 @@ export class Combat {
     if (this.charId === 'fish') amount *= 1 + this.foamAmp(t)
     if (this.charId === 'mutsumi' && ctx.chord) amount *= this.chordToughMul(t)
     // 剑意·含锋：带标记的目标多受 10%
-    if (this.potentialBranch === 'jianyi' && this.hasNode('murasame-jianyi-amp') && this.marks.has('mark', this.keyOf(t))) {
+    if (this.hasBranch('jianyi') && this.hasNode('murasame-jianyi-amp') && this.marks.has('mark', this.keyOf(t))) {
       amount *= 1.1
     }
     const crit = ctx.canCrit && rng.chance(this.stats.critChance)
@@ -1404,7 +1432,7 @@ export class Combat {
     this.hooks.onHit(t, amount, crit, killed)
     // 超级泡泡·包裹处决：命中残血目标时有概率裹住，1.5s 后仍 <25% 直接斩杀
     if (
-      this.potentialBranch === 'bubble' &&
+      this.hasBranch('bubble') &&
       ctx.source === 'player' &&
       t.alive &&
       !t.elite &&
@@ -1416,7 +1444,7 @@ export class Combat {
       this.burstAt(t.x, t.z, 0x8ff6ff, 6)
     }
     // 分身·共鸣回路：小肥鱼击杀攒 10 能量，满 30 换一次免费技能
-    if (killed && ctx.source === 'minion' && this.potentialBranch === 'clone' && this.hasNode('fish-clone-energy')) {
+    if (killed && ctx.source === 'minion' && this.hasBranch('clone') && this.hasNode('fish-clone-energy')) {
       this.cloneEnergy += 10
       if (this.cloneEnergy >= 30) {
         this.cloneEnergy = 0
@@ -1425,14 +1453,14 @@ export class Combat {
       }
     }
     // 剑意·根被动：普攻给目标挂标记（最多 3 层，4 秒）
-    if (this.potentialBranch === 'jianyi' && ctx.source === 'player' && t.alive) {
+    if (this.hasBranch('jianyi') && ctx.source === 'player' && t.alive) {
       const key = this.keyOf(t)
       const before = this.marks.stacks('mark', key)
       this.marks.apply('mark', key, 4000, { maxStacks: 3 })
       if (this.marks.stacks('mark', key) > before) this.burstAt(t.x, t.z, 0xff8a3a, 3)
     }
     // 超级泡泡·根被动：命中附带 2.5m 爆炸（50% 伤害）
-    if (this.potentialBranch === 'bubble' && ctx.source === 'player' && t.alive && this.activeWorld) {
+    if (this.hasBranch('bubble') && ctx.source === 'player' && t.alive && this.activeWorld) {
       for (const near of this.activeWorld.enemies) {
         if (!near.alive || near === t) continue
         if (Math.hypot(near.x - t.x, near.z - t.z) > 2.5) continue
@@ -1441,7 +1469,7 @@ export class Combat {
       this.burstAt(t.x, t.z, 0x8ff6ff, 8)
     }
     // 节奏·60 连击：命中附带 3m 爆炸（60% 伤害）
-    if (this.potentialBranch === 'rhythm' && this.rhythmCombo >= 60 && t.alive) {
+    if (this.hasBranch('rhythm') && this.rhythmCombo >= 60 && t.alive) {
       const world = this.activeWorld
       if (world) {
         for (const near of world.enemies) {
