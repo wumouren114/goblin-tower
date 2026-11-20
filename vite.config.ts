@@ -18,5 +18,28 @@ export default defineConfig({
     target: 'es2020',
     sourcemap: false,
     chunkSizeWarningLimit: 1200,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor-three',
+              test: /[\\/]node_modules[\\/]three[\\/]/,
+              priority: 30,
+            },
+            {
+              name: 'audio',
+              test: /[\\/](src[\\/]core[\\/]audio\.ts|assets[\\/]audio[\\/])/,
+              priority: 20,
+            },
+            {
+              name: 'pixel-art',
+              test: /[\\/](src[\\/]art[\\/]|assets[\\/]art[\\/])/,
+              priority: 10,
+            },
+          ],
+        },
+      },
+    },
   },
 })

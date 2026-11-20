@@ -284,6 +284,8 @@ export class Game {
   private layerKilled = 0
   private spawnTimer = 0
   private roomActive = false
+  private eventBattleActive = false
+  private pendingEventBattleDone: (() => void) | null = null
 
   private tunnelOffers: TunnelOffer[] = []
   private shopOffers: ShopOffer[] = []
@@ -1129,11 +1131,12 @@ export class Game {
     this.openEventById(EVENTS[this.rng.int(0, EVENTS.length - 1)].id)
   }
 
-  /** 打开指定事件；onDone 在面板关闭后调用（事件房用它收尾） */
+  /** 打开指定事件；onDone 在面板关闭后调用（若触发遭遇战，则等清怪后再调用 onDone） */
   private openEventById(id: string, onDone?: () => void): void {
     if (this.eventPanel.isOpen) return
     const def = eventOf(id) ?? EVENTS[0]
     const role = def.roles ? def.roles[this.rng.int(0, def.roles.length - 1)] : null
+    let pendingBattleCount = 0
     this.eventPanel.open(
       def,
       this.eventState,
@@ -1142,10 +1145,14 @@ export class Game {
         onPick: (option) => {
           if (option.costGold) this.run.gold = Math.max(0, this.run.gold - option.costGold)
           const outcome = this.eventState.pickOutcome(option, role, this.rng)
-          if (outcome) this.applyEventEffects(outcome.effects)
+          if (outcome) pendingBattleCount += this.applyEventEffects(outcome.effects)
           return outcome
         },
         onClose: () => {
+          if (pendingBattleCount > 0) {
+            this.startEventBattle(pendingBattleCount, onDone)
+            return
+          }
           if (onDone) onDone()
           else this.hud.toast('事件结束', 'info')
         },
@@ -1153,8 +1160,9 @@ export class Game {
     )
   }
 
-  /** 事件效果结算：统一落地金币/治疗/线索/伏笔/记忆/卡牌/增益减益/遭遇战提示与视觉反馈 */
-  private applyEventEffects(effects: EventEffect[]): void {
+  /** 事件效果结算：统一落地金币/治疗/线索/伏笔/记忆/卡牌/增益减益/遭遇战；返回需在关闭面板后刷出的敌人数 */
+  private applyEventEffects(effects: EventEffect[]): number {
+    let battleCount = 0
     for (const eff of effects) {
       if (eff.kind === 'gold') {
         // 负数是"花钱"，不触发金币加成；正数走 addGold 统一入口
@@ -1196,9 +1204,32 @@ export class Game {
         }
         this.eventFx(`${good ? '获得' : '失去'}：${String(eff.stat)}`, good ? 0x8fffc8 : 0xff7a7a)
       } else if (eff.kind === 'battle') {
+        battleCount += Math.max(1, Math.round(eff.count))
         this.eventFx(`遭遇战 ×${eff.count}`, 0xff8a3d)
       }
     }
+    return battleCount
+  }
+
+  /** 事件面板关闭后启动遭遇战：事件房内复用房间战并在清怪后回到事件收尾；普通层计入清层配额 */
+  private startEventBattle(count: number, onDone?: () => void): void {
+    const safeCount = Math.max(1, Math.round(count))
+    const elite = safeCount === 1 ? 1 : 0
+    if (this.roomMap) {
+      this.eventBattleActive = true
+      this.pendingEventBattleDone = onDone ?? null
+      this.startRoomBattle(safeCount, elite)
+      return
+    }
+    this.phase = 'playing'
+    this.layerTotal += safeCount
+    for (let i = 0; i < safeCount; i += 1) {
+      const pt = this.randomSpawnPoint()
+      this.spawnGoblin(i < elite ? 'elite' : 'small', pt.x, pt.z)
+      this.layerSpawned += 1
+    }
+    this.hud.toast(elite > 0 ? '事件遭遇战：击败强敌！' : `事件遭遇战：清空 ${safeCount} 只伏兵！`, 'bad')
+    audio.bossRoar()
   }
 
   /** 事件结算的统一视觉反馈：飘字 + 粒子 + 光环，得/失颜色分明 */
@@ -3183,6 +3214,8 @@ export class Game {
     this.roomMap.campfire?.dispose()
     this.roomMap.portal?.dispose()
     this.roomMap = null
+    this.eventBattleActive = false
+    this.pendingEventBattleDone = null
     this.hud.setInteractPrompt(null)
   }
 
@@ -3251,6 +3284,15 @@ export class Game {
   private finishRoomBattle(): void {
     this.roomActive = false
     const picked = this.collectRemainingPickups()
+    if (this.eventBattleActive) {
+      this.eventBattleActive = false
+      const done = this.pendingEventBattleDone
+      this.pendingEventBattleDone = null
+      this.hud.toast(picked.count > 0 ? `遭遇战获胜！自动吸取 ${picked.count} 件掉落` : '遭遇战获胜！', 'good')
+      if (done) done()
+      else if (this.roomMap) this.completeRoomMap('遭遇战获胜')
+      return
+    }
     if (this.roomMap) {
       // 战斗房的金币在 interactRoomNpc 里已按卡片预览结算；这里只收尾，
       // 不再叠加本层通关金（本层通关金已在清层时发放）。
