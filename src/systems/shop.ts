@@ -196,6 +196,18 @@ function makeTrainingOffer(layer: number, rng: Rng, seq: number, buys: number): 
   }
 }
 
+function makePotentialOffer(layer: number): ShopOffer {
+  return {
+    id: `potential-node-${layer}`,
+    kind: 'potential',
+    name: '潜能 · 节点',
+    desc: '点亮一个尚未拥有的潜能节点（需已在战斗中选过分支）',
+    icon: '✦',
+    price: 120 + 40 * layer,
+    tier: layer >= 9 ? 3 : layer >= 5 ? 2 : 1,
+  }
+}
+
 function makeWeaponUpgradeOffer(charId: CharacterId, weaponLv: number): ShopOffer | null {
   const current = Math.round(weaponLv)
   const next = current + 1
@@ -299,8 +311,8 @@ export function generateOffers(
   const offers: ShopOffer[] = []
   if (total === 0) return offers
 
-  const weaponOffer = makeWeaponUpgradeOffer(charId, weaponLv)
-  if (weaponOffer) offers.push(weaponOffer)
+  // 旧专武升级已在潜能系统上线后退役；货架第 1 格改为「潜能节点」
+  offers.push(makePotentialOffer(layer))
 
   // 固定塞一格金币训练：不占背包，是后期金币的主要去向。
   const trainingOffer = makeTrainingOffer(clampLayer(layer), rng, offers.length, trainingBuys)

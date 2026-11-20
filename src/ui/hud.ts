@@ -271,6 +271,7 @@ const STAT_IS_PCT: Partial<Record<CardStat, boolean>> = { chargeGain: true, dodg
 
 const SHOP_KIND_LABEL: Record<ShopOffer['kind'], string> = {
   weapon: '专武升级',
+  potential: '潜能节点',
   'buff-card': '增益卡',
   consumable: '消耗品',
   training: '金币训练',

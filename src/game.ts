@@ -3336,6 +3336,34 @@ export class Game {
       this.hud.toast('金币不足', 'bad')
       return
     }
+    if (offer.kind === 'potential') {
+      const pot = this.run.potential
+      if (!pot?.branch) {
+        this.hud.toast('先在战斗中选一条潜能分支', 'bad')
+        return
+      }
+      if (this.run.gold < offer.price) {
+        this.hud.toast('金币不够', 'bad')
+        return
+      }
+      const owned = new Set([pot.branch, pot.branch2, pot.branch3].filter(Boolean))
+      const picked = new Set(pot.nodes ?? [])
+      const node = POTENTIALS[this.run.character].branches
+        .filter((b) => owned.has(b.id))
+        .flatMap((b) => b.nodes)
+        .find((n) => !picked.has(n.id))
+      if (!node) {
+        this.hud.toast('潜能节点已点满', 'bad')
+        return
+      }
+      this.run.gold -= offer.price
+      pot.nodes = [...picked, node.id]
+      this.syncPotential()
+      this.shopOffers.splice(idx, 1)
+      this.hud.toast(`潜能：${node.name}`, 'good')
+      audio.levelUp()
+      return
+    }
     if (offer.kind === 'weapon') {
       if (offer.weaponLevel !== this.run.weaponLv + 1) {
         this.hud.toast('只能购买下一级专武', 'bad')

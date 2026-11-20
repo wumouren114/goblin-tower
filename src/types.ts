@@ -160,7 +160,7 @@ export interface TunnelPayload {
 
 export interface ShopOffer {
   id: string
-  kind: 'weapon' | 'buff-card' | 'consumable' | 'training'
+  kind: 'weapon' | 'buff-card' | 'consumable' | 'training' | 'potential'
   name: string
   desc: string
   icon: string
