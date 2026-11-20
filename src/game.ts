@@ -29,6 +29,7 @@ import { EVENTS, eventOf, type EventEffect } from './data/events'
 import { POTENTIALS } from './data/potentials'
 import { MINIGAMES, minigameForLayer } from './minigames'
 import { TRIALS, type TrialDef } from './data/trials'
+import { ALTAR, MYSTERY_OUTCOMES } from './data/altar'
 import { EventState } from './systems/eventState'
 import { EventPanel } from './ui/eventPanel'
 import { ExchangePanel } from './ui/exchangePanel'
@@ -2388,44 +2389,25 @@ export class Game {
   private openAltar(): void {
     const pulls = this.run.mysteryPulls ?? 0
     const mysteryCost = 20 + 6 * pulls
-    const offers: TunnelOffer[] = [
-      {
-        id: 'altar-card',
-        kind: 'trade',
-        room: 'altar',
-        title: '献卡',
-        desc: '交出背包里档位最低的一张卡，换取全属性 +8%（永久）',
-        icon: '🃏',
-        payload: {},
-      },
-      {
-        id: 'altar-hp',
-        kind: 'trade',
-        room: 'altar',
-        title: '献血',
-        desc: '永久失去 15% 生命上限，换取攻击与魔力 +18%',
-        icon: '🩸',
-        payload: {},
-      },
-      {
-        id: 'altar-both',
-        kind: 'trade',
-        room: 'altar',
-        title: '双重',
-        desc: '失去 10% 生命上限并交出一张卡，换取专武 +1 级',
-        icon: '⚖️',
-        payload: {},
-      },
-      {
-        id: 'altar-mystery',
-        kind: 'trade',
-        room: 'altar',
-        title: `神秘（${mysteryCost} 金）`,
-        desc: '投入金币，可能 999 金、可能一张卡、也可能什么也没有',
-        icon: '🎲',
-        payload: {},
-      },
-    ]
+    const flavor = (id: 'card' | 'hp' | 'both' | 'mystery'): TunnelOffer => ({
+      id: `altar-${id}`,
+      kind: 'trade',
+      room: 'altar',
+      title: ALTAR[id].title,
+      desc: ALTAR[id].offer,
+      icon: ALTAR[id].icon,
+      payload: {},
+    })
+    const offers: TunnelOffer[] = [flavor('card'), flavor('hp'), flavor('both')]
+    offers.push({
+      id: 'altar-mystery',
+      kind: 'trade',
+      room: 'altar',
+      title: `${ALTAR.mystery.title}（${mysteryCost} 金）`,
+      desc: ALTAR.mystery.offer,
+      icon: ALTAR.mystery.icon,
+      payload: {},
+    })
     this.altarOffers = offers
     this.altarActive = true
     this.phase = 'tunnel'
@@ -2490,17 +2472,17 @@ export class Game {
       const roll = this.rng.next()
       if (roll < jackpot) {
         this.run.gold += 999
-        this.hud.toast('祭坛深处传来一声闷响：金币 +999', 'good')
+        this.hud.toast(`${MYSTERY_OUTCOMES[0].line}（金币 +999）`, 'good')
       } else if (roll < jackpot + cardP) {
         const def = this.rng.pick([...ITEM_CARDS])
         this.grantRewardItem(makeCardItem(def.id, (this.run.layer >= 9 ? 3 : 2) as 1 | 2 | 3))
-        this.hud.toast('祭坛吐出一张卡', 'good')
+        this.hud.toast(MYSTERY_OUTCOMES[1].line, 'good')
       } else if (roll < 1 - nothing) {
         const back = 30 + 10 * pulls
         this.run.gold += back
-        this.hud.toast(`祭坛退回 ${back} 金`, 'info')
+        this.hud.toast(`${MYSTERY_OUTCOMES[2].line}（+${back} 金）`, 'info')
       } else {
-        this.hud.toast('什么也没有发生', 'info')
+        this.hud.toast(MYSTERY_OUTCOMES[3].line, 'info')
       }
     }
     this.recalcStats()
@@ -2830,6 +2812,7 @@ export class Game {
     }
     if (room.offer.room === 'altar') {
       room.resolved = true
+      this.hud.toast(ALTAR.mystery.whisper, 'info')
       this.openAltar()
       return
     }
