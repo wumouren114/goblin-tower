@@ -461,7 +461,6 @@ export interface HudV3Handlers {
   onExchange?: () => void
   onOpenInventory(): void
   onCloseInventory(): void
-  onMergeItem(uidA: string, uidB: string): void
   onUseItem(uid: string): void
   /** 丢弃背包里的物品（丢弃不退金币）；可选：未接线的模式/HUD 预览可不实现 */
   onDiscardItem?: (uid: string) => void

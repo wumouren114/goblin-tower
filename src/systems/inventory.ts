@@ -161,14 +161,7 @@ export class Inventory {
   /**
    * @deprecated P0-a 已移除二合一合成；空壳仅用于避免触碰 B 线 src/game.ts，待 B 线清理后删除。
    */
-  autoMerge(): InventoryItem[] {
-    return []
-  }
-
   /**
    * @deprecated P0-a 已移除二合一合成；空壳仅用于避免触碰 B 线 src/game.ts，待 B 线清理后删除。
    */
-  merge(_uidA: string, _uidB: string): InventoryItem | null {
-    return null
-  }
 }

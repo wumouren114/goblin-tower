@@ -3381,19 +3381,13 @@ export class Game {
     this.hud.hideInventory()
   }
 
-  /** 把物品放进背包：满了先自动合成腾格子，合成后仍满才拒绝（不再直接卡进度） */
+  /** 把物品放进背包（v5 同名唯一、满档退池；不再有合成） */
   private grantItem(item: InventoryItem, notifyFull = true): boolean {
-    if (this.inventory.isFull) this.inventory.autoMerge()
     if (this.inventory.isFull) {
-      if (notifyFull) this.hud.toast('背包已满：先合成或丢弃两张再买', 'bad')
+      if (notifyFull) this.hud.toast('背包已满：先丢弃一张再买', 'bad')
       return false
     }
     if (!this.inventory.add(item)) return false
-    const merged = this.inventory.autoMerge()
-    if (merged.length > 0) {
-      const last = merged[merged.length - 1]
-      this.hud.toast(`自动合成 ${last.name}`, 'good')
-    }
     this.syncCards()
     if (this.inventoryOpen()) this.hud.updateInventory(this.inventory.items, this.run.gold)
     return true
@@ -3415,18 +3409,6 @@ export class Game {
     this.syncCards()
     this.hud.updateInventory(this.inventory.items, this.run.gold)
     this.hud.toast(`丢弃 ${item.name}（不退金币）`, 'info')
-    audio.click()
-  }
-
-  mergeItems(a: string, b: string): void {
-    const merged = this.inventory.merge(a, b)
-    if (!merged) {
-      this.hud.toast('只有同级同种才能合成', 'bad')
-      return
-    }
-    this.syncCards()
-    this.hud.updateInventory(this.inventory.items, this.run.gold)
-    this.hud.toast(`合成 ${merged.name}`, 'good')
     audio.click()
   }
 
