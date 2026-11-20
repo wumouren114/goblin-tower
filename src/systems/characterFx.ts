@@ -2028,3 +2028,503 @@ export function fxResonanceBadge(scene: THREE.Scene, charId: CharacterId, comboI
   scene.add(sprite)
   return sprite
 }
+
+/**
+ * 7. 丛雨 Q 处决特效（fxExecute）：
+ *    赤红竖斩光自上而下劈落 + 地面赤红斩痕环 + 10 枚金色碎片四散（~0.4s），
+ *    强化命中残血目标瞬间的「一刀两断」斩杀感。
+ */
+export function fxExecute(scene: THREE.Scene, x: number, z: number): PotentialFxHandle {
+  const duration = 0.4
+  const group = new THREE.Group()
+  group.position.set(x, 0, z)
+  scene.add(group)
+
+  const bladeGeo = new THREE.PlaneGeometry(0.32, 3.2)
+  const bladeMat = new THREE.MeshBasicMaterial({
+    color: 0xe61e36,
+    transparent: true,
+    opacity: 0.96,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  })
+  const blade = new THREE.Mesh(bladeGeo, bladeMat)
+  blade.position.set(0, 2.3, 0)
+  blade.rotation.z = 0.16
+  group.add(blade)
+
+  const coreGeo = new THREE.PlaneGeometry(0.11, 3.0)
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0xffe9b5,
+    transparent: true,
+    opacity: 0.98,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+  })
+  const core = new THREE.Mesh(coreGeo, coreMat)
+  core.position.set(0, 2.3, 0.02)
+  core.rotation.z = 0.16
+  group.add(core)
+
+  const ringGeo = new THREE.PlaneGeometry(1, 1)
+  ringGeo.rotateX(-Math.PI / 2)
+  const ringMat = new THREE.MeshBasicMaterial({
+    map: beatPulseTexture(),
+    color: 0xff3b52,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+  const ring = new THREE.Mesh(ringGeo, ringMat)
+  ring.position.y = 0.05
+  ring.scale.setScalar(0.5)
+  group.add(ring)
+
+  const shardTex = diamondTexture()
+  const shards: { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; vx: number; vy: number; vz: number; size: number }[] = []
+  const shardCount = 10
+  for (let i = 0; i < shardCount; i += 1) {
+    const ang = (i / shardCount) * TAU + (i % 2 ? 0.18 : -0.14)
+    const spd = 2.0 + (i % 4) * 0.75
+    const size = 0.2 + (i % 3) * 0.055
+    const mat = new THREE.SpriteMaterial({
+      map: shardTex,
+      color: i % 3 === 0 ? 0xfff0b3 : 0xffc84a,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+    const sprite = new THREE.Sprite(mat)
+    sprite.position.set(0, 0.85, 0)
+    sprite.scale.setScalar(size)
+    group.add(sprite)
+    shards.push({
+      sprite,
+      mat,
+      vx: Math.cos(ang) * spd,
+      vy: 1.5 + (i % 3) * 0.75,
+      vz: Math.sin(ang) * spd,
+      size,
+    })
+  }
+
+  let age = 0
+  let disposed = false
+  const handle: PotentialFxHandle = {
+    group,
+    duration,
+    update(dt: number): boolean {
+      if (disposed) return false
+      age += dt
+      if (age >= duration) {
+        handle.dispose()
+        return false
+      }
+      const k = age / duration
+      const slam = Math.min(1, k / 0.32)
+      const bladeY = 2.4 - slam * 1.15
+      const bladeFade = k < 0.32 ? 1 : Math.max(0, 1 - (k - 0.32) / 0.68)
+      blade.position.y = bladeY
+      blade.scale.set(1 + (1 - slam) * 0.35, 0.85 + slam * 0.3, 1)
+      bladeMat.opacity = 0.96 * bladeFade
+      core.position.y = bladeY
+      core.scale.set(1, 0.85 + slam * 0.3, 1)
+      coreMat.opacity = 0.98 * bladeFade * bladeFade
+
+      ring.scale.setScalar(0.5 + k * 2.1)
+      ringMat.opacity = 0.88 * (1 - k * k)
+
+      for (const s of shards) {
+        s.vy -= 5.4 * dt
+        s.sprite.position.x += s.vx * dt
+        s.sprite.position.y = Math.max(0.06, s.sprite.position.y + s.vy * dt)
+        s.sprite.position.z += s.vz * dt
+        s.sprite.scale.setScalar(s.size * (1 - k * 0.45))
+        s.mat.opacity = 1 - k * k
+      }
+      return true
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      activePotentialFx.delete(handle)
+      bladeGeo.dispose()
+      bladeMat.dispose()
+      coreGeo.dispose()
+      coreMat.dispose()
+      ringGeo.dispose()
+      ringMat.dispose()
+      for (const s of shards) s.mat.dispose()
+      scene.remove(group)
+    },
+  }
+  registerPotentialFx(handle)
+  return handle
+}
+
+/**
+ * 8. 丛雨 F 完美格挡特效（fxBlockParry）：
+ *    青白盾面碎裂飞散 + 一道从玩家指向攻击者方向的青白残影拖尾（~0.35s），
+ *    清晰提示「完美格挡反身突进」的指向与瞬间反馈。
+ */
+export function fxBlockParry(
+  scene: THREE.Scene,
+  x: number,
+  z: number,
+  fromX: number,
+  fromZ: number,
+): PotentialFxHandle {
+  const duration = 0.35
+  const group = new THREE.Group()
+  group.position.set(x, 0, z)
+  scene.add(group)
+
+  const rawDx = fromX - x
+  const rawDz = fromZ - z
+  const len = Math.hypot(rawDx, rawDz)
+  const dx = len > 1e-4 ? rawDx / len : 0
+  const dz = len > 1e-4 ? rawDz / len : -1
+  const px = -dz
+  const pz = dx
+  const yaw = Math.atan2(dx, dz)
+
+  // 青白盾面碎裂片（6 块围绕盾面飞散）
+  const shardGeo = new THREE.PlaneGeometry(0.28, 0.22)
+  const shards: {
+    mesh: THREE.Mesh
+    mat: THREE.MeshBasicMaterial
+    vx: number
+    vy: number
+    vz: number
+    spin: number
+  }[] = []
+  for (let i = 0; i < 6; i += 1) {
+    const side = (i - 2.5) * 0.26
+    const mat = new THREE.MeshBasicMaterial({
+      color: i % 2 === 0 ? 0xa8f6ff : 0xeefeff,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    })
+    const mesh = new THREE.Mesh(shardGeo, mat)
+    mesh.position.set(dx * 0.8 + px * side, 0.85 + (i % 3 - 1) * 0.22, dz * 0.8 + pz * side)
+    mesh.rotation.y = yaw
+    mesh.rotation.z = (i - 2.5) * 0.35
+    group.add(mesh)
+    shards.push({
+      mesh,
+      mat,
+      vx: dx * (1.2 + (i % 2) * 0.8) + px * side * 4.5,
+      vy: (i % 3 - 1) * 1.4 + 0.6,
+      vz: dz * (1.2 + (i % 2) * 0.8) + pz * side * 4.5,
+      spin: (i % 2 === 0 ? 1 : -1) * 8.5,
+    })
+  }
+
+  // 指向攻击者方向的青白残影拖尾（4 段加速伸展）
+  const streakGeo = new THREE.PlaneGeometry(0.22, 0.95)
+  streakGeo.rotateX(-Math.PI / 2)
+  const streaks: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; baseDist: number }[] = []
+  for (let i = 0; i < 4; i += 1) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: i === 3 ? 0xffffff : 0x7beeff,
+      transparent: true,
+      opacity: 0.88 - i * 0.12,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    })
+    const mesh = new THREE.Mesh(streakGeo, mat)
+    const baseDist = 0.45 + i * 0.52
+    mesh.position.set(dx * baseDist, 0.72 + i * 0.04, dz * baseDist)
+    mesh.rotation.y = yaw
+    group.add(mesh)
+    streaks.push({ mesh, mat, baseDist })
+  }
+
+  let age = 0
+  let disposed = false
+  const handle: PotentialFxHandle = {
+    group,
+    duration,
+    update(dt: number): boolean {
+      if (disposed) return false
+      age += dt
+      if (age >= duration) {
+        handle.dispose()
+        return false
+      }
+      const k = age / duration
+      const fade = 1 - k * k
+      for (const s of shards) {
+        s.vy -= 4.2 * dt
+        s.mesh.position.x += s.vx * dt
+        s.mesh.position.y = Math.max(0.08, s.mesh.position.y + s.vy * dt)
+        s.mesh.position.z += s.vz * dt
+        s.mesh.rotation.z += s.spin * dt
+        s.mesh.scale.setScalar(1 - k * 0.45)
+        s.mat.opacity = 0.95 * fade
+      }
+      for (let i = 0; i < streaks.length; i += 1) {
+        const st = streaks[i]
+        const dist = st.baseDist + k * (1.2 + i * 0.35)
+        st.mesh.position.set(dx * dist, 0.72, dz * dist)
+        st.mesh.scale.set(1 - k * 0.5, 1, 1 + k * 0.9)
+        st.mat.opacity = (0.88 - i * 0.12) * fade
+      }
+      return true
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      activePotentialFx.delete(handle)
+      shardGeo.dispose()
+      streakGeo.dispose()
+      for (const s of shards) s.mat.dispose()
+      for (const st of streaks) st.mat.dispose()
+      scene.remove(group)
+    },
+  }
+  registerPotentialFx(handle)
+  return handle
+}
+
+/**
+ * 9. 鱼 F 水枪扫射特效（fxWatergun）：
+ *    扇形青蓝水幕 + 24 道沿喷射方向持续推进的高速水柱粒子（默认 10s，按 duration 参数化），
+ *    强调水流的动态喷射与扇面覆盖，避免静态贴图观感。
+ */
+export function fxWatergun(
+  scene: THREE.Scene,
+  x: number,
+  z: number,
+  dirX: number,
+  dirZ: number,
+  duration = 10,
+): PotentialFxHandle {
+  const safeDuration = Math.max(0.2, duration)
+  const group = new THREE.Group()
+  group.position.set(x, 0, z)
+  scene.add(group)
+
+  const len = Math.hypot(dirX, dirZ)
+  const dx = len > 1e-4 ? dirX / len : 0
+  const dz = len > 1e-4 ? dirZ / len : -1
+  const baseAngle = Math.atan2(dz, dx)
+
+  // 扇形水幕底光（3 层细长半透明扇骨随水流脉动）
+  const fanGeo = new THREE.PlaneGeometry(0.55, 4.6)
+  fanGeo.rotateX(-Math.PI / 2)
+  const fans: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; offset: number }[] = []
+  for (const offset of [-0.26, 0, 0.26]) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: offset === 0 ? 0x62e6ff : 0x26b6ea,
+      transparent: true,
+      opacity: offset === 0 ? 0.34 : 0.22,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    })
+    const mesh = new THREE.Mesh(fanGeo, mat)
+    const ang = baseAngle + offset
+    mesh.position.set(Math.cos(ang) * 2.6, 0.55, Math.sin(ang) * 2.6)
+    mesh.rotation.y = Math.atan2(Math.cos(ang), Math.sin(ang))
+    group.add(mesh)
+    fans.push({ mesh, mat, offset })
+  }
+
+  // 24 颗沿扇面高速推进的水流粒子（循环推进产生流动感）
+  const dropGeo = new THREE.PlaneGeometry(0.18, 0.52)
+  dropGeo.rotateX(-Math.PI / 2)
+  const drops: {
+    mesh: THREE.Mesh
+    mat: THREE.MeshBasicMaterial
+    spread: number
+    phase: number
+    speed: number
+    height: number
+  }[] = []
+  const dropCount = 24
+  for (let i = 0; i < dropCount; i += 1) {
+    const spread = ((i % 9) / 8 - 0.5) * 0.72
+    const phase = (i / dropCount) + ((i % 3) * 0.07)
+    const speed = 1.9 + (i % 5) * 0.28
+    const mat = new THREE.MeshBasicMaterial({
+      color: i % 3 === 0 ? 0xd8fbff : i % 2 === 0 ? 0x5be3ff : 0x25a9e6,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    })
+    const mesh = new THREE.Mesh(dropGeo, mat)
+    group.add(mesh)
+    drops.push({ mesh, mat, spread, phase, speed, height: 0.45 + (i % 4) * 0.14 })
+  }
+
+  let age = 0
+  let disposed = false
+  const handle: PotentialFxHandle = {
+    group,
+    duration: safeDuration,
+    update(dt: number): boolean {
+      if (disposed) return false
+      age += dt
+      if (age >= safeDuration) {
+        handle.dispose()
+        return false
+      }
+      const env = age < 0.12 ? age / 0.12 : age > safeDuration - 0.25 ? Math.max(0, (safeDuration - age) / 0.25) : 1
+      for (const f of fans) {
+        const wave = 0.88 + 0.18 * Math.sin(age * 18 + f.offset * 6)
+        f.mat.opacity = (f.offset === 0 ? 0.34 : 0.22) * wave * env
+        f.mesh.scale.set(0.92 + 0.14 * Math.sin(age * 14 + f.offset), 1, wave)
+      }
+      for (let i = 0; i < drops.length; i += 1) {
+        const d = drops[i]
+        const t = (age * d.speed + d.phase) % 1
+        const ang = baseAngle + d.spread * (0.45 + t * 0.55)
+        const dist = 0.55 + t * 4.85
+        d.mesh.position.set(Math.cos(ang) * dist, d.height + Math.sin(t * Math.PI) * 0.22, Math.sin(ang) * dist)
+        d.mesh.rotation.y = Math.atan2(Math.cos(ang), Math.sin(ang))
+        d.mesh.scale.set(0.75 + t * 0.65, 1, 0.8 + (1 - t) * 0.7)
+        d.mat.opacity = Math.sin(t * Math.PI) * 0.92 * env
+      }
+      return true
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      activePotentialFx.delete(handle)
+      fanGeo.dispose()
+      dropGeo.dispose()
+      for (const f of fans) f.mat.dispose()
+      for (const d of drops) d.mat.dispose()
+      scene.remove(group)
+    },
+  }
+  registerPotentialFx(handle)
+  return handle
+}
+
+/**
+ * 10. 60 连击爆裂特效（fxComboBurst）：
+ *     双层金色环爆扩散 + 12 枚星点向上冲起闪烁（~0.5s），
+ *     视觉上突出达成高连击时的强奖励感与节庆氛围。
+ */
+export function fxComboBurst(scene: THREE.Scene, x: number, z: number): PotentialFxHandle {
+  const duration = 0.5
+  const group = new THREE.Group()
+  group.position.set(x, 0, z)
+  scene.add(group)
+
+  const ringGeo = new THREE.PlaneGeometry(1, 1)
+  ringGeo.rotateX(-Math.PI / 2)
+  const tex = beatPulseTexture()
+
+  const outerMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    color: 0xffd479,
+    transparent: true,
+    opacity: 0.96,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+  const outer = new THREE.Mesh(ringGeo, outerMat)
+  outer.position.y = 0.055
+  outer.scale.setScalar(0.55)
+  group.add(outer)
+
+  const innerMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    color: 0xfff3c4,
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+  const inner = new THREE.Mesh(ringGeo, innerMat)
+  inner.position.y = 0.075
+  inner.scale.setScalar(0.35)
+  group.add(inner)
+
+  const starTex = diamondTexture()
+  const stars: { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; vx: number; vy: number; vz: number; size: number; phase: number }[] = []
+  const starCount = 12
+  for (let i = 0; i < starCount; i += 1) {
+    const ang = (i / starCount) * TAU
+    const radial = 0.9 + (i % 3) * 0.55
+    const size = 0.24 + (i % 3) * 0.06
+    const mat = new THREE.SpriteMaterial({
+      map: starTex,
+      color: i % 4 === 0 ? 0xff9fd0 : i % 2 === 0 ? 0xffd479 : 0xfff6c8,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+    const sprite = new THREE.Sprite(mat)
+    sprite.position.set(Math.cos(ang) * 0.35, 0.25, Math.sin(ang) * 0.35)
+    sprite.scale.setScalar(size)
+    group.add(sprite)
+    stars.push({
+      sprite,
+      mat,
+      vx: Math.cos(ang) * radial,
+      vy: 3.4 + (i % 4) * 0.75,
+      vz: Math.sin(ang) * radial,
+      size,
+      phase: i * 0.9,
+    })
+  }
+
+  let age = 0
+  let disposed = false
+  const handle: PotentialFxHandle = {
+    group,
+    duration,
+    update(dt: number): boolean {
+      if (disposed) return false
+      age += dt
+      if (age >= duration) {
+        handle.dispose()
+        return false
+      }
+      const k = age / duration
+      const easeOut = 1 - (1 - k) * (1 - k)
+      outer.scale.setScalar(0.55 + easeOut * 3.0)
+      outerMat.opacity = 0.96 * (1 - k)
+      inner.scale.setScalar(0.35 + easeOut * 2.15)
+      innerMat.opacity = 0.92 * Math.max(0, 1 - k * 1.1)
+
+      for (const s of stars) {
+        s.vy -= 2.6 * dt
+        s.sprite.position.x += s.vx * dt
+        s.sprite.position.y += s.vy * dt
+        s.sprite.position.z += s.vz * dt
+        const twinkle = 0.8 + 0.35 * Math.sin(age * 28 + s.phase)
+        s.sprite.scale.setScalar(s.size * twinkle * (1 - k * 0.35))
+        s.mat.opacity = 1 - k * k
+      }
+      return true
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      activePotentialFx.delete(handle)
+      ringGeo.dispose()
+      outerMat.dispose()
+      innerMat.dispose()
+      for (const s of stars) s.mat.dispose()
+      scene.remove(group)
+    },
+  }
+  registerPotentialFx(handle)
+  return handle
+}
