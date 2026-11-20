@@ -4938,3 +4938,81 @@ body.is-modal-open .floor-banner {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── 右上角第二状态栏（层数/阶段、金币、已穿戴道具速览） ─────────────────── */
+.hud-status-bar {
+  margin-top: 6px;
+  padding: 6px 8px;
+  min-width: 210px;
+  max-width: 270px;
+  background: rgba(14, 18, 28, 0.84);
+  border: 1.5px solid rgba(112, 136, 178, 0.48);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  pointer-events: none;
+}
+
+.sb-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: #c9d7f2;
+}
+
+.sb-floor {
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.sb-gold {
+  color: #ffd98a;
+  font-weight: 700;
+}
+
+.sb-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.sb-item-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  font-size: 10.5px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(154, 178, 224, 0.34);
+  color: #edf3ff;
+  max-width: 112px;
+}
+
+.sb-item-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.sb-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sb-more {
+  padding: 1px 5px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #ffd98a;
+  background: rgba(255, 212, 121, 0.14);
+  border: 1px solid rgba(255, 212, 121, 0.45);
+}
+
+.sb-empty {
+  font-size: 10.5px;
+  color: #8295b8;
+}
