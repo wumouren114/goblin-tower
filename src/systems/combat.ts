@@ -787,6 +787,18 @@ export class Combat {
         const settled = t.hit(settle, 0, 0)
         this.hooks.onHit(t, settle, false, settled)
         dealt += settle
+        // 裂帛：结算时对 3m 内造成 60% 结算伤害
+        if (this.hasNode('murasame-jianyi-boom') && settled) {
+          for (const near of world.enemies) {
+            if (!near.alive || near === t) continue
+            if (Math.hypot(near.x - t.x, near.z - t.z) > 3) continue
+            near.hit(settle * 0.6, 0, 0)
+          }
+        }
+      }
+      // 瞬闪·断流：技能击杀返还 20 充能
+      if (killed && this.potentialBranch === 'shunshan' && this.hasNode('murasame-shunshan-kill')) {
+        this.grantCharge(0.25)
       }
       // 技能把路径上命中的敌人也拉到终点，方便接普攻
       if (t.alive) gatherTo(t, end.x, end.z, 0.95)
@@ -837,7 +849,9 @@ export class Combat {
       this.characterFx.murasameGuard(end.x, end.z, empowered)
     }
     // 回血与命中数挂钩：每命中 1 个敌人回 healPerHit 血
-    const healPerHit = tierNum(tier, 'skillHealPerHit', 7)
+    const healBase = tierNum(tier, 'skillHealPerHit', 7)
+    // 瞬闪·回气：每命中回血 7 → 10.5
+    const healPerHit = this.hasNode('murasame-shunshan-heal') ? healBase * 1.5 : healBase
     world.heal(healPerHit * hits.length)
     world.grantInvuln(p.invulnerable ?? 0.3)
     world.dashPlayer(dir.x, dir.z, distance, p.dashDuration ?? 0.24)
