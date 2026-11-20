@@ -22,7 +22,11 @@ const DEATH_TIME = 0.3
  * x/z 是权威坐标：Lead 会在外部（分离解算）直接改 x/z，
  * 所以 update 开头必须先把 group.position 同步成 (x, 0, z)，再叠加自身移动。
  */
+let goblinUidSeq = 0
+
 export class Goblin {
+  /** 稳定 id：状态系统（眩晕/标记）用它做 key */
+  readonly uid = `g${(goblinUidSeq += 1)}`
   readonly group: THREE.Group
   x: number
   z: number

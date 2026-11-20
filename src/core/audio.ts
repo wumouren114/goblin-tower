@@ -37,6 +37,7 @@ export type SfxName =
   | 'buy'
   | 'tunnel'
   | 'caster_shot'
+  | 'beat_tick'
 
 export type AudioState = 'idle' | 'loading' | 'ready' | 'unavailable'
 
@@ -618,6 +619,11 @@ export class AudioBus {
 
   lose(): void {
     this.play('lose')
+  }
+
+  /** 节奏分支的拍点音（音量压低，像节拍器） */
+  beatTick(): void {
+    this.play('beat_tick', { volume: 0.35 })
   }
 
   click(): void {

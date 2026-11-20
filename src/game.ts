@@ -31,6 +31,7 @@ import { EventState } from './systems/eventState'
 import { EventPanel } from './ui/eventPanel'
 import { ExchangePanel } from './ui/exchangePanel'
 import { HazardField, type HazardState } from './systems/hazardZone'
+import { StatusField } from './systems/statusEffects'
 import { cardIdOfItem } from './data/cards'
 import { CHARACTERS, CHARGE_FLOOR_START_RATIO, skillRange } from './data/characters'
 import { getWeaponTier, charTakeDamageMul, tierNum, MAX_WEAPON_LV } from './data/characterRuntime'
@@ -248,6 +249,10 @@ export class Game {
   private readonly exchangePanel = new ExchangePanel()
   /** 持续伤害区域（封路原型）：纯逻辑在本类，渲染用下面的 mesh 表 */
   private readonly hazards = new HazardField()
+  /** 状态效果（眩晕 / 标记）：key 用 Goblin.uid */
+  private readonly statusField = new StatusField()
+  /** 上一帧的节拍相位：越过 1→0 时播拍点音 */
+  private lastBeatPhase = 0
   private readonly hazardMeshes = new Map<HazardState, THREE.Mesh>()
   private prevMaxHp = 100
 
@@ -316,6 +321,7 @@ export class Game {
 
   startRun(character: CharacterId, difficulty: DifficultyId, styleId?: StyleId): void {
     this.clearHazards()
+    this.statusField.clearAll()
     this.combat?.resetBeat(performance.now())
     this.cleanupFloor()
     // 重新爬塔/调试跳层时旧角色不能只从场景逻辑里移除，否则会留下幽灵立绘
@@ -346,6 +352,7 @@ export class Game {
     this.run.hp = CHARACTERS[character].base.hp
     this.combat = new Combat(this.scene, {
       onHit: (t, amount, crit, killed) => this.onCombatHit(t, amount, crit, killed),
+      onStun: (x, z, radius, ms) => this.applyStun(x, z, radius, ms),
       onSfx: (name) => {
         if (name === 'attack') audio.hit()
         else if (name === 'crit') audio.crit()
@@ -395,6 +402,7 @@ export class Game {
     this.player = new Player(this.scene, 0, 0, state.character)
     this.combat = new Combat(this.scene, {
       onHit: (t, amount, crit, killed) => this.onCombatHit(t, amount, crit, killed),
+      onStun: (x, z, radius, ms) => this.applyStun(x, z, radius, ms),
       onSfx: (name) => {
         if (name === 'attack') audio.hit()
         else if (name === 'crit') audio.crit()
@@ -836,6 +844,9 @@ export class Game {
     // 节奏分支：把节拍相位推给 HUD（没有节拍环，玩家没法踩拍）
     const beatPhase = this.combat?.beatPhase ?? null
     if (beatPhase !== null) {
+      // 过拍点：播一记节拍器音（音量低，不盖住战斗音效）
+      if (beatPhase < this.lastBeatPhase) audio.beatTick()
+      this.lastBeatPhase = beatPhase
       this.hud.updateBeat(beatPhase, this.combat?.beatJudge ?? null)
       this.hud.updateCombo(this.combat?.combo ?? 0)
     }
@@ -1068,6 +1079,18 @@ export class Game {
       ;(mesh.material as THREE.Material).dispose()
     }
     this.hazardMeshes.clear()
+  }
+
+  /** 眩晕：3m 内敌人 1 秒不能行动；精英/首领 5 秒内只能被晕一次 */
+  private applyStun(x: number, z: number, radius: number, durationMs: number): void {
+    for (const g of this.goblins) {
+      if (!g.alive) continue
+      if (Math.hypot(g.x - x, g.z - z) > radius + g.radius) continue
+      const ok = this.statusField.apply('stun', g.uid, durationMs, {
+        resistWindowMs: g.elite ? 5000 : 0,
+      })
+      if (ok) this.vfx.ring(g.x, g.z, { color: 0xb47bff, radius: 0.9, life: 0.3, grow: 1.6 })
+    }
   }
 
   /** 把逻辑区域同步成地面光环：新出现的建 mesh，消失的销毁 */
@@ -1472,6 +1495,10 @@ export class Game {
     for (let i = this.goblins.length - 1; i >= 0; i -= 1) {
       const g = this.goblins[i]
       const kind = this.goblinKinds.get(g) ?? 'small'
+      if (this.statusField.has('stun', g.uid)) {
+        g.update(dt, g.x, g.z, this.floor?.propColliders ?? [], (this.floor?.halfSize ?? 15) - 0.6)
+        continue
+      }
       let targetX = p.x
       let targetZ = p.z
 

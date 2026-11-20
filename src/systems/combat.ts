@@ -85,6 +85,8 @@ export interface CombatWorld {
 export interface CombatHooks {
   onHit(t: Hittable, amount: number, crit: boolean, killed: boolean): void
   onSfx(name: 'attack' | 'crit' | 'skill' | 'summon' | 'dash'): void
+  /** 请求对范围内敌人施加眩晕（毫秒）；不实现则忽略 */
+  onStun?(x: number, z: number, radius: number, durationMs: number): void
 }
 
 /** CombatWorld 的可选扩展（game.ts 实现即可生效，不实现走兜底） */
@@ -513,8 +515,9 @@ export class Combat {
     const def = CHARACTERS[this.charId]
     const rhythm = this.potentialBranch === 'rhythm'
     // 节奏分支：攻速锁到拍点（不再随耐力变化）
+    // A 方案：连发上限比网格快 30%，想踩准就得主动等拍点
     const interval = rhythm
-      ? this.beat.gridMs / 1000
+      ? (this.beat.gridMs / 1000) * 0.7
       : attackInterval(this.stats.stamina, def.attack.minInterval) * this.styleAttackIntervalMul()
     this.cooldownLeft = Math.max(0.01, interval)
     const judge = rhythm ? this.beat.judge(performance.now()) : null
@@ -826,6 +829,10 @@ export class Combat {
     const baseDuration = def.skill.duration ?? 8
     this.transformTime = Math.max(2, baseDuration - (this.style.id === 'mutsumi-solo' ? 2 : 0))
     this.potentialTransformExtra = 0
+    // 双重人格·压场：变身瞬间晕眩 3m 内小怪 1 秒
+    if (this.potentialBranch === 'duet' && this.hasNode('mutsumi-duet-stun')) {
+      this.hooks.onStun?.(px, pz, 3, 1000)
+    }
     this.encoreExtension = 0
     this.pulseLeft = p.pulseInterval ?? 0.5
     this.mods = {
@@ -1239,6 +1246,18 @@ export class Combat {
     if (ctx.slow && ctx.slow > 0) this.slowTarget(t, ctx.slow, 0.8)
     if (crit) this.hooks.onSfx('crit')
     this.hooks.onHit(t, amount, crit, killed)
+    // 节奏·60 连击：命中附带 3m 爆炸（60% 伤害）
+    if (this.potentialBranch === 'rhythm' && this.rhythmCombo >= 60 && t.alive) {
+      const world = this.activeWorld
+      if (world) {
+        for (const near of world.enemies) {
+          if (!near.alive || near === t) continue
+          if (Math.hypot(near.x - t.x, near.z - t.z) > 3) continue
+          near.hit(amount * 0.6, 0, 0)
+        }
+        this.burstAt(t.x, t.z, 0xffd479, 10)
+      }
+    }
 
     if (this.charId === 'mutsumi' && ctx.chord) {
       this.onChordHit(t, amount, killed, t.x, t.z)
