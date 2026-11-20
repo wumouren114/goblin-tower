@@ -291,7 +291,19 @@ export class TowerFloor implements WorldV3 {
 
   /** 中央地标（替换塔心信标）；null = 该层仍用旧信标 */
   private landmarkSpin: THREE.Group | null = null
+  private landmarkBacklight: THREE.Mesh | null = null
+  private landmarkGlowIndex = -1
+  private landmarkBacklightY = 3.2
   private hasLandmark = false
+
+  /** 六层细节：墙裙 / 墙裙压边（随墙体显隐同步）、地面光斑 */
+  private dadoMesh: THREE.InstancedMesh | null = null
+  private dadoTrimMesh: THREE.InstancedMesh | null = null
+  private dadoSides: ('south' | 'north' | 'east' | 'west')[] = []
+  private dadoBaseMatrices: THREE.Matrix4[] = []
+  private dadoTrimBaseMatrices: THREE.Matrix4[] = []
+  private lightPatchMat: THREE.MeshBasicMaterial | null = null
+  private lightPatchBaseOpacity = 0.24
 
   private altarRune: THREE.Mesh | null = null
   private crystal: THREE.Mesh | null = null
@@ -328,9 +340,18 @@ export class TowerFloor implements WorldV3 {
   private flameBatch: BillboardBatch | null = null
   private sealBatch: BillboardBatch | null = null
 
-  private mote: THREE.Points | null = null
-  private moteBase: Float32Array | null = null
-  private motePhase: Float32Array | null = null
+  private airBatch: BillboardBatch | null = null
+  private airParticles: {
+    x: number
+    y: number
+    z: number
+    size: number
+    color: number
+    alpha: number
+    phase: number
+    secondary: boolean
+  }[] = []
+  private airWallH = 4
 
   private dropRng = new Rng(0x1f123bb5)
   private built = false
@@ -382,7 +403,7 @@ export class TowerFloor implements WorldV3 {
     this.props = props
 
     // 发光 billboard 合批：数量按「祭坛 1 + 火把 8 + 塔藏箱 2」预留
-    this.glowBatch = new BillboardBatch(this.root, tex.glow, 16, { renderOrder: 4 })
+    this.glowBatch = new BillboardBatch(this.root, tex.glow, 20, { renderOrder: 4 })
     this.flameBatch = new BillboardBatch(this.root, tex.flame, 8, { renderOrder: 5 })
     this.sealBatch = new BillboardBatch(this.root, tex.rune, 2, { renderOrder: 5 })
 
@@ -404,7 +425,12 @@ export class TowerFloor implements WorldV3 {
 
     // 主光：唯一投影光源（2048 阴影贴图）
     const key = new THREE.DirectionalLight(mixHex(theme.keyColor, 0xfff6e8, 0.28), theme.keyIntensity * 1.12)
-    key.position.set(-half * 0.46, wallH * 4.6 + 7, half * 0.58)
+    const kAng = theme.detail.keyAngleOffset
+    const kBaseX = -half * 0.46
+    const kBaseZ = half * 0.58
+    const kCos = Math.cos(kAng)
+    const kSin = Math.sin(kAng)
+    key.position.set(kBaseX * kCos - kBaseZ * kSin, wallH * 4.6 + 7, kBaseX * kSin + kBaseZ * kCos)
     key.castShadow = true
     key.shadow.mapSize.set(2048, 2048)
     const sc = key.shadow.camera
@@ -620,7 +646,14 @@ export class TowerFloor implements WorldV3 {
     this.dropRng = new Rng(0x1f123bb5 ^ seed ^ half)
     this.buildProps(def, props, layoutRng)
 
-    /* ---------------- 空气浮尘 ---------------- */
+    /* ---------------- 六层细节（镶边地砖 / 墙裙 / 边缘堆积 / 地面光斑） ---------------- */
+    const detailRng = new Rng(0x6c8e9cf5 ^ seed ^ (half << 2))
+    this.buildFloorInlay(half)
+    this.buildWallDado(half)
+    this.buildWallDebris(half, detailRng)
+    this.buildLightPatches(half, detailRng, tex)
+
+    /* ---------------- 空气粒子（BillboardBatch 批处理，<= 60） ---------------- */
     this.buildMotes(half, wallH, tex)
 
     /* ---------------- 房间布景（默认隐藏，进房间时才显示） ---------------- */
@@ -857,6 +890,44 @@ export class TowerFloor implements WorldV3 {
         spin.add(tooth)
       }
       group.add(spin)
+    }
+
+    // 地标逆光描边环 + 背后柔光晕（保证 90 只怪同屏时仍能一眼认出当前区域）
+    const backY = kind === 'windmill' ? 2.95 : kind === 'orrery' ? 4.1 : 4.2
+    const rimOuter = kind === 'windmill' ? 2.55 : kind === 'orrery' ? 2.75 : 2.95
+    const rimInner = rimOuter - 0.34
+    const backMat = new THREE.MeshBasicMaterial({
+      color: mixHex(theme.detail.backlightColor, 0xffffff, 0.32),
+      transparent: true,
+      opacity: 0.42,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    })
+    const backRing = new THREE.Mesh(new THREE.RingGeometry(rimInner, rimOuter, 32), backMat)
+    backRing.name = 'LandmarkBacklight'
+    backRing.position.set(0, backY, -0.45)
+    backRing.rotation.x = -0.22
+    backRing.renderOrder = 3
+    group.add(backRing)
+    this.landmarkBacklight = backRing
+    this.landmarkBacklightY = backY
+
+    if (this.glowBatch) {
+      this.landmarkGlowIndex = this.glowBatch.acquire()
+      if (this.landmarkGlowIndex >= 0) {
+        this.glowBatch.set(
+          this.landmarkGlowIndex,
+          0,
+          backY,
+          -0.55,
+          rimOuter * 2.5,
+          rimOuter * 2.5,
+          theme.detail.backlightColor,
+          0.34,
+        )
+      }
     }
 
     // 碰撞按底座半径，不按叶片：挡路但不挡视线
@@ -1318,45 +1389,220 @@ export class TowerFloor implements WorldV3 {
     })
   }
 
-  /* ---------------- 浮尘 ---------------- */
+  /* ---------------- 细节层 1：地面镶边拼砖（+1 drawcall） ---------------- */
+  private buildFloorInlay(half: number): void {
+    const theme = this.theme
+    if (!theme) return
+    const detail = theme.detail
+    const mats: THREE.Matrix4[] = []
+    const q = new THREE.Quaternion()
+    const edge = half - 2.4
+    const len = edge * 2
+
+    // 四周镶边石道 + 中央地标外框（与主地砖形成双拼层次）
+    mats.push(new THREE.Matrix4().compose(new THREE.Vector3(0, 0.012, edge), q, new THREE.Vector3(len, 0.02, 0.95)))
+    mats.push(new THREE.Matrix4().compose(new THREE.Vector3(0, 0.012, -edge), q, new THREE.Vector3(len, 0.02, 0.95)))
+    mats.push(new THREE.Matrix4().compose(new THREE.Vector3(edge, 0.012, 0), q, new THREE.Vector3(0.95, 0.02, len)))
+    mats.push(new THREE.Matrix4().compose(new THREE.Vector3(-edge, 0.012, 0), q, new THREE.Vector3(0.95, 0.02, len)))
+    // 中央八角/十字镶边铺路
+    const plaza = 4.2
+    mats.push(new THREE.Matrix4().compose(new THREE.Vector3(0, 0.013, plaza), q, new THREE.Vector3(plaza * 2, 0.02, 0.65)))
+    mats.push(new THREE.Matrix4().compose(new THREE.Vector3(0, 0.013, -plaza), q, new THREE.Vector3(plaza * 2, 0.02, 0.65)))
+    mats.push(new THREE.Matrix4().compose(new THREE.Vector3(plaza, 0.013, 0), q, new THREE.Vector3(0.65, 0.02, plaza * 2)))
+    mats.push(new THREE.Matrix4().compose(new THREE.Vector3(-plaza, 0.013, 0), q, new THREE.Vector3(0.65, 0.02, plaza * 2)))
+
+    const geo = new THREE.BoxGeometry(1, 1, 1)
+    const mat = new THREE.MeshStandardMaterial({
+      color: detail.inlayColor,
+      roughness: 0.88,
+      metalness: detail.airKind === 'clocktower' ? 0.22 : 0.04,
+    })
+    const mesh = this.instanced(geo, mat, mats, false)
+    mesh.name = 'FloorInlay'
+    mesh.receiveShadow = true
+    this.root.add(mesh)
+  }
+
+  /* ---------------- 细节层 2：墙裙 0.6m + 独立压边（+2 drawcall） ---------------- */
+  private buildWallDado(half: number): void {
+    const theme = this.theme
+    if (!theme) return
+    const detail = theme.detail
+    const size = half * 2
+    const dadoH = 0.6
+    const dadoD = 0.2
+    const trimH = 0.11
+    const trimD = 0.28
+
+    const sides: ('south' | 'north' | 'east' | 'west')[] = ['south', 'north', 'east', 'west']
+    const q = new THREE.Quaternion()
+    const dadoBases: THREE.Matrix4[] = []
+    const trimBases: THREE.Matrix4[] = []
+
+    const specs: [number, number, number, number, number, number][] = [
+      [size, dadoD, 0, half - dadoD / 2, size, trimD],
+      [size, dadoD, 0, -(half - dadoD / 2), size, trimD],
+      [dadoD, size, half - dadoD / 2, 0, trimD, size],
+      [dadoD, size, -(half - dadoD / 2), 0, trimD, size],
+    ]
+    for (let i = 0; i < sides.length; i += 1) {
+      const [dw, dd, x, z, tw, td] = specs[i]
+      dadoBases.push(new THREE.Matrix4().compose(new THREE.Vector3(x, dadoH / 2, z), q, new THREE.Vector3(dw, dadoH, dd)))
+      const tx = i === 2 ? half - trimD / 2 : i === 3 ? -(half - trimD / 2) : x
+      const tz = i === 0 ? half - trimD / 2 : i === 1 ? -(half - trimD / 2) : z
+      trimBases.push(
+        new THREE.Matrix4().compose(new THREE.Vector3(tx, dadoH + trimH / 2, tz), q, new THREE.Vector3(tw, trimH, td)),
+      )
+    }
+
+    const dadoMat = new THREE.MeshStandardMaterial({
+      color: detail.dadoColor,
+      roughness: 0.92,
+      metalness: detail.airKind === 'clocktower' ? 0.26 : 0.05,
+      flatShading: true,
+    })
+    const trimMat = new THREE.MeshStandardMaterial({
+      color: detail.dadoTrimColor,
+      roughness: 0.72,
+      metalness: detail.airKind === 'clocktower' ? 0.35 : 0.1,
+      flatShading: true,
+    })
+
+    const dadoMesh = this.instanced(new THREE.BoxGeometry(1, 1, 1), dadoMat, dadoBases, false)
+    dadoMesh.name = 'WallDado'
+    dadoMesh.receiveShadow = true
+    const trimMesh = this.instanced(new THREE.BoxGeometry(1, 1, 1), trimMat, trimBases, false)
+    trimMesh.name = 'WallDadoTrim'
+    trimMesh.receiveShadow = true
+
+    this.dadoSides = sides
+    this.dadoBaseMatrices = dadoBases
+    this.dadoTrimBaseMatrices = trimBases
+    this.dadoMesh = dadoMesh
+    this.dadoTrimMesh = trimMesh
+    this.root.add(dadoMesh)
+    this.root.add(trimMesh)
+  }
+
+  /* ---------------- 细节层 3：沿墙边缘堆积 0.1~0.2m（+1 drawcall，无碰撞） ---------------- */
+  private buildWallDebris(half: number, rng: Rng): void {
+    const theme = this.theme
+    if (!theme) return
+    const detail = theme.detail
+    const perWall = 9
+    const mats: THREE.Matrix4[] = []
+    const colors: number[] = []
+    const q = new THREE.Quaternion()
+    const inset = half - 0.52
+
+    for (let side = 0; side < 4; side += 1) {
+      for (let i = 0; i < perWall; i += 1) {
+        const t = -half + 2.0 + ((half * 2 - 4.0) * (i + rng.range(0.15, 0.85))) / perWall
+        const x = side === 0 || side === 1 ? t : side === 2 ? inset : -inset
+        const z = side === 0 ? inset : side === 1 ? -inset : t
+        // 入口处留空，不压住进场动线
+        if (side === 0 && Math.abs(x) < 2.6) continue
+        const h = rng.range(0.11, 0.2)
+        const sx = rng.range(0.42, 0.92)
+        const sz = rng.range(0.32, 0.65)
+        q.setFromAxisAngle(UP, rng.range(0, Math.PI * 2))
+        mats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, h * 0.45, z), q, new THREE.Vector3(sx, h, sz)))
+        colors.push(detail.debrisColors[rng.int(0, detail.debrisColors.length - 1)])
+      }
+    }
+    if (mats.length === 0) return
+
+    const geo = new THREE.DodecahedronGeometry(0.55, 0)
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: detail.debrisKind === 'stardust' ? 0.55 : 0.94,
+      metalness: detail.debrisKind === 'rubble' ? 0.18 : 0.04,
+      flatShading: true,
+      emissive: detail.debrisKind === 'stardust' ? detail.debrisColors[1] : 0x000000,
+      emissiveIntensity: detail.debrisKind === 'stardust' ? 0.16 : 0,
+    })
+    const mesh = new THREE.InstancedMesh(geo, mat, mats.length)
+    mesh.name = 'WallDebris'
+    mesh.receiveShadow = true
+    mesh.frustumCulled = false
+    const c = new THREE.Color()
+    for (let i = 0; i < mats.length; i += 1) {
+      mesh.setMatrixAt(i, mats[i])
+      mesh.setColorAt(i, c.setHex(colors[i]))
+    }
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+    this.root.add(mesh)
+  }
+
+  /* ---------------- 细节层 4：地面多边形亮斑（+1 drawcall，无新点光） ---------------- */
+  private buildLightPatches(half: number, rng: Rng, tex: TextureBook): void {
+    const theme = this.theme
+    if (!theme) return
+    const detail = theme.detail
+    const count = 10
+    const mats: THREE.Matrix4[] = []
+    const q = new THREE.Quaternion()
+    const rotX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
+    const rotY = new THREE.Quaternion()
+
+    for (let i = 0; i < count; i += 1) {
+      const angle = (i / count) * Math.PI * 2 + detail.lightPatchAngle * 0.5
+      const dist = rng.range(half * 0.28, half * 0.72)
+      const x = Math.cos(angle) * dist
+      const z = Math.sin(angle) * dist
+      const w = rng.range(2.6, 4.8)
+      const l = rng.range(3.2, 6.2)
+      rotY.setFromAxisAngle(UP, detail.lightPatchAngle + rng.range(-0.14, 0.14))
+      q.copy(rotY).multiply(rotX)
+      mats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 0.022, z), q, new THREE.Vector3(w, l, 1)))
+    }
+
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex.lightPatch,
+      color: detail.lightPatchColor,
+      transparent: true,
+      opacity: detail.lightPatchOpacity,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    })
+    this.lightPatchMat = mat
+    this.lightPatchBaseOpacity = detail.lightPatchOpacity
+
+    const mesh = this.instanced(new THREE.PlaneGeometry(1, 1), mat, mats, false)
+    mesh.name = 'FloorLightPatches'
+    mesh.renderOrder = 2
+    this.root.add(mesh)
+  }
+
+  /* ---------------- 细节层 5：场景空气粒子（BillboardBatch 批处理，<= 60） ---------------- */
   private buildMotes(half: number, wallH: number, tex: TextureBook): void {
     const theme = this.theme
     if (!theme) return
-    // 浮尘改为低密度、低亮度，避免贴着地面看时像地板在闪星
-    const count = 22
-    const pos = new Float32Array(count * 3)
-    this.moteBase = new Float32Array(count * 3)
-    this.motePhase = new Float32Array(count)
-    const rng = new Rng(0x51ed2701 ^ half)
-    for (let i = 0; i < count; i++) {
+    const detail = theme.detail
+    const count = Math.min(60, Math.max(12, detail.airCount))
+    this.airWallH = wallH
+    this.airBatch = new BillboardBatch(this.root, tex.airParticle, 60, { renderOrder: 4 })
+    this.airParticles = []
+
+    const rng = new Rng(0x51ed2701 ^ hashSeed(theme.id) ^ half)
+    for (let i = 0; i < count; i += 1) {
+      const secondary = i % 3 === 0
       const x = rng.range(-half + 1.2, half - 1.2)
-      const y = rng.range(0.4, wallH * 0.92)
+      const y = rng.range(0.45, wallH + 0.9)
       const z = rng.range(-half + 1.2, half - 1.2)
-      this.moteBase[i * 3] = x
-      this.moteBase[i * 3 + 1] = y
-      this.moteBase[i * 3 + 2] = z
-      this.motePhase[i] = rng.range(0, Math.PI * 2)
-      pos[i * 3] = x
-      pos[i * 3 + 1] = y
-      pos[i * 3 + 2] = z
+      const size = secondary ? rng.range(0.12, 0.2) : rng.range(0.22, 0.36)
+      const color = secondary ? detail.airColors[1] : detail.airColors[0]
+      const alpha = secondary ? rng.range(0.45, 0.72) : rng.range(0.55, 0.85)
+      const phase = rng.range(0, Math.PI * 2)
+      this.airParticles.push({ x, y, z, size, color, alpha, phase, secondary })
+      const slot = this.airBatch.acquire()
+      if (slot >= 0) {
+        this.airBatch.set(slot, x, y, z, size, size, color, alpha)
+      }
     }
-    const geo = new THREE.BufferGeometry()
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
-    const mat = new THREE.PointsMaterial({
-      map: tex.mote,
-      color: mixHex(theme.accentColor, 0xffffff, 0.6),
-      size: 0.075,
-      transparent: true,
-      opacity: 0.2,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      sizeAttenuation: true,
-      toneMapped: false,
-    })
-    this.mote = new THREE.Points(geo, mat)
-    this.mote.frustumCulled = false
-    this.mote.renderOrder = 3
-    this.root.add(this.mote)
+    this.airBatch.flush()
   }
 
   /* ================================================================ */
@@ -1614,7 +1860,31 @@ export class TowerFloor implements WorldV3 {
     if (!this.built) return
     this.time += dt
     const t = this.time
-    if (this.landmarkSpin) this.landmarkSpin.rotation.y += dt * 0.5
+    if (this.landmarkSpin) {
+      const spinSpeed = this.theme?.detail.landmarkSpinSpeed ?? 0.5
+      this.landmarkSpin.rotation.y += dt * spinSpeed
+    }
+    if (this.landmarkBacklight) {
+      const mat = this.landmarkBacklight.material as THREE.MeshBasicMaterial
+      mat.opacity = 0.38 + Math.sin(t * 1.9) * 0.08
+    }
+    if (this.landmarkGlowIndex >= 0 && this.glowBatch && this.theme) {
+      const pulse = 6.2 + Math.sin(t * 1.5) * 0.45
+      this.glowBatch.set(
+        this.landmarkGlowIndex,
+        0,
+        this.landmarkBacklightY,
+        -0.55,
+        pulse,
+        pulse,
+        this.theme.detail.backlightColor,
+        0.3 + Math.sin(t * 1.8) * 0.05,
+      )
+    }
+    if (this.lightPatchMat) {
+      const shimmer = this.theme?.detail.lightPatchKind === 'canopy' ? 0.045 : 0.02
+      this.lightPatchMat.opacity = this.lightPatchBaseOpacity + Math.sin(t * 1.3) * shimmer
+    }
     if (this.boundaryMat) {
       // 很轻的呼吸，不抢角色；墙被隐藏时这条光带就是唯一的边界提示。
       this.boundaryMat.opacity = 0.3 + Math.sin(t * 1.7) * 0.05
@@ -1693,20 +1963,30 @@ export class TowerFloor implements WorldV3 {
       this.props.pulse.emissiveIntensity = 1.35
     }
 
-    // 浮尘缓慢漂移
-    if (this.mote && this.moteBase && this.motePhase) {
-      const attr = this.mote.geometry.getAttribute('position') as THREE.BufferAttribute
-      const arr = attr.array as Float32Array
-      const base = this.moteBase
-      const ph = this.motePhase
-      const n = ph.length
-      for (let i = 0; i < n; i++) {
-        const p = ph[i]
-        arr[i * 3] = base[i * 3] + Math.sin(t * 0.23 + p) * 0.9
-        arr[i * 3 + 1] = base[i * 3 + 1] + Math.sin(t * 0.41 + p * 1.7) * 0.5
-        arr[i * 3 + 2] = base[i * 3 + 2] + Math.cos(t * 0.19 + p * 0.8) * 0.9
+    // 场景空气粒子按天气/变体漂移（全走 BillboardBatch）
+    if (this.airBatch && this.airParticles.length > 0 && this.theme) {
+      const drift = this.theme.detail.airDrift
+      const lim = Math.max(2, this.halfSize - 1.1)
+      const minY = 0.35
+      const maxY = this.airWallH + 1.0
+      const span = lim * 2
+      const spanY = maxY - minY
+      for (let i = 0; i < this.airParticles.length; i += 1) {
+        const pt = this.airParticles[i]
+        const speedMul = pt.secondary ? 1.35 : 1.0
+        pt.x += (drift.vx * speedMul + Math.sin(t * 0.9 + pt.phase) * drift.sway * 0.45) * dt
+        pt.y += (drift.vy * speedMul + Math.cos(t * 1.1 + pt.phase * 1.3) * 0.18) * dt
+        pt.z += (drift.vz * speedMul + Math.cos(t * 0.8 + pt.phase * 0.7) * drift.sway * 0.45) * dt
+        if (pt.x > lim) pt.x -= span
+        else if (pt.x < -lim) pt.x += span
+        if (pt.z > lim) pt.z -= span
+        else if (pt.z < -lim) pt.z += span
+        if (pt.y > maxY) pt.y -= spanY
+        else if (pt.y < minY) pt.y += spanY
+        const twinkle = pt.secondary ? 0.72 + Math.sin(t * 3.4 + pt.phase) * 0.28 : 0.85 + Math.sin(t * 1.6 + pt.phase) * 0.15
+        this.airBatch.set(i, pt.x, pt.y, pt.z, pt.size, pt.size, pt.color, pt.alpha * twinkle, 0, 0, 1, 1, t * 0.6 + pt.phase)
       }
-      attr.needsUpdate = true
+      this.airBatch.flush()
     }
 
     this.glowBatch?.flush()
@@ -1899,10 +2179,19 @@ export class TowerFloor implements WorldV3 {
     this.roomAccent = 0
     this.roomFocus.x = 0
     this.roomFocus.z = 0
-    this.mote = null
-    this.moteBase = null
-    this.motePhase = null
+    this.landmarkSpin = null
+    this.landmarkBacklight = null
+    this.landmarkGlowIndex = -1
+    this.dadoMesh = null
+    this.dadoTrimMesh = null
+    this.dadoSides.length = 0
+    this.dadoBaseMatrices.length = 0
+    this.dadoTrimBaseMatrices.length = 0
+    this.lightPatchMat = null
+    this.airParticles.length = 0
 
+    this.airBatch?.dispose()
+    this.airBatch = null
     this.glowBatch?.dispose()
     this.flameBatch?.dispose()
     this.sealBatch?.dispose()
@@ -1952,6 +2241,16 @@ export class TowerFloor implements WorldV3 {
         mesh.setMatrixAt(i, visible ? bases[i] : ZERO_BANNER)
       }
       mesh.instanceMatrix.needsUpdate = true
+    }
+    // 墙裙与墙裙压边随对应墙面同步显隐
+    if (this.dadoMesh && this.dadoTrimMesh) {
+      for (let i = 0; i < this.dadoSides.length; i += 1) {
+        const visible = !this.hiddenWalls.has(this.dadoSides[i])
+        this.dadoMesh.setMatrixAt(i, visible ? this.dadoBaseMatrices[i] : ZERO_BANNER)
+        this.dadoTrimMesh.setMatrixAt(i, visible ? this.dadoTrimBaseMatrices[i] : ZERO_BANNER)
+      }
+      this.dadoMesh.instanceMatrix.needsUpdate = true
+      this.dadoTrimMesh.instanceMatrix.needsUpdate = true
     }
   }
 

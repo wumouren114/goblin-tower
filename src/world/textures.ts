@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { ThemeLike } from './themes'
+import type { AirParticleKind, FloorTilePattern, LightPatchKind, ThemeLike, ThemeV3 } from './themes'
 import { familyOf } from './themes'
 import { Rng } from '../core/rng'
 
@@ -210,50 +210,109 @@ function floorDetail(ctx: CanvasRenderingContext2D, theme: ThemeLike, rng: Rng):
   }
 }
 
-/** 64×64 石厅地砖（2×2 块大石砖 + 缝隙 + 裂纹） */
+function drawTileBevel(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  base: number,
+  rng: Rng,
+): void {
+  if (w <= 2 || h <= 2) return
+  ctx.fillStyle = hexCss(base)
+  ctx.fillRect(x, y, w, h)
+  ctx.fillStyle = hexCss(toneHex(base, 0.18))
+  ctx.fillRect(x, y, w - 1, 1)
+  ctx.fillRect(x, y, 1, h - 1)
+  ctx.fillStyle = hexCss(toneHex(base, -0.3))
+  ctx.fillRect(x, y + h - 1, w, 1)
+  ctx.fillRect(x + w - 1, y, 1, h)
+  const grain = Math.max(4, Math.floor((w * h) / 48))
+  for (let i = 0; i < grain; i++) {
+    const v = rng.chance(0.5) ? 0.12 : -0.14
+    ctx.fillStyle = hexCss(toneHex(base, v), rng.range(0.45, 0.9))
+    ctx.fillRect(x + rng.int(1, Math.max(1, w - 2)), y + rng.int(1, Math.max(1, h - 2)), rng.int(1, 2), 1)
+  }
+}
+
+/** 64×64 多拼法地砖：大方砖(flagstone) / 碎拼(crazy) / 镶边(inlay) */
 function makeFloorTexture(theme: ThemeLike, seed: number): THREE.CanvasTexture {
   const rng = new Rng(seed)
   const { canvas, ctx } = makeCanvas(64, 64)
   ctx.imageSmoothingEnabled = false
 
-  // 底色 = 缝隙（压暗的主色）
-  ctx.fillStyle = hexCss(toneHex(theme.floorAltColor, -0.5))
+  const detail = (theme as Partial<ThemeV3>).detail
+  const pattern: FloorTilePattern = detail?.tilePattern ?? 'flagstone'
+  const inlayCol = detail?.inlayColor ?? mixHex(theme.floorColor, 0xffffff, 0.25)
+
+  // 底色 = 砖缝（压暗的主色）
+  ctx.fillStyle = hexCss(toneHex(theme.floorAltColor, -0.46))
   ctx.fillRect(0, 0, 64, 64)
 
-  const TILE = 32
-  for (let ty = 0; ty < 2; ty++) {
-    for (let tx = 0; tx < 2; tx++) {
-      const x0 = tx * TILE
-      const y0 = ty * TILE
-      const base = mixHex(theme.floorColor, theme.floorAltColor, rng.range(0, 0.9))
-
-      ctx.fillStyle = hexCss(base)
-      ctx.fillRect(x0 + 1, y0 + 1, TILE - 1, TILE - 1)
-
-      // 受光边（上/左）
-      ctx.fillStyle = hexCss(toneHex(base, 0.16))
-      ctx.fillRect(x0 + 1, y0 + 1, TILE - 2, 1)
-      ctx.fillRect(x0 + 1, y0 + 1, 1, TILE - 2)
-      // 暗边（下/右）
-      ctx.fillStyle = hexCss(toneHex(base, -0.32))
-      ctx.fillRect(x0 + 1, y0 + TILE - 2, TILE - 1, 1)
-      ctx.fillRect(x0 + TILE - 2, y0 + 1, 1, TILE - 1)
-
-      // 石面颗粒
-      for (let i = 0; i < 20; i++) {
-        const v = rng.chance(0.5) ? 0.12 : -0.14
-        ctx.fillStyle = hexCss(toneHex(base, v), rng.range(0.5, 0.95))
-        ctx.fillRect(x0 + rng.int(2, TILE - 2), y0 + rng.int(2, TILE - 2), rng.int(1, 2), 1)
+  if (pattern === 'crazy') {
+    // 碎拼：错缝大小石块 + 暖冷色差 + 少量镶嵌亮石
+    const blocks: [number, number, number, number][] = [
+      [1, 1, 22, 18], [24, 1, 17, 13], [42, 1, 21, 20],
+      [1, 20, 14, 21], [16, 15, 25, 16], [42, 22, 21, 15],
+      [1, 42, 26, 21], [28, 32, 13, 19], [42, 38, 21, 25],
+      [28, 52, 13, 11], [16, 32, 11, 9],
+    ]
+    for (let i = 0; i < blocks.length; i++) {
+      const [x, y, w, h] = blocks[i]
+      const base =
+        i % 5 === 2
+          ? mixHex(theme.floorColor, inlayCol, 0.55)
+          : mixHex(theme.floorColor, theme.floorAltColor, rng.range(0.05, 0.95))
+      drawTileBevel(ctx, x, y, w, h, base, rng)
+      if (rng.chance(0.45)) {
+        drawCrack(ctx, x + 2, y + 2, rng.range(6, 14), hexCss(toneHex(base, -0.5), 0.78), rng)
       }
-
-      // 裂纹
-      if (rng.chance(0.6)) {
+    }
+  } else if (pattern === 'inlay') {
+    // 镶边拼法：四周窄边条 + 中心菱形/方框镶嵌 + 强调色角钉
+    drawTileBevel(ctx, 1, 1, 62, 11, mixHex(theme.floorAltColor, inlayCol, 0.35), rng)
+    drawTileBevel(ctx, 1, 52, 62, 11, mixHex(theme.floorAltColor, inlayCol, 0.35), rng)
+    drawTileBevel(ctx, 1, 13, 11, 38, mixHex(theme.floorColor, theme.floorAltColor, 0.5), rng)
+    drawTileBevel(ctx, 52, 13, 11, 38, mixHex(theme.floorColor, theme.floorAltColor, 0.5), rng)
+    drawTileBevel(ctx, 13, 13, 18, 18, theme.floorColor, rng)
+    drawTileBevel(ctx, 33, 13, 18, 18, mixHex(theme.floorColor, theme.floorAltColor, 0.4), rng)
+    drawTileBevel(ctx, 13, 33, 18, 18, mixHex(theme.floorColor, theme.floorAltColor, 0.4), rng)
+    drawTileBevel(ctx, 33, 33, 18, 18, theme.floorColor, rng)
+    ctx.fillStyle = hexCss(mixHex(inlayCol, theme.accentColor, 0.25), 0.9)
+    ctx.beginPath()
+    ctx.moveTo(32, 22)
+    ctx.lineTo(42, 32)
+    ctx.lineTo(32, 42)
+    ctx.lineTo(22, 32)
+    ctx.closePath()
+    ctx.fill()
+    ctx.fillStyle = hexCss(mixHex(theme.accentColor, 0xffffff, 0.35), 0.85)
+    for (const [cx, cy] of [[6, 6], [56, 6], [6, 56], [56, 56]]) {
+      ctx.fillRect(cx, cy, 3, 3)
+    }
+  } else {
+    // 大方砖 + 错位副砖拼法：避免整片均等 2×2 单调感
+    const tiles: [number, number, number, number, boolean][] = [
+      [1, 1, 38, 30, false],
+      [40, 1, 23, 30, true],
+      [1, 32, 23, 31, true],
+      [25, 32, 38, 31, false],
+    ]
+    for (const [x, y, w, h, accentTile] of tiles) {
+      const base = accentTile
+        ? mixHex(theme.floorAltColor, inlayCol, 0.42)
+        : mixHex(theme.floorColor, theme.floorAltColor, rng.range(0, 0.72))
+      drawTileBevel(ctx, x, y, w, h, base, rng)
+      ctx.strokeStyle = hexCss(toneHex(base, -0.22), 0.45)
+      ctx.strokeRect(x + 3.5, y + 3.5, w - 7, h - 7)
+      if (rng.chance(0.55)) {
         drawCrack(
           ctx,
-          x0 + rng.int(2, TILE - 8),
-          y0 + rng.int(2, TILE - 8),
-          rng.range(8, 22),
-          hexCss(toneHex(base, -0.55), 0.85),
+          x + rng.int(2, Math.max(3, w - 8)),
+          y + rng.int(2, Math.max(3, h - 8)),
+          rng.range(8, 20),
+          hexCss(toneHex(base, -0.52), 0.82),
           rng,
         )
       }
@@ -627,6 +686,115 @@ function makeMoteTexture(): THREE.CanvasTexture {
   return finalize(canvas, { nearest: false, repeat: false })
 }
 
+/** 地面光斑贴图（窗光 / 树影斑驳 / 晶光菱斑 / 拱窗光束） */
+function makeLightPatchTexture(kind: LightPatchKind): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(64, 64)
+  ctx.clearRect(0, 0, 64, 64)
+
+  if (kind === 'window') {
+    const g = ctx.createLinearGradient(8, 6, 56, 58)
+    g.addColorStop(0, 'rgba(255,255,255,0.95)')
+    g.addColorStop(0.75, 'rgba(255,255,255,0.6)')
+    g.addColorStop(1, 'rgba(255,255,255,0.05)')
+    ctx.fillStyle = g
+    for (const [x, y] of [[8, 8], [34, 8], [8, 34], [34, 34]]) {
+      ctx.fillRect(x, y, 22, 22)
+    }
+  } else if (kind === 'canopy') {
+    const spots: [number, number, number, number][] = [
+      [22, 22, 16, 11], [42, 24, 14, 10], [32, 40, 18, 12], [18, 42, 10, 8], [46, 44, 11, 8],
+    ]
+    for (const [cx, cy, rx, ry] of spots) {
+      const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, Math.max(rx, ry))
+      g.addColorStop(0, 'rgba(255,255,255,0.85)')
+      g.addColorStop(0.6, 'rgba(255,255,255,0.35)')
+      g.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = g
+      ctx.beginPath()
+      ctx.ellipse(cx, cy, rx, ry, 0.3, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  } else if (kind === 'crystal') {
+    const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 28)
+    g.addColorStop(0, 'rgba(255,255,255,1)')
+    g.addColorStop(0.45, 'rgba(255,255,255,0.6)')
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.moveTo(32, 4)
+    ctx.lineTo(44, 22)
+    ctx.lineTo(60, 32)
+    ctx.lineTo(44, 42)
+    ctx.lineTo(32, 60)
+    ctx.lineTo(20, 42)
+    ctx.lineTo(4, 32)
+    ctx.lineTo(20, 22)
+    ctx.closePath()
+    ctx.fill()
+  } else {
+    const g = ctx.createLinearGradient(32, 4, 32, 62)
+    g.addColorStop(0, 'rgba(255,255,255,0.92)')
+    g.addColorStop(0.65, 'rgba(255,255,255,0.52)')
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.arc(32, 22, 18, Math.PI, 0)
+    ctx.lineTo(50, 58)
+    ctx.lineTo(14, 58)
+    ctx.closePath()
+    ctx.fill()
+  }
+  return finalize(canvas, { nearest: false, repeat: false })
+}
+
+/** 空气粒子贴图（走 BillboardBatch 批处理）：花庭花瓣 / 观星台星尘 / 钟塔火星铜屑 */
+function makeAirParticleTexture(kind: AirParticleKind): THREE.CanvasTexture {
+  const { canvas, ctx } = makeCanvas(32, 32)
+  ctx.clearRect(0, 0, 32, 32)
+
+  if (kind === 'garden') {
+    const g = ctx.createRadialGradient(14, 14, 1, 16, 16, 13)
+    g.addColorStop(0, 'rgba(255,255,255,1)')
+    g.addColorStop(0.6, 'rgba(255,255,255,0.85)')
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.ellipse(16, 16, 11, 7, -0.45, 0, Math.PI * 2)
+    ctx.fill()
+  } else if (kind === 'observatory') {
+    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 14)
+    g.addColorStop(0, 'rgba(255,255,255,1)')
+    g.addColorStop(0.35, 'rgba(255,255,255,0.75)')
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.moveTo(16, 2)
+    ctx.lineTo(19, 13)
+    ctx.lineTo(30, 16)
+    ctx.lineTo(19, 19)
+    ctx.lineTo(16, 30)
+    ctx.lineTo(13, 19)
+    ctx.lineTo(2, 16)
+    ctx.lineTo(13, 13)
+    ctx.closePath()
+    ctx.fill()
+  } else {
+    const g = ctx.createRadialGradient(16, 16, 0, 16, 16, 13)
+    g.addColorStop(0, 'rgba(255,255,255,1)')
+    g.addColorStop(0.45, 'rgba(255,255,255,0.85)')
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.moveTo(16, 4)
+    ctx.lineTo(25, 16)
+    ctx.lineTo(16, 28)
+    ctx.lineTo(7, 16)
+    ctx.closePath()
+    ctx.fill()
+  }
+  return finalize(canvas, { nearest: false, repeat: false })
+}
+
 /* ------------------------------------------------------------------ */
 /*  纹理包                                                             */
 /* ------------------------------------------------------------------ */
@@ -646,6 +814,8 @@ export class TextureBook {
   readonly glow: THREE.CanvasTexture
   readonly beam: THREE.CanvasTexture
   readonly mote: THREE.CanvasTexture
+  readonly lightPatch: THREE.CanvasTexture
+  readonly airParticle: THREE.CanvasTexture
   private readonly owned: THREE.Texture[] = []
 
   constructor(readonly theme: ThemeLike) {
@@ -664,6 +834,9 @@ export class TextureBook {
     this.glow = this.reg(makeGlowTexture())
     this.beam = this.reg(makeBeamTexture())
     this.mote = this.reg(makeMoteTexture())
+    const detail = (theme as Partial<ThemeV3>).detail
+    this.lightPatch = this.reg(makeLightPatchTexture(detail?.lightPatchKind ?? 'window'))
+    this.airParticle = this.reg(makeAirParticleTexture(detail?.airKind ?? 'garden'))
   }
 
   private reg<T extends THREE.Texture>(t: T): T {
