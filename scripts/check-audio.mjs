@@ -44,6 +44,11 @@ const DOC_SFX_RANGES = {
   tunnel: [0.4, 0.7],
   caster_shot: [0.1, 0.15],
   beat_tick: [0.04, 0.08],
+  enemy_charger_windup: [0.45, 0.75],
+  enemy_summoner_cast: [0.3, 0.5],
+  enemy_bomber_fuse: [0.38, 0.62],
+  potential_pick: [0.22, 0.38],
+  mark_settle: [0.18, 0.32],
 }
 
 const REQUIRED_SFX = Object.keys(DOC_SFX_RANGES)

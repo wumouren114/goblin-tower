@@ -5,7 +5,7 @@
   "channels": 1,
   "bitsPerSample": 16,
   "targetPeakDb": -1,
-  "totalBytes": 6842686,
+  "totalBytes": 6933312,
   "files": [
     {
       "file": "bgm_title.wav",
@@ -408,6 +408,91 @@
       "durationRangeS": [
         0.04,
         0.08
+      ]
+    },
+    {
+      "file": "sfx_enemy_charger_windup.wav",
+      "kind": "sfx",
+      "bytes": 26504,
+      "sha256": "038246ab7eef433af5ad0be0c3eabe01948b835201303ef60ca257539cb9393e",
+      "samples": 13230,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.6,
+      "peakDb": -5,
+      "rmsDb": -14.87,
+      "durationRangeS": [
+        0.45,
+        0.75
+      ]
+    },
+    {
+      "file": "sfx_enemy_summoner_cast.wav",
+      "kind": "sfx",
+      "bytes": 17684,
+      "sha256": "4fbf17860f182fa9e2e4cbe724c71bc85a79c016716e22cb6f845260f7d9c389",
+      "samples": 8820,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.4,
+      "peakDb": -6,
+      "rmsDb": -18.13,
+      "durationRangeS": [
+        0.3,
+        0.5
+      ]
+    },
+    {
+      "file": "sfx_enemy_bomber_fuse.wav",
+      "kind": "sfx",
+      "bytes": 22094,
+      "sha256": "5f72777cf38b5544255199647d6f5a921355eedbeb48a7bb3ac1b5e6139b7975",
+      "samples": 11025,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.5,
+      "peakDb": -7,
+      "rmsDb": -19.32,
+      "durationRangeS": [
+        0.38,
+        0.62
+      ]
+    },
+    {
+      "file": "sfx_potential_pick.wav",
+      "kind": "sfx",
+      "bytes": 13274,
+      "sha256": "eea4e2b0163b862772c32b44d526c3ae03390662cbb719c15b5cfbc406e9d697",
+      "samples": 6615,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.3,
+      "peakDb": -5,
+      "rmsDb": -16.1,
+      "durationRangeS": [
+        0.22,
+        0.38
+      ]
+    },
+    {
+      "file": "sfx_mark_settle.wav",
+      "kind": "sfx",
+      "bytes": 11070,
+      "sha256": "62a54be924bef381b29c4721af37c5a890def1fbd54d1a0d480ebfb4d355ba5e",
+      "samples": 5513,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.25,
+      "peakDb": -4,
+      "rmsDb": -19.3,
+      "durationRangeS": [
+        0.18,
+        0.32
       ]
     }
   ]
