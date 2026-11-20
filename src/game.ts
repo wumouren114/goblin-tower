@@ -3381,30 +3381,20 @@ export class Game {
     this.hud.hideInventory()
   }
 
-  /** 把物品放进背包：满了先自动合成腾格子，合成后仍满才拒绝（不再直接卡进度） */
-  private grantItem(item: InventoryItem, notifyFull = true): boolean {
-    if (this.inventory.isFull) this.inventory.autoMerge()
-    if (this.inventory.isFull) {
-      if (notifyFull) this.hud.toast('背包已满：先合成或丢弃两张再买', 'bad')
-      return false
-    }
+  /** 把物品放进背包：同名道具卡原地升档（蓝→紫→金），满金时返回 false */
+  private grantItem(item: InventoryItem): boolean {
     if (!this.inventory.add(item)) return false
-    const merged = this.inventory.autoMerge()
-    if (merged.length > 0) {
-      const last = merged[merged.length - 1]
-      this.hud.toast(`自动合成 ${last.name}`, 'good')
-    }
     this.syncCards()
     if (this.inventoryOpen()) this.hud.updateInventory(this.inventory.items, this.run.gold)
     return true
   }
 
-  /** 奖励卡入口：背包满且无法自动合成时，按当前层商店价 50% 折算金币，避免奖励直接消失 */
+  /** 奖励卡入口：同类道具卡已满金无法再入包时，按当前层商店价 50% 折算金币，避免奖励直接消失 */
   private grantRewardItem(item: InventoryItem): boolean {
-    if (this.grantItem(item, false)) return true
+    if (this.grantItem(item)) return true
     const gold = salvageGold(item, this.run.layer)
     this.addGold(gold)
-    this.hud.toast(`背包已满，「${item.name}」折算 +${gold} 金币`, 'good')
+    this.hud.toast(`已满金，「${item.name}」折算 +${gold} 金币`, 'good')
     if (this.inventoryOpen()) this.hud.updateInventory(this.inventory.items, this.run.gold)
     return false
   }
@@ -3418,17 +3408,6 @@ export class Game {
     audio.click()
   }
 
-  mergeItems(a: string, b: string): void {
-    const merged = this.inventory.merge(a, b)
-    if (!merged) {
-      this.hud.toast('只有同级同种才能合成', 'bad')
-      return
-    }
-    this.syncCards()
-    this.hud.updateInventory(this.inventory.items, this.run.gold)
-    this.hud.toast(`合成 ${merged.name}`, 'good')
-    audio.click()
-  }
 
   useItem(uid: string): void {
     const item = this.inventory.get(uid)

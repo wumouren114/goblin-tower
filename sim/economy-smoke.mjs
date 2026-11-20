@@ -566,15 +566,10 @@ check('跳级卡原地直达目标档位（蓝→金）', () => {
   approx(bag.get(a.uid).value, 90, 1e-9, '金档生命 90')
 })
 
-check('旧二合一合成入口不可达（autoMerge/merge 无效）', () => {
+check('旧二合一合成入口已彻底移除（无 autoMerge/merge）', () => {
   const bag = new Inventory()
-  const magic = economy.makeCardItem('magic', 1)
-  const stamina = economy.makeCardItem('stamina', 1)
-  bag.add(magic)
-  bag.add(stamina)
-  eq(bag.autoMerge().length, 0, 'autoMerge 应返回空数组')
-  eq(bag.merge(magic.uid, stamina.uid), null, 'merge 应返回 null')
-  eq(bag.count, 2)
+  eq('autoMerge' in bag, false, 'Inventory 不应再暴露 autoMerge')
+  eq('merge' in bag, false, 'Inventory 不应再暴露 merge')
 })
 
 check('use() 只吃消耗品并返回该物品', () => {
