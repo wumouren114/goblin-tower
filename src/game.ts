@@ -31,6 +31,7 @@ import { POTENTIALS } from './data/potentials'
 import { MINIGAMES, minigameForLayer } from './minigames'
 import {
   fxBlockShield, fxBlockParry, fxRecallWater, fxStrongBeat, fxResonanceBadge, fxExecute, fxWatergun,
+  tickPotentialFx, clearPotentialFx,
 } from './systems/characterFx'
 import { TRIALS, type TrialDef } from './data/trials'
 import { ALTAR, MYSTERY_OUTCOMES } from './data/altar'
@@ -475,6 +476,7 @@ export class Game {
   }
 
   private cleanupFloor(): void {
+    clearPotentialFx()
     for (const g of this.goblins) g.dispose()
     this.goblins.length = 0
     this.goblinKinds.clear()
@@ -942,6 +944,8 @@ export class Game {
       this.hud.updateBeat(beatPhase, this.combat?.beatJudge ?? null)
       this.hud.updateCombo(this.combat?.combo ?? 0)
     }
+
+    tickPotentialFx(dt)
 
     // 持续伤害区域结算（封路原型）
     const hazardTick = this.hazards.update(dt, { x: p.x, z: p.z })

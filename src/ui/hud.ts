@@ -1429,13 +1429,13 @@ class HudImpl implements HudV3 {
       el.style.cssText = [
         'position:fixed',
         'left:50%',
-        'bottom:70px',
+        'bottom:150px',
         'transform:translateX(-50%)',
         'transform-origin:center bottom',
         'font:800 18px/1 system-ui,sans-serif',
         'letter-spacing:.04em',
         'pointer-events:none',
-        'z-index:61',
+        'z-index:80',
         'text-shadow:0 2px 6px rgba(0,0,0,.75)',
         'opacity:0',
       ].join(';')
