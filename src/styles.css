@@ -4707,9 +4707,9 @@ body.is-modal-open .floor-banner {
 }
 
 .char-info-box {
-  width: min(820px, 94vw);
-  max-height: 88vh;
-  overflow: hidden;
+  width: min(920px, 95vw);
+  max-height: 90vh;
+  overflow-y: auto;
   padding: 16px 18px;
   background: rgba(16, 20, 30, 0.96);
   border: 2px solid #596c8e;
@@ -4886,19 +4886,50 @@ body.is-modal-open .floor-banner {
   line-height: 1.35;
 }
 
+.ci-branch-root {
+  font-size: 11px;
+  color: #c5d6f5;
+  line-height: 1.42;
+}
+
 .ci-branch-nodes {
-  margin-top: 2px;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(140, 165, 210, 0.24);
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 5px;
 }
 
+.ci-node-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.38;
+}
+
 .ci-node-chip {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  color: #fff2d6;
+}
+
+.ci-node-eff {
   font-size: 10.5px;
-  padding: 2px 6px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #e8eefc;
+  color: #b8c8e6;
+}
+
+.ci-foot {
+  padding-top: 8px;
+  border-top: 1px solid rgba(120, 145, 190, 0.24);
+  font-size: 11.5px;
+  color: #ffd98a;
+  text-align: center;
+  letter-spacing: 0.03em;
 }
 
 @media (max-width: 760px) {
