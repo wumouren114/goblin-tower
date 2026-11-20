@@ -180,7 +180,7 @@ const PORTRAIT_ART: Record<CharacterId, ArtKey> = {
   fish: 'portrait_fish',
 }
 
-/** v4.6 战斗风格图标：标题页风格卡 / 觉醒卡大图 */
+/** 专武方向图标：选择卡大图 */
 const STYLE_ART: Record<StyleId, ArtKey> = {
   'mutsumi-solo': 'style_mutsumi_solo',
   'mutsumi-duet': 'style_mutsumi_duet',
@@ -521,7 +521,7 @@ const UI_TEMPLATE = /* html */ `
           <section class="title-panel panel-char">
             <h2 class="panel-label">选择角色</h2>
             <div class="char-cards js-char-cards"></div>
-            <p class="style-picker-note js-style-note">潜能于 3 / 6 / 9 层解锁 · 长按角色卡查看技能与潜能分支</p>
+            <p class="style-picker-note js-style-note">潜能于 1 层战斗、Boss 战与潜能战斗关获取 · 长按角色卡查看技能与潜能分支</p>
           </section>
           <section class="title-panel panel-diff">
             <h2 class="panel-label">选择难度</h2>
@@ -928,7 +928,7 @@ class HudImpl implements HudV3 {
     setBarFill(this.chargeFillEl, clamp01(charge / chargeMax), this.barCache)
     this.skillBlockEl.classList.toggle('is-ready', Boolean(snapshot.skillReady))
 
-    // 风格资源（节拍 / 剑意 / 泡泡）
+    // 流派资源（节拍 / 剑意 / 泡泡）
     const resource = snapshot.resource
     this.resourceRowEl.hidden = !resource
     if (resource) {
@@ -1036,13 +1036,13 @@ class HudImpl implements HudV3 {
     setText(
       this.tunnelKickerEl,
       isAwakening
-        ? 'AWAKENING · LAYER 3 / 6 / 9'
+        ? 'WEAPON · UPGRADE PATH'
         : isTrial
           ? 'TRIAL · THE OATH'
           : isWeapon
             ? 'WEAPON · CHOOSE A PATH'
             : isPotential
-          ? 'POTENTIAL · LAYER 3 / 6 / 9'
+          ? 'POTENTIAL · CHOOSE A PATH'
           : isBonus
             ? 'STEP 1 / 2 · LAYER REWARD'
             : 'TIME RIFT',
@@ -1749,27 +1749,31 @@ class HudImpl implements HudV3 {
       makeSkillCard('F · 通用技', pot.fSkill.name, `CD ${pot.fSkill.cooldown}s`, pot.fSkill.desc, `解锁：${pot.fSkill.unlock}`),
     )
 
-    const branchTitle = div('ci-section-label', '潜能分支（3 选 1 构筑）')
+    const branchTitle = div('ci-section-label', '潜能分支（常规 2 条 · 困难 3 条）')
     const branchesGrid = div('ci-branches')
     for (const b of pot.branches) {
       const card = div('ci-branch')
       card.style.setProperty('--ci-accent', b.accent)
       const bHead = div('ci-branch-head')
       bHead.append(span('ci-branch-icon', b.icon), span('ci-branch-name', b.name))
-      const nodesRow = div('ci-branch-nodes')
+      const nodesList = div('ci-branch-nodes')
       for (const n of b.nodes) {
-        nodesRow.appendChild(span('ci-node-chip', n.name))
+        const item = div('ci-node-item')
+        item.append(span('ci-node-chip', n.name), span('ci-node-eff', n.effect))
+        nodesList.appendChild(item)
       }
       card.append(
         bHead,
         div('ci-branch-id', b.identity),
+        div('ci-branch-root', b.root),
         div('ci-branch-cost', `代价：${b.cost}`),
-        nodesRow,
+        nodesList,
       )
       branchesGrid.appendChild(card)
     }
 
-    this.charInfoBoxEl.replaceChildren(head, skillsGrid, branchTitle, branchesGrid)
+    const foot = div('ci-foot', '潜能于 1 层战斗、Boss 战与潜能战斗关获取；困难难度可点 3 条分支')
+    this.charInfoBoxEl.replaceChildren(head, skillsGrid, branchTitle, branchesGrid, foot)
     this.charInfoEl.hidden = false
     this.charInfoOpen = true
   }
