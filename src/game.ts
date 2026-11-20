@@ -3190,6 +3190,8 @@ export class Game {
     const room = this.roomMap
     const floor = this.floor
     if (!room || !floor) return
+    // 关键：从隧道/选择界面回到房间时必须恢复 playing，否则输入被 'tunnel' 阶段吞掉
+    this.phase = 'playing'
     room.resolved = true
     this.layerTotal = 0
     this.layerKilled = 0
