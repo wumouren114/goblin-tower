@@ -536,13 +536,13 @@ try {
     combat.setBuild('murasame-guard', {})
     combat.grantCharge(1)
     combat.trySkill(0, 0, 0, -1, world)
-    check('v4.6 守护突进 12% 最大生命护盾', near(world.shield, 205 * 0.12, 1e-6), `shield=${world.shield}`)
+    check('v4.6 守护突进 12% 最大生命护盾', near(world.shield, 236 * 0.12, 1e-6), `shield=${world.shield}`)
     combat.setBuild('murasame-guard', { 'murasame-guard-wall': 3 })
     world.shield = 0
     world.shieldSeconds = 0
     combat.grantCharge(1)
     combat.trySkill(0, 0, 0, -1, world)
-    check('v4.6 铁壁 Lv3 护盾提升到 27%', near(world.shield, 205 * 0.27, 1e-6), `shield=${world.shield}`)
+    check('v4.6 铁壁 Lv3 护盾提升到 27%', near(world.shield, 236 * 0.27, 1e-6), `shield=${world.shield}`)
     check('v4.6 铁壁 Lv3 护盾持续 6s', near(world.shieldSeconds, 6, 1e-6), `seconds=${world.shieldSeconds}`)
     combat.dispose()
   }
