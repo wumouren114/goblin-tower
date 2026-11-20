@@ -4671,3 +4671,239 @@ body.is-modal-open .floor-banner {
     font-size: 9px;
   }
 }
+
+/* ── 选人界面：长按角色卡呼出技能与潜能预览面板 ─────────────────────────── */
+.char-card.is-holding {
+  border-color: rgba(255, 212, 121, 0.9);
+  box-shadow: 0 0 0 2px rgba(255, 212, 121, 0.28);
+}
+
+.char-info-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(8, 10, 16, 0.72);
+  pointer-events: none;
+  animation: charInfoFade 140ms ease-out;
+}
+
+.char-info-overlay[hidden] {
+  display: none;
+}
+
+@keyframes charInfoFade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.char-info-box {
+  width: min(820px, 94vw);
+  max-height: 88vh;
+  overflow: hidden;
+  padding: 16px 18px;
+  background: rgba(16, 20, 30, 0.96);
+  border: 2px solid #596c8e;
+  box-shadow: 4px 4px 0 rgba(0, 0, 0, 0.75), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  color: #edf2ff;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ci-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(120, 145, 190, 0.28);
+}
+
+.ci-avatar {
+  width: 52px;
+  height: 52px;
+  flex: 0 0 52px;
+}
+
+.ci-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ci-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ci-name {
+  font-size: 18px;
+  font-weight: 800;
+  color: #fff6df;
+  letter-spacing: 0.04em;
+}
+
+.ci-title {
+  font-size: 11px;
+  padding: 2px 7px;
+  background: rgba(255, 212, 121, 0.14);
+  border: 1px solid rgba(255, 212, 121, 0.45);
+  color: #ffd98a;
+}
+
+.ci-role {
+  font-size: 12.5px;
+  color: #b9c7e2;
+  line-height: 1.4;
+}
+
+.ci-release-tip {
+  font-size: 11px;
+  color: #8fa2c4;
+  padding: 3px 8px;
+  border: 1px dashed rgba(143, 162, 196, 0.45);
+  white-space: nowrap;
+}
+
+.ci-skills {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ci-skill {
+  padding: 9px 11px;
+  background: rgba(26, 33, 49, 0.9);
+  border: 1px solid rgba(110, 134, 178, 0.36);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ci-skill-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ci-key {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 6px;
+  background: rgba(94, 120, 172, 0.25);
+  border: 1px solid rgba(138, 168, 224, 0.5);
+  color: #d6e4ff;
+}
+
+.ci-skill-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff4d8;
+}
+
+.ci-skill-meta {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: #9cb2d8;
+}
+
+.ci-skill-desc {
+  font-size: 11.5px;
+  color: #d1dcf2;
+  line-height: 1.42;
+}
+
+.ci-skill-unlock {
+  font-size: 10.5px;
+  color: #8ca0c4;
+}
+
+.ci-section-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #ffd98a;
+  text-transform: uppercase;
+}
+
+.ci-branches {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ci-branch {
+  padding: 10px 11px;
+  background: rgba(22, 28, 42, 0.92);
+  border: 1.5px solid var(--ci-accent, #6b80a8);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ci-branch-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ci-branch-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.ci-branch-name {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--ci-accent, #fff4d8);
+}
+
+.ci-branch-id {
+  font-size: 11.5px;
+  color: #dce6fa;
+  line-height: 1.38;
+}
+
+.ci-branch-cost {
+  font-size: 11px;
+  color: #ff9c9c;
+  line-height: 1.35;
+}
+
+.ci-branch-nodes {
+  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.ci-node-chip {
+  font-size: 10.5px;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #e8eefc;
+}
+
+@media (max-width: 760px) {
+  .ci-skills,
+  .ci-branches {
+    grid-template-columns: 1fr;
+  }
+}
