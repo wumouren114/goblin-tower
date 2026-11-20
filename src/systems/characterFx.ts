@@ -1426,28 +1426,6 @@ export class CharacterFx {
 
 // ───────────────────── 潜能独立特效（v5 程序化导出） ─────────────────────
 
-/** 所有实例统一由游戏主循环推进，避免特效节点永久留在场景里造成卡顿 */
-const activePotentialFx = new Set<PotentialFxHandle>()
-
-function registerFx(handle: PotentialFxHandle): PotentialFxHandle {
-  activePotentialFx.add(handle)
-  return registerFx(handle)
-}
-
-export function tickPotentialFx(dt: number): void {
-  for (const handle of activePotentialFx) {
-    if (!handle.update(dt)) {
-      handle.dispose()
-      activePotentialFx.delete(handle)
-    }
-  }
-}
-
-export function clearPotentialFx(): void {
-  for (const handle of activePotentialFx) handle.dispose()
-  activePotentialFx.clear()
-}
-
 export interface PotentialFxHandle {
   readonly group: THREE.Group
   readonly duration: number
@@ -1717,7 +1695,7 @@ export function fxBloodTick(scene: THREE.Scene, x: number, z: number): Potential
     },
   }
   registerPotentialFx(handle)
-  return registerFx(handle)
+  return handle
 }
 
 /**
@@ -1784,7 +1762,7 @@ export function fxMarkStack(scene: THREE.Scene, x: number, z: number, stacks: nu
     },
   }
   registerPotentialFx(handle)
-  return registerFx(handle)
+  return handle
 }
 
 /**
@@ -1858,7 +1836,7 @@ export function fxBlockShield(scene: THREE.Scene, x: number, z: number, facing: 
     },
   }
   registerPotentialFx(handle)
-  return registerFx(handle)
+  return handle
 }
 
 /**
@@ -1946,7 +1924,7 @@ export function fxRecallWater(scene: THREE.Scene, x: number, z: number, count: n
     },
   }
   registerPotentialFx(handle)
-  return registerFx(handle)
+  return handle
 }
 
 /**
@@ -2018,7 +1996,7 @@ export function fxStrongBeat(scene: THREE.Scene, x: number, z: number): Potentia
     },
   }
   registerPotentialFx(handle)
-  return registerFx(handle)
+  return handle
 }
 
 /**
@@ -2185,7 +2163,7 @@ export function fxExecute(scene: THREE.Scene, x: number, z: number): PotentialFx
     },
   }
   registerPotentialFx(handle)
-  return registerFx(handle)
+  return handle
 }
 
 /**
@@ -2314,7 +2292,7 @@ export function fxBlockParry(
     },
   }
   registerPotentialFx(handle)
-  return registerFx(handle)
+  return handle
 }
 
 /**
@@ -2432,7 +2410,7 @@ export function fxWatergun(
     },
   }
   registerPotentialFx(handle)
-  return registerFx(handle)
+  return handle
 }
 
 /**
@@ -2548,5 +2526,5 @@ export function fxComboBurst(scene: THREE.Scene, x: number, z: number): Potentia
     },
   }
   registerPotentialFx(handle)
-  return registerFx(handle)
+  return handle
 }
