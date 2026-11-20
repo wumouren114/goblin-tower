@@ -12,7 +12,7 @@ import { getWeaponTier, tierNum, MAX_WEAPON_LV, type WeaponTier } from '../data/
 import { rng } from '../core/rng'
 import { ChargeMeter } from './charge'
 import { ProjectileSystem, type ProjectileBurstContext, type ProjectileHitContext } from './projectiles'
-import { MinionSystem, type Minion } from './minions'
+import { MinionSystem, type Minion, type MinionSpec } from './minions'
 import { CharacterFx } from './characterFx'
 import { getBillboardYaw } from '../art/sprites'
 import { createProjectileMesh, disposeProjectileArt } from '../art/projectiles'
@@ -56,6 +56,9 @@ export type PotentialBranchId =
   | 'rhythm'
   | 'symphony'
   | 'duet'
+  | 'clone'
+  | 'swarm'
+  | 'bubble'
 
 export function normalizeBranch(id: string | null | undefined): PotentialBranchId | null {
   if (!id) return null
@@ -65,7 +68,10 @@ export function normalizeBranch(id: string | null | undefined): PotentialBranchI
     tail === 'jianyi' ||
     tail === 'rhythm' ||
     tail === 'symphony' ||
-    tail === 'duet'
+    tail === 'duet' ||
+    tail === 'clone' ||
+    tail === 'swarm' ||
+    tail === 'bubble'
     ? tail
     : null
 }
@@ -518,7 +524,9 @@ export class Combat {
     // A 方案：连发上限比网格快 30%，想踩准就得主动等拍点
     const interval = rhythm
       ? (this.beat.gridMs / 1000) * 0.7
-      : attackInterval(this.stats.stamina, def.attack.minInterval) * this.styleAttackIntervalMul()
+      : attackInterval(this.stats.stamina, def.attack.minInterval) *
+        this.styleAttackIntervalMul() *
+        (this.potentialBranch === 'bubble' ? 1.15 : 1)
     this.cooldownLeft = Math.max(0.01, interval)
     const judge = rhythm ? this.beat.judge(performance.now()) : null
     let rhythmMul = judge === 'perfect' ? 1.25 : judge === 'good' ? 1.1 : judge === 'miss' ? 0.85 : 1
@@ -777,8 +785,8 @@ export class Combat {
       speed: def.attack.projectileSpeed ?? 13,
       damage,
       range: skillRange(def.attack.baseRange, this.stats.intelligence),
-      hitRadius: 0.3 + pierce * 0.05 + (big ? 0.16 : 0),
-      scale: 1 + pierce * 0.18 + (big ? 0.55 : 0),
+      hitRadius: 0.3 + pierce * 0.05 + (big ? 0.16 : 0) + (this.potentialBranch === 'bubble' ? 0.14 : 0),
+      scale: 1 + pierce * 0.18 + (big ? 0.55 : 0) + (this.potentialBranch === 'bubble' ? 0.4 : 0),
       pierce: big ? 0 : pierce,
       canCrit: true,
       big,
@@ -815,7 +823,7 @@ export class Combat {
 
   private skillCost(tier: WeaponTier, fallback: number): number {
     if (this.charId === 'murasame') return Math.max(20, tierNum(tier, 'skillCharge', fallback))
-    return Math.max(20, fallback)
+    return Math.max(20, fallback * (this.potentialBranch === 'swarm' ? 1.2 : 1))
   }
 
   private startTransform(
@@ -975,41 +983,66 @@ export class Combat {
   private skillSummon(px: number, pz: number, tier: WeaponTier, world: CombatWorld): void {
     const def = CHARACTERS.fish
     const p = def.skill.params
+    const baseDamage = hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), this.stats.magic)
+    const focus = this.style.id === 'fish-school' && this.lastFishTarget?.alive ? this.lastFishTarget : undefined
+
+    // 潜能：分身 = 1 只 1.0 倍面板的「小肥鱼」 + 3 只 0.4 倍面板的小鲸子（不再套娃）
+    //       群体 = 数量 3→5；环绕节点额外 3 只碰撞体
+    const isClone = this.potentialBranch === 'clone'
+    const isSwarm = this.potentialBranch === 'swarm'
     let count = Math.max(1, Math.floor(tierNum(tier, 'minionCount', p.count ?? 3)))
     if (this.style.id === 'fish-school') count += 1
     if (this.style.id === 'fish-burst' || this.style.id === 'fish-whale') count -= 1
-    const tactics = this.al('fish-school-tactics')
-    if (this.style.id === 'fish-school' && tactics >= 3) count += 1
+    if (isSwarm) count += 2
     count = Math.max(1, count)
-    const baseDamage = hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), this.stats.magic)
-    const hpMul = (this.style.id === 'fish-school' ? 0.85 : 1) * (this.style.id === 'fish-whale' ? 1.3 : 1)
-    const damageMul = this.style.id === 'fish-whale' ? 1.2 : 1
-    const intervalMul = this.style.id === 'fish-school' ? 1 - [0, 0.05, 0.1, 0.15][tactics] : 1
-    const focus = this.style.id === 'fish-school' && this.lastFishTarget?.alive ? this.lastFishTarget : undefined
-    const specs = []
-    for (let i = 0; i < count; i++) {
-      const ang = (i / count) * Math.PI * 2 + 0.4
+
+    const hpRatioBase = p.minionHpRatio ?? 0.35
+    const hpRatio = isSwarm && this.hasNode('fish-swarm-tank') ? 0.5 : hpRatioBase
+    const duration =
+      (def.skill.duration ?? 10) +
+      (isClone && this.hasNode('fish-clone-long') ? 5 : 0) +
+      (isSwarm && this.hasNode('fish-swarm-long') ? 4 : 0)
+    const bubbleScale = this.hasNode('fish-bubble-share') ? 1.35 : 0.8
+
+    const specs: MinionSpec[] = []
+    const push = (i: number, total: number, damageMul: number, scale: number, opts: Partial<MinionSpec> = {}) => {
+      const ang = (i / total) * Math.PI * 2 + 0.4
       specs.push({
         x: px + Math.cos(ang) * 1.15,
         z: pz + Math.sin(ang) * 1.15,
-        hp: Math.max(1, this.stats.maxHp * (p.minionHpRatio ?? 0.35) * hpMul),
-        damage: baseDamage * (p.minionDamageRatio ?? 0.4) * damageMul,
-        interval: (p.minionInterval ?? 0.6) * intervalMul,
+        hp: Math.max(1, this.stats.maxHp * hpRatio),
+        damage: baseDamage * damageMul,
+        interval: p.minionInterval ?? 0.6,
         speed: p.minionSpeed ?? 5.2,
         followRange: 5,
         range: p.minionRange ?? 7,
-        duration: def.skill.duration ?? 10,
+        duration,
         bubbleSpeed: 9,
         bubbleRange: p.minionRange ?? 7,
         bubbleHitRadius: 0.3,
-        scale: this.style.id === 'fish-whale' ? 1.18 : 1,
-        taunt: tierNum(tier, 'minionTaunt', 0) > 0,
-        slow: tierNum(tier, 'minionSlow', 0) > 0 ? tierNum(tier, 'minionSlow', 0) : undefined,
+        scale,
+        bubbleScale,
         focus,
+        ...opts,
       })
     }
+
+    if (isClone) {
+      // 分身本体：1.0 倍面板，体型明显更大
+      push(0, 1, 1.0, 1.7)
+      // 分身召出的小鲸子：0.4 倍面板，不会再召唤（结构上无套娃）
+      for (let i = 0; i < 3; i += 1) push(i, 3, 0.4, 0.9)
+    } else {
+      for (let i = 0; i < count; i += 1) push(i, count, p.minionDamageRatio ?? 0.4, 1)
+      if (isSwarm && this.hasNode('fish-swarm-orbit')) {
+        for (let i = 0; i < 3; i += 1) {
+          push(i, 3, 0, 0.7, { contactDamage: baseDamage * 0.35, bubbleScale: 0 })
+        }
+      }
+    }
+
     this.minions.spawn(specs)
-    this.characterFx.fishSummon(px, pz, count, this.style.id)
+    this.characterFx.fishSummon(px, pz, specs.length, this.style.id)
     // 召唤瞬间的冲击波：给周围敌人一次伤害，避免「放了大招没反馈」
     const burstDamage = hitDamage(p.burstDamage ?? 26, this.stats.magic)
     const burstRadius = p.burstRadius ?? 4.2
@@ -1246,6 +1279,15 @@ export class Combat {
     if (ctx.slow && ctx.slow > 0) this.slowTarget(t, ctx.slow, 0.8)
     if (crit) this.hooks.onSfx('crit')
     this.hooks.onHit(t, amount, crit, killed)
+    // 超级泡泡·根被动：命中附带 2.5m 爆炸（50% 伤害）
+    if (this.potentialBranch === 'bubble' && ctx.source === 'player' && t.alive && this.activeWorld) {
+      for (const near of this.activeWorld.enemies) {
+        if (!near.alive || near === t) continue
+        if (Math.hypot(near.x - t.x, near.z - t.z) > 2.5) continue
+        near.hit(amount * 0.5, 0, 0)
+      }
+      this.burstAt(t.x, t.z, 0x8ff6ff, 8)
+    }
     // 节奏·60 连击：命中附带 3m 爆炸（60% 伤害）
     if (this.potentialBranch === 'rhythm' && this.rhythmCombo >= 60 && t.alive) {
       const world = this.activeWorld

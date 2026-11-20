@@ -978,6 +978,21 @@ export class Game {
     this.hud.toast(`潜能：${branch}${nodes.length ? ' + ' + nodes.length + ' 节点' : ''}`, 'good')
   }
 
+  /** 调试：直接放一次鱼的技能（?fishskill=1），用于验证召唤物 */
+  debugCastFishSkill(): void {
+    if (!this.player || !this.combat) return
+    this.combat.grantCharge(1)
+    this.combat.trySkill(
+      this.player.x,
+      this.player.z,
+      this.player.x,
+      this.player.z - 1,
+      this.buildWorld(),
+    )
+    this.hud.toast(`召唤物：${this.combat.minionCount} 只`, 'good')
+    document.body.dataset.minions = String(this.combat.minionCount)
+  }
+
   /** 调试：在玩家前方刷一只封路者（?blocker=1） */
   debugSpawnBlocker(): void {
     if (!this.player) return

@@ -30,6 +30,10 @@ export interface MinionSpec {
   slow?: number
   /** v4.6 鱼群：优先集火玩家最近命中的目标 */
   focus?: Hittable
+  /** 超级泡泡·同步：小鲸子的泡泡也放大 */
+  bubbleScale?: number
+  /** 更多子代理·环绕：只靠碰撞造成伤害，不发射泡泡 */
+  contactDamage?: number
 }
 
 /**
@@ -55,6 +59,9 @@ export class Minion {
   readonly taunt: boolean
   readonly slow?: number
   readonly focus?: Hittable
+  readonly bubbleScale: number
+  readonly contactDamage: number
+  contactCd: number
   life: number
   nextShot: number
   orbit: number
@@ -76,6 +83,9 @@ export class Minion {
     this.taunt = spec.taunt ?? false
     this.slow = spec.slow
     this.focus = spec.focus
+    this.bubbleScale = spec.bubbleScale ?? 0.8
+    this.contactDamage = spec.contactDamage ?? 0
+    this.contactCd = 0.6
     this.life = this.duration
     this.nextShot = this.interval * (0.4 + 0.2 * index)
     this.orbit = index * 1.7
@@ -201,7 +211,7 @@ export class MinionSystem {
             damage: m.damage,
             range: Math.min(m.bubbleRange, d + 1),
             hitRadius: m.bubbleHitRadius,
-            scale: 0.8,
+            scale: m.bubbleScale,
             color: 0x9fe8ff,
             canCrit: false,
             slow: m.slow,
@@ -210,6 +220,21 @@ export class MinionSystem {
           m.nextShot = m.interval
         } else {
           m.nextShot = 0.2
+        }
+      }
+
+      // 环绕鲸子：只靠碰撞造成伤害
+      if (m.contactDamage > 0) {
+        m.nextShot = 1
+        m.contactCd -= dt
+        if (m.contactCd <= 0) {
+          m.contactCd = 0.6
+          for (const e of world.enemies) {
+            if (!e.alive) continue
+            if (Math.hypot(e.x - m.x, e.z - m.z) > 1.3 + e.radius) continue
+            e.hit(m.contactDamage, 0, 0)
+          }
+          this.hooks.burst(m.x, m.z, 0x9fe8ff, 3)
         }
       }
 
