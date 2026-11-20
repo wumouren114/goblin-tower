@@ -1001,24 +1001,30 @@ class HudImpl implements HudV3 {
     const isBonus = mode === 'bonus'
     const isAwakening = mode === 'awakening'
     const isPotential = mode === 'potential'
-    const isTunnel = !isBonus && !isAwakening && !isPotential
+    const isTrial = mode === 'trial'
+    const isWeapon = mode === 'weapon'
+    const isTunnel = !isBonus && !isAwakening && !isPotential && !isTrial && !isWeapon
     this.tunnelMode = mode
     this.tunnelOffers = offers.slice(0, this.tunnelCardRefs.length)
     this.tunnelEl.classList.toggle('is-bonus', isBonus)
     this.tunnelEl.classList.toggle('is-awakening', isAwakening)
-    this.tunnelEl.classList.toggle('is-awakening', isPotential || isAwakening)
+    this.tunnelEl.classList.toggle('is-awakening', isPotential || isAwakening || isTrial || isWeapon)
     this.tunnelEl.classList.toggle('is-tunnel', isTunnel)
     this.tunnelEl.dataset.mode = mode
     this.tunnelEl.setAttribute(
       'aria-label',
-      isAwakening ? '角色觉醒二选一' : isPotential ? '潜能三选一' : isBonus ? '清层奖励三选一' : '时空隧道路线选择',
+      isTrial ? '立约' : isWeapon ? '专武方向三选一' : isAwakening ? '角色觉醒二选一' : isPotential ? '潜能三选一' : isBonus ? '清层奖励三选一' : '时空隧道路线选择',
     )
     setText(this.tunnelModeMarkEl, isAwakening ? '✦' : isPotential ? '✦' : isBonus ? '🎁' : '🧭')
     setText(
       this.tunnelKickerEl,
       isAwakening
         ? 'AWAKENING · LAYER 3 / 6 / 9'
-        : isPotential
+        : isTrial
+          ? 'TRIAL · THE OATH'
+          : isWeapon
+            ? 'WEAPON · CHOOSE A PATH'
+            : isPotential
           ? 'POTENTIAL · LAYER 3 / 6 / 9'
           : isBonus
             ? 'STEP 1 / 2 · LAYER REWARD'
@@ -1026,7 +1032,7 @@ class HudImpl implements HudV3 {
     )
     setText(
       this.tunnelTitleEl,
-      isAwakening ? '角色觉醒 · 二选一' : isPotential ? '潜能 · 三选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道',
+      isTrial ? '立约 · 接受或婉拒' : isWeapon ? '专武 · 三选一' : isAwakening ? '角色觉醒 · 二选一' : isPotential ? '潜能 · 三选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道',
     )
     setText(
       this.tunnelSubEl,
@@ -1047,8 +1053,12 @@ class HudImpl implements HudV3 {
             : '选择一条路',
     )
     this.tunnelHintEl.hidden = isTunnel
-    this.tunnelHintEl.innerHTML = isAwakening
-      ? '选中一个觉醒，再点「确认觉醒」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd> 可直接选中）'
+    this.tunnelHintEl.innerHTML = isTrial
+      ? '读清代价与收益，选「立约」或「婉拒」；拒绝没有任何惩罚'
+      : isWeapon
+        ? '选择一个专武方向，再点「确认」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>'
+        : isAwakening
+          ? '选中一个觉醒，再点「确认觉醒」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd> 可直接选中）'
       : isBonus
         ? '选中一张奖励卡，再点「领取奖励」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
         : '选中一条路线，再点「确认路线」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
@@ -1065,7 +1075,7 @@ class HudImpl implements HudV3 {
       ref.card.className = `tunnel-card kind-${offer.kind}`
       setText(
         ref.band,
-        isAwakening ? '角色觉醒' : isPotential ? '潜能' : isBonus ? '清层奖励' : TUNNEL_META[offer.kind]?.label ?? '未知',
+        isTrial ? '考验' : isWeapon ? '专武' : isAwakening ? '角色觉醒' : isPotential ? '潜能' : isBonus ? '清层奖励' : TUNNEL_META[offer.kind]?.label ?? '未知',
       )
       const potentialBranch =
         isPotential && offer.payload?.potential?.branch
@@ -1660,18 +1670,28 @@ class HudImpl implements HudV3 {
     }
     if (this.tunnelConfirmEl) {
       const isPotential = this.tunnelMode === 'potential'
+      const isTrial = this.tunnelMode === 'trial'
+      const isWeapon = this.tunnelMode === 'weapon'
       this.tunnelConfirmEl.disabled = this.tunnelSelected < 0
       this.tunnelConfirmEl.textContent = this.tunnelSelected >= 0
-        ? isAwakening
-          ? '确认觉醒'
-          : isPotential
+        ? isTrial
+          ? '立约'
+          : isWeapon
+            ? '确认专武'
+            : isAwakening
+              ? '确认觉醒'
+              : isPotential
             ? '确认潜能'
             : isBonus
               ? '领取奖励'
               : '确认路线'
-        : isAwakening
-          ? '请先选择一个觉醒'
-          : isPotential
+        : isTrial
+          ? '请阅读契约'
+          : isWeapon
+            ? '请选择一个专武方向'
+            : isAwakening
+              ? '请先选择一个觉醒'
+              : isPotential
             ? '请先选择一个潜能'
             : isBonus
               ? '请先选择一张奖励卡'

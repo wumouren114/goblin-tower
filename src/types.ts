@@ -105,7 +105,7 @@ export interface TunnelOffer {
 }
 
 /** 层末流程：清层奖励卡 → 时空隧道门；v4.6 在 3/6/9 层插入角色觉醒 */
-export type TunnelScreenMode = 'bonus' | 'tunnel' | 'awakening' | 'potential'
+export type TunnelScreenMode = 'bonus' | 'tunnel' | 'awakening' | 'potential' | 'trial' | 'weapon'
 
 /** 一次觉醒二选一：获得新觉醒，或深化已有觉醒 */
 export interface AwakeningChoice {

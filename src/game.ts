@@ -2621,6 +2621,14 @@ export class Game {
       this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '水枪扫射 10s', 'crit')
   }
 
+  /** 考验数据的 icon 是内部 key，映射成可见字符 */
+  private trialIcon(key: string): string {
+    const table: Record<string, string> = {
+      chalice: '🍷', scales: '⚖️', mask: '🎭', blade: '🗡️', feather: '🪶', chain: '⛓️',
+    }
+    return table[key] ?? '✦'
+  }
+
   /** 交易·祭坛：四档献祭（献卡 / 献血 / 双重 / 神秘） */
   private openAltar(): void {
     const pulls = this.run.mysteryPulls ?? 0
@@ -2690,7 +2698,7 @@ export class Game {
         return
       }
       this.weaponRewardActive = true
-      this.hud.showTunnelOffers(this.weaponRewardOffers, this.run.layer, 'awakening')
+      this.hud.showTunnelOffers(this.weaponRewardOffers, this.run.layer, 'weapon')
       return
     } else if (id === 'altar-mystery') {
       const pulls = this.run.mysteryPulls ?? 0
@@ -2755,7 +2763,7 @@ export class Game {
     this.trialActive = true
     this.phase = 'tunnel'
     audio.duck(false)
-    this.hud.showTunnelOffers(this.trialOffers, this.run.layer, 'potential')
+    this.hud.showTunnelOffers(this.trialOffers, this.run.layer, 'trial')
     audio.click()
   }
 

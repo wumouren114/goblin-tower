@@ -285,8 +285,8 @@ const mutsumi: PotentialSet = {
       icon: '🎵',
       accent: '#e48cff',
       identity: '音游式普攻 · 踩拍强化',
-      root: '普攻改为按音乐节拍判定：perfect ×1.25 / good ×1.10 / miss ×0.85；134 BPM 八分音符网格（223.9ms），窗口 ±35 / ±60ms',
-      cost: '攻速被拍点锁定（无法超过网格速度）',
+      root: '普攻按 134 BPM 节拍判定：perfect ×1.25 / good ×1.10；踩准才加成，不踩不亏（miss ×1.0，不清连击）',
+      cost: '无（踩拍是可选增益博弈，乱按不惩罚）',
       nodes: [
         {
           id: 'mutsumi-rhythm-combo',
