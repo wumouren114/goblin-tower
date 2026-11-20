@@ -600,11 +600,9 @@ export class Combat {
     if (this.cooldownLeft > 0) return false
     const def = CHARACTERS[this.charId]
     const rhythm = this.hasBranch('rhythm')
-    // 节奏分支：攻速锁到拍点（不再随耐力变化）
-    // A 方案：连发上限比网格快 30%，想踩准就得主动等拍点
-    const interval = rhythm
-      ? (this.beat.gridMs / 1000) * 0.7
-      : attackInterval(this.stats.stamina, def.attack.minInterval) *
+    // 节奏分支（v2）：攻速完全自由，踩到拍点只给奖励（miss 无惩罚、不断连击）——
+    // 节奏从「强制门槛」改成「可选增益博弈」
+    const interval = attackInterval(this.stats.stamina, def.attack.minInterval) *
         this.styleAttackIntervalMul() *
         (this.hasBranch('bubble') ? 1.15 : 1) *
         (this.combatTime < this.rapidUntil ? 0.55 : 1) *
@@ -617,15 +615,10 @@ export class Combat {
       : forced
         ? 'perfect'
         : null
-    let rhythmMul = judge === 'perfect' ? 1.25 : judge === 'good' ? 1.1 : judge === 'miss' ? 0.85 : 1
+    let rhythmMul = judge === 'perfect' ? 1.25 : judge === 'good' ? 1.1 : 1
     if (rhythm) {
-      if (judge === 'miss') {
-        // 宽容节点：连击到 20 后，第一次失误只掉到 20
-        this.rhythmCombo =
-          this.hasNode('mutsumi-rhythm-mercy') && this.rhythmCombo >= 20 ? 20 : 0
-      } else {
-        this.rhythmCombo += 1
-      }
+      // miss 不惩罚也不清连击：乱按不亏，踩拍才赚
+      if (judge !== 'miss') this.rhythmCombo += 1
       if (this.rhythmCombo >= 60) rhythmMul *= 1.2
       else if (this.rhythmCombo >= 40) rhythmMul *= 1.2
       else if (this.rhythmCombo >= 20) rhythmMul *= 1.1
