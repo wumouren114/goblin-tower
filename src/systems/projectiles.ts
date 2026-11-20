@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { reflectOffObstacle } from './bounce'
 import { projectileArtInfo, type ProjectileArtKind } from '../art/projectiles'
 import { BillboardBatch } from '../art/billboardBatch'
 import { nearestEnemy } from './attack'
@@ -202,18 +203,12 @@ export class ProjectileSystem {
         // 交响·折射：撞非敌人障碍时按法线反射
         if (p.wallBounce > 0) {
           for (const ob of obstacles) {
-            const dx = p.x - ob.x
-            const dz = p.z - ob.z
-            const dist = Math.hypot(dx, dz)
-            if (dist > ob.r + 0.25 || dist < 1e-4) continue
-            const nx = dx / dist
-            const nz = dz / dist
-            const dot = p.dirX * nx + p.dirZ * nz
-            if (dot >= 0) continue
-            p.dirX -= 2 * dot * nx
-            p.dirZ -= 2 * dot * nz
-            p.x = ob.x + nx * (ob.r + 0.3)
-            p.z = ob.z + nz * (ob.r + 0.3)
+            const hit = reflectOffObstacle(p.dirX, p.dirZ, p.x, p.z, ob)
+            if (!hit) continue
+            p.dirX = hit.dirX
+            p.dirZ = hit.dirZ
+            p.x = hit.x
+            p.z = hit.z
             p.wallBounce -= 1
             this.hooks.burst(p.x, p.z, p.color, 5, { kind: p.kind, source: p.source, chord: p.chord, big: p.big })
             break
