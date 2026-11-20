@@ -33,6 +33,7 @@ import { artReady, artUrl, type ArtKey } from '../art/atlasImport'
 import { roomIconDataUrl } from '../art/roomIcons'
 import { DIFFICULTIES, DIFFICULTY_IDS } from '../data/balance'
 import { CARD_TIER_LABEL } from '../data/cards'
+import { branchOf } from '../data/potentials'
 import {
   clamp01,
   div,
@@ -1066,8 +1067,30 @@ class HudImpl implements HudV3 {
         ref.band,
         isAwakening ? '角色觉醒' : isPotential ? '潜能' : isBonus ? '清层奖励' : TUNNEL_META[offer.kind]?.label ?? '未知',
       )
-      if (isTunnel) setRoomIcon(ref.icon, offer.room)
-      else setArtIcon(ref.icon, this.tunnelIconArt(offer), offer.icon || '✦')
+      const potentialBranch =
+        isPotential && offer.payload?.potential?.branch
+          ? branchOf(this.runCharacter, offer.payload.potential.branch)
+          : undefined
+      if (isTunnel) {
+        setRoomIcon(ref.icon, offer.room)
+      } else if (isPotential) {
+        setArtIcon(ref.icon, null, offer.icon || potentialBranch?.icon || '✦')
+      } else {
+        setArtIcon(ref.icon, this.tunnelIconArt(offer), offer.icon || '✦')
+      }
+      if (potentialBranch?.accent) {
+        ref.card.style.borderColor = potentialBranch.accent
+        ref.band.style.backgroundColor = potentialBranch.accent
+        ref.band.style.color = '#141218'
+        ref.icon.style.borderColor = potentialBranch.accent
+        ref.icon.style.boxShadow = `0 0 12px ${potentialBranch.accent}55`
+      } else {
+        ref.card.style.removeProperty('border-color')
+        ref.band.style.removeProperty('background-color')
+        ref.band.style.removeProperty('color')
+        ref.icon.style.removeProperty('border-color')
+        ref.icon.style.removeProperty('box-shadow')
+      }
       setText(
         ref.room,
         isAwakening

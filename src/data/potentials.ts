@@ -44,6 +44,10 @@ export interface PotentialNode {
 export interface PotentialBranch {
   id: string
   name: string
+  /** 分支独立标识图标（用于潜能三选一卡片） */
+  icon: string
+  /** 分支主题色（#RRGGBB） */
+  accent: string
   /** 一句话玩法身份 */
   identity: string
   /** 根被动：选中该分支立刻获得 */
@@ -92,6 +96,8 @@ const murasame: PotentialSet = {
     {
       id: 'murasame-liushang',
       name: '流殇',
+      icon: '🩸',
+      accent: '#d9384a',
       identity: '普攻流血 · 持续伤害',
       root: '普攻命中附加流血：每 0.5 秒 1 跳、持续 3 秒、每跳为本次普攻伤害的 8%',
       cost: '普攻伤害 −20%',
@@ -104,6 +110,8 @@ const murasame: PotentialSet = {
     {
       id: 'murasame-shunshan',
       name: '瞬闪',
+      icon: '⚡',
+      accent: '#ffd859',
       identity: '技能流 · 高频突进',
       root: '技能所需充能 −20%（80 → 64）',
       cost: '普攻伤害 −15%（击杀变慢 → 充能变慢）',
@@ -116,6 +124,8 @@ const murasame: PotentialSet = {
     {
       id: 'murasame-jianyi',
       name: '剑意',
+      icon: '⚔️',
+      accent: '#c8f7ff',
       identity: '标记 + 居合结算 · 混合流',
       root: '普攻命中附加 1 层标记；技能命中时结算，额外造成每层 50% 技能伤害（独立伤害）',
       cost: '技能伤害 −20%（标记结算不吃这个衰减）',
@@ -176,6 +186,8 @@ const fish: PotentialSet = {
     {
       id: 'fish-clone',
       name: '哦，鲸鲸？',
+      icon: '🐟',
+      accent: '#5cd8ff',
       identity: '召唤本体分身 · 站场 + 经济',
       root: '技能改为召唤 1 只小肥鱼（本体分身，1.0 倍面板）；小肥鱼释放技能时召唤 3 只小鲸子（0.4 倍伤害，攻速不变）',
       cost: '大肥鱼初始伤害降低',
@@ -188,6 +200,8 @@ const fish: PotentialSet = {
     {
       id: 'fish-swarm',
       name: '更多子代理！',
+      icon: '🐟🐟',
+      accent: '#2fb8b8',
       identity: '数量压制 · 群体',
       root: '小鲸子数量 3 → 5',
       cost: '技能所需充能 90 → 110',
@@ -200,6 +214,8 @@ const fish: PotentialSet = {
     {
       id: 'fish-bubble',
       name: '超级泡泡',
+      icon: '🫧',
+      accent: '#82cfff',
       identity: '爆炸 + 收割',
       root: '泡泡更大，命中爆炸',
       cost: '攻速降低',
@@ -266,6 +282,8 @@ const mutsumi: PotentialSet = {
     {
       id: 'mutsumi-rhythm',
       name: '节奏',
+      icon: '🎵',
+      accent: '#e48cff',
       identity: '音游式普攻 · 踩拍强化',
       root: '普攻改为按音乐节拍判定：perfect ×1.25 / good ×1.10 / miss ×0.85；134 BPM 八分音符网格（223.9ms），窗口 ±35 / ±60ms',
       cost: '攻速被拍点锁定（无法超过网格速度）',
@@ -283,6 +301,8 @@ const mutsumi: PotentialSet = {
     {
       id: 'mutsumi-symphony',
       name: '交响',
+      icon: '🎻',
+      accent: '#8fa4ff',
       identity: '双发弹幕 · 覆盖面',
       root: '普攻改为双发弹幕（第二发伤害为第一发的 60%）',
       cost: '技能音波场伤害降低',
@@ -295,6 +315,8 @@ const mutsumi: PotentialSet = {
     {
       id: 'mutsumi-duet',
       name: '双重人格',
+      icon: '🎭',
+      accent: '#ff70a6',
       identity: '变身强化 · 爆发',
       root: '技能所需充能降低 20%，变身期间伤害提高 15%',
       cost: '变身期间普攻伤害降低',
