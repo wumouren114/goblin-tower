@@ -28,6 +28,7 @@ import { pickScene, STAGE_NAMES } from './data/stages'
 import { EVENTS, eventOf, type EventEffect } from './data/events'
 import { POTENTIALS } from './data/potentials'
 import { MINIGAMES, minigameForLayer } from './minigames'
+import { TRIALS, type TrialDef } from './data/trials'
 import { EventState } from './systems/eventState'
 import { EventPanel } from './ui/eventPanel'
 import { ExchangePanel } from './ui/exchangePanel'
@@ -260,6 +261,9 @@ export class Game {
   private cardRewardActive = false
   private weaponRewardOffers: TunnelOffer[] = []
   private weaponRewardActive = false
+  private trialOffers: TunnelOffer[] = []
+  private trialActive = false
+  private pendingTrial: TrialDef | null = null
   private readonly hazardMeshes = new Map<HazardState, THREE.Mesh>()
   private prevMaxHp = 100
 
@@ -1922,7 +1926,11 @@ export class Game {
       this.vfx.ring(p.x, p.z, { color: 0x8fd8ff, radius: 0.9, life: 0.3, grow: 1.6 })
       return
     }
-    let dmg = raw * charTakeDamageMul(this.run.character) * (1 - Math.min(0.6, stats.armorRate))
+    let dmg =
+      raw *
+      charTakeDamageMul(this.run.character) *
+      (1 - Math.min(0.6, stats.armorRate)) *
+      this.trialMul('hurtTaken')
     if (this.run.style === 'murasame-guard') dmg *= 0.9
     let remaining = dmg
     if (this.shieldHp > 0 && remaining > 0) {
@@ -2203,10 +2211,10 @@ export class Game {
   /** 统一金币入口：潜能·帮手（小肥鱼协助拾取）金币 +15% */
   private addGold(amount: number): void {
     const boost =
-      this.run.potential?.branch === 'fish-clone' &&
+      (this.run.potential?.branch === 'fish-clone' &&
       (this.run.potential.nodes ?? []).includes('fish-clone-gold')
         ? 1.15
-        : 1
+        : 1) * this.trialMul('goldGain')
     this.run.gold += Math.round(amount * boost)
   }
 
@@ -2283,6 +2291,24 @@ export class Game {
 
   pickTunnel(id: string): void {
     if (this.phase !== 'tunnel') return
+    if (this.trialActive) {
+      const accept = this.trialOffers.find((o) => o.id === id)?.id === 'trial-accept'
+      this.trialActive = false
+      this.trialOffers = []
+      this.hud.hideTunnels()
+      const def = this.pendingTrial
+      this.pendingTrial = null
+      if (accept && def) {
+        this.run.trial = { id: def.id, layersLeft: def.burden.layers, killsAtStart: this.run.kills }
+        this.recalcStats()
+        this.hud.toast(`立约：${def.accept}`, 'good')
+        this.completeRoomMap(`立下「${def.name}」`)
+      } else {
+        this.hud.toast(def ? def.refuse : '你转身离开', 'info')
+        this.completeRoomMap('你婉拒了立约')
+      }
+      return
+    }
     if (this.cardRewardActive) {
       const pick = this.cardRewardOffers.find((o) => o.id === id)
       if (!pick?.payload.card) return
@@ -2343,6 +2369,78 @@ export class Game {
     audio.click()
     audio.tunnel()
     this.enterRoomMap(offer)
+  }
+
+  /** 交易·考验：立约者给两个选项（接受 / 拒绝） */
+  private startTrialRoom(): void {
+    const trial = this.rng.pick([...TRIALS])
+    this.pendingTrial = trial
+    this.trialOffers = [
+      {
+        id: 'trial-accept',
+        kind: 'trade',
+        room: 'trial',
+        title: `立约：${trial.name}`,
+        desc: `${trial.burden.text} → ${trial.goal.text} → ${trial.boon.text}`,
+        icon: trial.icon,
+        payload: {},
+      },
+      {
+        id: 'trial-refuse',
+        kind: 'trade',
+        room: 'trial',
+        title: '婉拒',
+        desc: trial.refuse,
+        icon: '·',
+        payload: {},
+      },
+    ]
+    this.trialActive = true
+    this.phase = 'tunnel'
+    audio.duck(false)
+    this.hud.showTunnelOffers(this.trialOffers, this.run.layer, 'potential')
+    audio.click()
+  }
+
+  /** 当前考验带来的属性倍率（负面 + 已兑现的正面） */
+  private trialMul(stat: 'goldGain' | 'hurtTaken' | 'moveSpeed' | 'attack'): number {
+    const trial = this.run.trial
+    if (!trial) return 1
+    const def = TRIALS.find((t) => t.id === trial.id)
+    if (!def) return 1
+    if (def.burden.stat !== stat) return 1
+    if (stat === 'hurtTaken') return 1 + def.burden.value
+    return 1 + def.burden.value
+  }
+
+  /** 每层推进时检查考验是否兑现 */
+  private tickTrial(): void {
+    const cur = this.run.trial
+    if (!cur) return
+    const def = TRIALS.find((t) => t.id === cur.id)
+    if (!def) {
+      this.run.trial = undefined
+      return
+    }
+    cur.layersLeft -= 1
+    const kills = this.run.kills - cur.killsAtStart
+    const done =
+      def.goal.kind === 'kills'
+        ? kills >= def.goal.value
+        : def.goal.kind === 'layers'
+          ? cur.layersLeft <= 0
+          : cur.layersLeft <= 0
+    if (done) {
+      this.hud.toast(`誓约达成：${def.boon.text}`, 'good')
+      this.run.trial = undefined
+      this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
+    } else if (cur.layersLeft <= 0) {
+      this.hud.toast(`「${def.name}」未能兑现，约束已解除`, 'bad')
+      this.run.trial = undefined
+    } else {
+      this.hud.toast(`「${def.name}」剩余 ${cur.layersLeft} 层 · 击杀 ${kills}/${def.goal.value}`, 'info')
+    }
+    this.recalcStats()
   }
 
   /** 探索·游戏门：挂载对应阶段的小游戏，赢了给小奖励 */
@@ -2541,6 +2639,11 @@ export class Game {
       this.run.difficulty,
     )
 
+    if (room.offer.room === 'trial') {
+      room.resolved = true
+      this.startTrialRoom()
+      return
+    }
     if (res.minigame) {
       room.resolved = true
       this.startMinigameRoom()
@@ -2859,6 +2962,7 @@ export class Game {
 
   /** 结算存档并推进下一层（房间完成 / 商店离开都走这里） */
   private advanceToNextLayer(): void {
+    this.tickTrial()
     this.saveRun(AUTOSAVE_SLOT)
     this.layerSnapshot = {
       ...this.run,
@@ -3021,8 +3125,9 @@ export class Game {
     const stats: PlayerStats = {
       ...p.stats,
       maxHp,
-      moveSpeed: (def.base.moveSpeed + (c.moveSpeed ?? 0)) * mods.moveSpeedMul * (giant ? 0.85 : 1),
-      damage: (tier.damage ?? 10) * allStat * (giant ? 1.15 : 1),
+      moveSpeed:
+        (def.base.moveSpeed + (c.moveSpeed ?? 0)) * mods.moveSpeedMul * (giant ? 0.85 : 1) * this.trialMul('moveSpeed'),
+      damage: (tier.damage ?? 10) * allStat * (giant ? 1.15 : 1) * this.trialMul('attack'),
       magic: (def.base.magic + (c.magic ?? 0)) * allStat * mods.magicMul * (giant ? 1.15 : 1),
       stamina: (def.base.stamina + (c.stamina ?? 0)) * allStat * mods.staminaMul,
       intelligence: (def.base.intelligence + (c.intelligence ?? 0)) * allStat * mods.intelligenceMul,

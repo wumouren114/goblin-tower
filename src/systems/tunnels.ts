@@ -206,8 +206,7 @@ function roomsOfKind(kind: TunnelType, layer: number): TunnelRoom[] {
       return ['event', 'chest', 'skill-card', 'minigame']
     case 'trade':
       // 交易类：商店 / 祭坛 / 考验
-      // 考验房等 trials.ts 数据到位后再加入池（现在进来会是空门）
-      return ['merchant', 'altar']
+      return ['merchant', 'altar', 'trial']
     case 'battle':
       return clampLayer(layer) >= ELITE_FIGHT_MIN_LAYER ? ['mob-wave', 'elite-fight'] : ['mob-wave']
     default:
