@@ -33,7 +33,7 @@ import { artReady, artUrl, type ArtKey } from '../art/atlasImport'
 import { roomIconDataUrl } from '../art/roomIcons'
 import { DIFFICULTIES, DIFFICULTY_IDS } from '../data/balance'
 import { CARD_TIER_LABEL } from '../data/cards'
-import { branchOf } from '../data/potentials'
+import { POTENTIALS, branchOf } from '../data/potentials'
 import {
   clamp01,
   div,
@@ -515,7 +515,7 @@ const UI_TEMPLATE = /* html */ `
           <section class="title-panel panel-char">
             <h2 class="panel-label">选择角色</h2>
             <div class="char-cards js-char-cards"></div>
-            <p class="style-picker-note js-style-note">潜能于 3 / 6 / 9 层解锁 · 开局默认基础流派</p>
+            <p class="style-picker-note js-style-note">潜能于 3 / 6 / 9 层解锁 · 长按角色卡查看技能与潜能分支</p>
           </section>
           <section class="title-panel panel-diff">
             <h2 class="panel-label">选择难度</h2>
@@ -545,6 +545,9 @@ const UI_TEMPLATE = /* html */ `
         </section>
       </div>
     </div>
+    <aside class="char-info-overlay js-char-info" hidden aria-label="角色技能与潜能预览">
+      <div class="char-info-box js-char-info-box"></div>
+    </aside>
   </section>
 
   <section class="screen tunnel-screen is-tunnel js-tunnel" aria-label="时空隧道">
@@ -712,6 +715,11 @@ class HudImpl implements HudV3 {
   private titleInnerEl!: HTMLElement
   private titleKeyartEl!: HTMLImageElement
   private charCardsEl!: HTMLElement
+  private charInfoEl!: HTMLElement
+  private charInfoBoxEl!: HTMLElement
+  private charHoldTimer: number | null = null
+  private charInfoOpen = false
+  private charHoldTriggered = false
   private readonly charCardEls: HTMLButtonElement[] = []
   private diffCardsEl!: HTMLElement
   private readonly diffCardEls: HTMLButtonElement[] = []
@@ -831,6 +839,9 @@ class HudImpl implements HudV3 {
     this.syncArt()
 
     window.addEventListener('keydown', this.onKeyDown)
+    window.addEventListener('pointerup', this.onCharHoldRelease)
+    window.addEventListener('pointercancel', this.onCharHoldRelease)
+    window.addEventListener('blur', this.onCharHoldRelease)
     this.refreshHud()
   }
 
@@ -1559,6 +1570,8 @@ class HudImpl implements HudV3 {
     this.titleInnerEl = this.q('.js-title-inner')
     this.titleKeyartEl = this.q<HTMLImageElement>('.js-title-keyart')
     this.charCardsEl = this.q('.js-char-cards')
+    this.charInfoEl = this.q('.js-char-info')
+    this.charInfoBoxEl = this.q('.js-char-info-box')
 
     this.diffCardsEl = this.q('.js-diff-cards')
     this.diffTipEl = this.q('.js-diff-tip')
@@ -1589,7 +1602,21 @@ class HudImpl implements HudV3 {
       info.appendChild(span('char-title', def.title))
       info.appendChild(span('char-role', def.role))
       card.append(avatarWrap, info)
-      card.addEventListener('click', () => this.selectCharacter(id))
+      card.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return
+        this.startCharHold(id, card)
+      })
+      card.addEventListener('pointerleave', () => this.cancelCharHoldTimer(card))
+      card.addEventListener('pointerup', () => this.cancelCharHoldTimer(card))
+      card.addEventListener('pointercancel', () => this.cancelCharHoldTimer(card))
+      card.addEventListener('click', (e) => {
+        if (this.charHoldTriggered) {
+          this.charHoldTriggered = false
+          e.preventDefault()
+          return
+        }
+        this.selectCharacter(id)
+      })
       this.charCardsEl.appendChild(card)
       this.charCardEls.push(card)
     }
@@ -1623,6 +1650,103 @@ class HudImpl implements HudV3 {
       this.hideEnd()
       this.handlers.onQuitToTitle()
     })
+  }
+
+  private readonly onCharHoldRelease = (): void => {
+    this.cancelCharHoldTimer()
+    if (this.charInfoOpen) this.hideCharInfoPanel()
+  }
+
+  private startCharHold(id: CharacterId, card: HTMLButtonElement): void {
+    this.cancelCharHoldTimer()
+    this.charHoldTriggered = false
+    card.classList.add('is-holding')
+    this.charHoldTimer = window.setTimeout(() => {
+      this.charHoldTimer = null
+      card.classList.remove('is-holding')
+      this.charHoldTriggered = true
+      this.showCharInfoPanel(id)
+    }, 400)
+  }
+
+  private cancelCharHoldTimer(card?: HTMLButtonElement): void {
+    if (this.charHoldTimer !== null) {
+      window.clearTimeout(this.charHoldTimer)
+      this.charHoldTimer = null
+    }
+    if (card) card.classList.remove('is-holding')
+    else for (const el of this.charCardEls) el.classList.remove('is-holding')
+  }
+
+  private showCharInfoPanel(id: CharacterId): void {
+    const def = CHARACTERS[id]
+    const pot = POTENTIALS[id]
+    if (!def || !pot) return
+
+    const attackShape =
+      def.attack.shape === 'cone'
+        ? `扇形近战${def.attack.angle ? ` ${def.attack.angle}°` : ''}`
+        : def.attack.shape === 'aura'
+          ? '环绕音波'
+          : '远程弹道'
+    const attackDesc = `${attackShape} · 基础伤害 ${def.attack.baseDamage} · 射程 ${def.attack.baseRange}m`
+    const skillMeta = def.skill.duration
+      ? `充能 ${def.skill.chargeCost} · 持续 ${def.skill.duration}s`
+      : `充能 ${def.skill.chargeCost}`
+
+    const head = div('ci-head')
+    const avatar = div(`char-avatar avatar-${id} ci-avatar`)
+    setArtIcon(avatar, PORTRAIT_ART[id], CHAR_EMOJI[id] ?? '✦')
+    const titleWrap = div('ci-title-wrap')
+    const nameRow = div('ci-name-row')
+    nameRow.append(span('ci-name', def.name), span('ci-title', def.title))
+    titleWrap.append(nameRow, div('ci-role', def.role))
+    head.append(avatar, titleWrap, span('ci-release-tip', '松开左键关闭'))
+
+    const skillsGrid = div('ci-skills')
+    const makeSkillCard = (keyLabel: string, name: string, meta: string, desc: string, sub?: string) => {
+      const box = div('ci-skill')
+      const top = div('ci-skill-top')
+      top.append(span('ci-key', keyLabel), span('ci-skill-name', name), span('ci-skill-meta', meta))
+      box.append(top, div('ci-skill-desc', desc))
+      if (sub) box.append(div('ci-skill-unlock', sub))
+      return box
+    }
+    skillsGrid.append(
+      makeSkillCard('左键 · 普攻', def.attack.name, attackShape, attackDesc),
+      makeSkillCard('右键 · 专武', def.skill.name, skillMeta, def.skill.desc),
+      makeSkillCard('Q · 通用技', pot.qSkill.name, `CD ${pot.qSkill.cooldown}s`, pot.qSkill.desc, `解锁：${pot.qSkill.unlock}`),
+      makeSkillCard('F · 通用技', pot.fSkill.name, `CD ${pot.fSkill.cooldown}s`, pot.fSkill.desc, `解锁：${pot.fSkill.unlock}`),
+    )
+
+    const branchTitle = div('ci-section-label', '潜能分支（3 选 1 构筑）')
+    const branchesGrid = div('ci-branches')
+    for (const b of pot.branches) {
+      const card = div('ci-branch')
+      card.style.setProperty('--ci-accent', b.accent)
+      const bHead = div('ci-branch-head')
+      bHead.append(span('ci-branch-icon', b.icon), span('ci-branch-name', b.name))
+      const nodesRow = div('ci-branch-nodes')
+      for (const n of b.nodes) {
+        nodesRow.appendChild(span('ci-node-chip', n.name))
+      }
+      card.append(
+        bHead,
+        div('ci-branch-id', b.identity),
+        div('ci-branch-cost', `代价：${b.cost}`),
+        nodesRow,
+      )
+      branchesGrid.appendChild(card)
+    }
+
+    this.charInfoBoxEl.replaceChildren(head, skillsGrid, branchTitle, branchesGrid)
+    this.charInfoEl.hidden = false
+    this.charInfoOpen = true
+  }
+
+  private hideCharInfoPanel(): void {
+    this.charInfoEl.hidden = true
+    this.charInfoOpen = false
   }
 
   private wireTunnel(): void {
