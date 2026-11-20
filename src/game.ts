@@ -258,6 +258,11 @@ export class Game {
   private readonly statusField = new StatusField()
   /** 上一帧的节拍相位：越过 1→0 时播拍点音 */
   private lastBeatPhase = 0
+  /** 通用 Q/F 技能冷却（秒，绝对时间戳） */
+  private qSkillCdUntil = 0
+  private fSkillCdUntil = 0
+  /** 丛雨·格挡窗口（performance.now 秒） */
+  private blockUntil = 0
   /** 刚选中的那扇门（战斗门的战后奖励类型从这里取） */
   private currentDoor: TunnelOffer | null = null
   private cardRewardOffers: TunnelOffer[] = []
@@ -731,6 +736,13 @@ export class Game {
     }
 
     // 调试：G 抽一个探索事件（事件房间接通后用不到）
+    // 通用战斗动作：Q（处决/推敌/回收）与 F（格挡/强拍/扫射）
+    if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('KeyQ')) {
+      this.useQSkill()
+    }
+    if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('KeyF')) {
+      this.useFSkill()
+    }
     if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('KeyG')) {
       this.openDebugEvent()
     }
@@ -1965,11 +1977,13 @@ export class Game {
       this.vfx.ring(p.x, p.z, { color: 0x8fd8ff, radius: 0.9, life: 0.3, grow: 1.6 })
       return
     }
+    const blocking = performance.now() < this.blockUntil
     let dmg =
       raw *
       charTakeDamageMul(this.run.character) *
       (1 - Math.min(0.6, stats.armorRate)) *
-      this.trialMul('hurtTaken')
+      this.trialMul('hurtTaken') *
+      (blocking ? 0.2 : 1)
     if (this.run.style === 'murasame-guard') dmg *= 0.9
     let remaining = dmg
     if (this.shieldHp > 0 && remaining > 0) {
@@ -2423,6 +2437,91 @@ export class Game {
     this.enterRoomMap(offer)
   }
 
+  /** Q·通用战斗动作：丛雨=处决 / 睦=推敌 / 鱼=回收 */
+  private useQSkill(): void {
+    const p = this.player
+    if (!p) return
+    if (performance.now() < this.qSkillCdUntil) return
+    const finish = (cd: number): void => {
+      this.qSkillCdUntil = performance.now() + cd * 1000
+    }
+    if (this.run.character === 'murasame') {
+      let n = 0
+      for (const g of this.goblins) {
+        if (!g.alive || g.elite) continue
+        if ((g.hpRatio ?? 1) >= 0.12) continue
+        if (Math.hypot(g.x - p.x, g.z - p.z) > 3.2 + g.radius) continue
+        const killed = g.hit(1e9, 0, 0)
+        this.onCombatHit(g, 0, false, killed)
+        this.burstVfx(g.x, g.z, 0xffd166)
+        n += 1
+      }
+      if (n === 0) {
+        this.hud.floatText(new THREE.Vector3(p.x, 1.8, p.z), '没有可处决的目标', 'normal')
+        return
+      }
+      finish(12)
+      audio.play('mark_settle', { volume: 0.8 })
+      this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), `处决 ×${n}`, 'crit')
+      return
+    }
+    if (this.run.character === 'mutsumi') {
+      let pushed = 0
+      for (const g of this.goblins) {
+        if (!g.alive) continue
+        const dx = g.x - p.x
+        const dz = g.z - p.z
+        const d = Math.hypot(dx, dz)
+        if (d > 3.2 + g.radius) continue
+        const kx = d > 0.01 ? dx / d : 1
+        const kz = d > 0.01 ? dz / d : 0
+        g.hit(0, kx * 6, kz * 6)
+        pushed += 1
+      }
+      this.vfx.ring(p.x, p.z, { color: 0xff9fd0, radius: 2.2, life: 0.35, grow: 2.6 })
+      this.rig.shake(0.15)
+      finish(10)
+      audio.play('crit', { volume: 0.5 })
+      this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '推开！', 'crit')
+      void pushed
+      return
+    }
+    // fish：回收召唤物
+    const n = this.combat?.recallMinions() ?? 0
+    if (n === 0) {
+      this.hud.floatText(new THREE.Vector3(p.x, 1.8, p.z), '场上没有召唤物', 'normal')
+      return
+    }
+    const gold = n * 15
+    this.addGold(gold)
+    finish(10)
+    audio.play('coin', { volume: 0.7 })
+    this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), `回收 +${gold} 金`, 'gold')
+  }
+
+  /** F·强化形态：丛雨=格挡 / 睦=强拍 / 鱼=水枪扫射 */
+  private useFSkill(): void {
+    const p = this.player
+    if (!p || !this.combat) return
+    if (performance.now() < this.fSkillCdUntil) return
+    if (this.run.character === 'murasame') {
+      this.blockUntil = performance.now() + 800
+      this.fSkillCdUntil = performance.now() + 8000
+      this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '格挡！', 'crit')
+      audio.play('mark_settle', { volume: 0.6 })
+      return
+    }
+    if (this.run.character === 'mutsumi') {
+      this.combat.setForcePerfectWindow(500)
+      this.fSkillCdUntil = performance.now() + 8000
+      this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '强拍窗口', 'crit')
+      return
+    }
+    this.combat.setRapidFire(10)
+    this.fSkillCdUntil = performance.now() + 20000
+    this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '水枪扫射 10s', 'crit')
+  }
+
   /** 交易·祭坛：四档献祭（献卡 / 献血 / 双重 / 神秘） */
   private openAltar(): void {
     const pulls = this.run.mysteryPulls ?? 0
@@ -2524,6 +2623,10 @@ export class Game {
       }
     }
     this.recalcStats()
+  }
+
+  private burstVfx(x: number, z: number, color: number): void {
+    this.vfx.burst(x, z, { color, count: 12, speed: 5, life: 0.4, size: 0.26 })
   }
 
   /** 交易·考验：立约者给两个选项（接受 / 拒绝） */

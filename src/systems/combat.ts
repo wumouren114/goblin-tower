@@ -230,6 +230,9 @@ export class Combat {
   private targetIdSeq = 0
   /** 剑意·蓄势的每秒回能计时 */
   private jianyiRegenTimer = 1
+  /** 通用 F 键：强拍窗口（睦）/ 扫射窗口（鱼） */
+  private forcePerfectUntil = 0
+  private rapidUntil = 0
   /** 分身·共鸣回路：小肥鱼击杀攒的能量（满 30 换一次免费技能） */
   private cloneEnergy = 0
   private cloneFreeCast = false
@@ -329,6 +332,23 @@ export class Combat {
     let mul = this.potentialBranch === 'jianyi' ? 0.8 : 1
     if (this.potentialBranch === 'shunshan' && this.hasNode('murasame-shunshan-power')) mul *= 1.2
     return mul
+  }
+
+  /** F·强拍闪避：窗口内的下一次普攻强制 perfect */
+  setForcePerfectWindow(ms: number): void {
+    this.forcePerfectUntil = this.combatTime + ms / 1000
+  }
+
+  /** F·水枪扫射：窗口内攻速减半 */
+  setRapidFire(seconds: number): void {
+    this.rapidUntil = this.combatTime + seconds
+  }
+
+  /** Q·回收：清空召唤物，返回数量 */
+  recallMinions(): number {
+    const n = this.minions.count
+    this.minions.clear()
+    return n
   }
 
   /** 给敌人分配稳定 id（标记用） */
@@ -554,9 +574,15 @@ export class Combat {
       ? (this.beat.gridMs / 1000) * 0.7
       : attackInterval(this.stats.stamina, def.attack.minInterval) *
         this.styleAttackIntervalMul() *
-        (this.potentialBranch === 'bubble' ? 1.15 : 1)
+        (this.potentialBranch === 'bubble' ? 1.15 : 1) *
+        (this.combatTime < this.rapidUntil ? 0.55 : 1)
     this.cooldownLeft = Math.max(0.01, interval)
-    const judge = rhythm ? this.beat.judge(performance.now()) : null
+    const forced = this.combatTime < this.forcePerfectUntil
+    const judge = rhythm
+      ? this.beat.judge(performance.now())
+      : forced
+        ? 'perfect'
+        : null
     let rhythmMul = judge === 'perfect' ? 1.25 : judge === 'good' ? 1.1 : judge === 'miss' ? 0.85 : 1
     if (rhythm) {
       if (judge === 'miss') {
