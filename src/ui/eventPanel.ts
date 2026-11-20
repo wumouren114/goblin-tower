@@ -72,6 +72,20 @@ export class EventPanel {
     title.textContent = event.title
     title.style.cssText = 'margin:6px 0 10px;font-size:22px;font-weight:700'
 
+    const sceneParts: HTMLElement[] = []
+    if (event.scene) {
+      const scene = document.createElement('p')
+      scene.textContent = event.scene
+      scene.style.cssText = 'margin:0 0 8px;font-size:13px;line-height:1.8;color:#8e9cbd;font-style:italic'
+      sceneParts.push(scene)
+    }
+    if (event.npc) {
+      const npc = document.createElement('div')
+      npc.textContent = `${event.npc.name} · ${event.npc.identity}（${event.npc.voice}）`
+      npc.style.cssText = 'margin:0 0 12px;font-size:12px;color:#c9a8ff;letter-spacing:.02em'
+      sceneParts.push(npc)
+    }
+
     const intro = document.createElement('p')
     intro.textContent = event.intro
     intro.style.cssText = 'margin:0 0 14px;font-size:14px;line-height:1.7;color:#c3ccdf'
@@ -86,7 +100,7 @@ export class EventPanel {
     }
 
     this.body = document.createElement('div')
-    this.body.append(kicker, title, intro, clueBox)
+    this.body.append(kicker, title, ...sceneParts, intro, clueBox)
 
     const list = document.createElement('div')
     list.style.cssText = 'display:flex;flex-direction:column;gap:10px'
@@ -97,6 +111,12 @@ export class EventPanel {
       btn.dataset.index = String(index)
       const cost = option.costGold ? `（${option.costGold} 金）` : option.costCard ? '（消耗一张卡）' : ''
       btn.textContent = `${index + 1}. ${option.label}${cost}`
+      if (option.hint) {
+        const hintLine = document.createElement('div')
+        hintLine.textContent = option.hint
+        hintLine.style.cssText = 'margin-top:6px;font-size:12px;line-height:1.6;color:#8e9cbd'
+        btn.appendChild(hintLine)
+      }
       btn.style.cssText = [
         'text-align:left',
         'padding:12px 14px',
@@ -204,7 +224,21 @@ export class EventPanel {
 
     const text = document.createElement('p')
     text.textContent = outcome ? outcome.text : '什么也没发生。'
-    text.style.cssText = 'margin:14px 0 22px;font-size:16px;line-height:1.9;color:#e8ecf8'
+    text.style.cssText = 'margin:14px 0 16px;font-size:16px;line-height:1.9;color:#e8ecf8'
+
+    const extras: HTMLElement[] = []
+    if (outcome?.epilogue) {
+      const epi = document.createElement('p')
+      epi.textContent = outcome.epilogue
+      epi.style.cssText = 'margin:0 0 10px;font-size:13px;line-height:1.8;color:#a6b2ce'
+      extras.push(epi)
+    }
+    if (outcome?.worldview) {
+      const wv = document.createElement('p')
+      wv.textContent = outcome.worldview
+      wv.style.cssText = 'margin:0 0 20px;font-size:13px;line-height:1.8;color:#c9a8ff;font-style:italic'
+      extras.push(wv)
+    }
 
     const close = document.createElement('button')
     close.type = 'button'
@@ -221,7 +255,7 @@ export class EventPanel {
     ].join(';')
     close.addEventListener('click', () => this.close(true, handlers))
 
-    this.body.append(kicker, text, close)
+    this.body.append(kicker, text, ...extras, close)
 
     this.keyHandler = (e: KeyboardEvent): void => {
       if (e.code === 'Enter' || e.code === 'Escape' || e.code === 'Space') {
