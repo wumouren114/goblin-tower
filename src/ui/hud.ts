@@ -123,6 +123,27 @@ interface InvCellRef {
   discard: HTMLButtonElement
 }
 
+interface KeyGuideItem {
+  key: string
+  label: string
+  unlocked: boolean
+  cooldown?: number
+  accent?: string
+}
+
+interface KeyGuideCellRef {
+  el: HTMLDivElement
+  fill: HTMLSpanElement
+  keyEl: HTMLSpanElement
+  labelEl: HTMLSpanElement
+  lastKey: string
+  lastLabel: string
+  lastUnlocked: boolean | null
+  lastReady: boolean | null
+  lastCdPct: string
+  lastAccent: string
+}
+
 /* ------------------------------------------------------------------ */
 /* 静态数据                                                            */
 /* ------------------------------------------------------------------ */
@@ -473,6 +494,7 @@ const UI_TEMPLATE = /* html */ `
     <div class="fb-sub js-banner-sub"></div>
   </div>
   <div class="toast-layer js-toast-layer"></div>
+  <div class="key-guide js-key-guide" aria-label="键位引导" hidden></div>
 
   <section class="screen title-screen js-title" aria-label="标题页">
     <div class="title-bg" aria-hidden="true">
@@ -687,6 +709,9 @@ class HudImpl implements HudV3 {
   private bannerNameEl!: HTMLElement
   private bannerSubEl!: HTMLElement
   private toastLayerEl!: HTMLElement
+  private keyGuideEl!: HTMLElement
+  private readonly keyGuideRefs: KeyGuideCellRef[] = []
+  private keyGuideHasData = false
 
   /* ---------- 标题 ---------- */
   private titleEl!: HTMLElement
@@ -936,6 +961,11 @@ class HudImpl implements HudV3 {
     this.startLocked = false
     this.tunnelLocked = false
     this.endLocked = false
+    this.keyGuideHasData = false
+    for (const ref of this.keyGuideRefs) {
+      ref.lastUnlocked = null
+      ref.lastReady = null
+    }
     this.hideEnd()
     this.hidePause()
     this.hideTunnels()
@@ -1329,7 +1359,92 @@ class HudImpl implements HudV3 {
     this.comboEl.style.color = count >= 60 ? '#ffd479' : count >= 40 ? '#ff9fd0' : count >= 20 ? '#9fd8ff' : '#cfd8ee'
   }
 
-  setMuted(muted: boolean): void {
+  /** 局内键位引导条：常驻中下部，展示解锁态、角色主题色与冷却进度 */
+  setKeyGuide(items: readonly KeyGuideItem[]): void {
+    if (this.destroyed) return
+    if (!items || items.length === 0) {
+      this.keyGuideHasData = false
+      this.syncKeyGuideVisibility()
+      return
+    }
+    while (this.keyGuideRefs.length < items.length) {
+      const cell = div('kg-item')
+      const fill = span('kg-cd-fill')
+      const keyEl = span('kg-key')
+      const labelEl = span('kg-label')
+      cell.append(fill, keyEl, labelEl)
+      this.keyGuideEl.appendChild(cell)
+      this.keyGuideRefs.push({
+        el: cell,
+        fill,
+        keyEl,
+        labelEl,
+        lastKey: '',
+        lastLabel: '',
+        lastUnlocked: null,
+        lastReady: null,
+        lastCdPct: '',
+        lastAccent: '',
+      })
+    }
+    for (let i = 0; i < this.keyGuideRefs.length; i += 1) {
+      const ref = this.keyGuideRefs[i]
+      if (i >= items.length) {
+        ref.el.hidden = true
+        continue
+      }
+      ref.el.hidden = false
+      const item = items[i]
+      const unlocked = Boolean(item.unlocked)
+      const cd = item.cooldown === undefined ? 1 : clamp01(Number.isFinite(item.cooldown) ? item.cooldown : 1)
+      const ready = unlocked && cd >= 0.999
+      const cooling = unlocked && !ready
+      const accent = item.accent || '#e8b25a'
+
+      if (ref.lastAccent !== accent) {
+        ref.el.style.setProperty('--kg-accent', accent)
+        ref.lastAccent = accent
+      }
+      if (ref.lastKey !== item.key) {
+        setText(ref.keyEl, item.key)
+        ref.lastKey = item.key
+      }
+      const label = unlocked ? item.label : '🔒 未解锁'
+      if (ref.lastLabel !== label) {
+        setText(ref.labelEl, label)
+        ref.lastLabel = label
+      }
+      if (ref.lastUnlocked === false && unlocked) {
+        ref.el.classList.remove('is-unlocking', 'is-ready-pulse'); restartAnim(ref.el); ref.el.classList.add('is-unlocking')
+      }
+      if (ref.lastUnlocked !== unlocked) {
+        ref.el.classList.toggle('is-locked', !unlocked)
+        ref.el.classList.toggle('is-unlocked', unlocked)
+        ref.lastUnlocked = unlocked
+      }
+      ref.el.classList.toggle('is-cooling', cooling)
+      const cdPct = cooling ? `${(cd * 100).toFixed(1)}%` : '0%'
+      if (ref.lastCdPct !== cdPct) {
+        ref.fill.style.height = cdPct
+        ref.lastCdPct = cdPct
+      }
+      if (ref.lastReady === false && ready) {
+        ref.el.classList.remove('is-ready-pulse'); restartAnim(ref.el); ref.el.classList.add('is-ready-pulse')
+      }
+      ref.lastReady = ready
+    }
+    this.keyGuideHasData = true
+    this.syncKeyGuideVisibility()
+  }
+
+  private syncKeyGuideVisibility(): void {
+    const titleOpen = this.titleEl.classList.contains('is-open')
+    const endOpen = this.endEl.classList.contains('is-open')
+    const pauseOpen = this.pauseEl.classList.contains('is-open') || this.slotsEl.classList.contains('is-open')
+    this.keyGuideEl.hidden = titleOpen || endOpen || pauseOpen || !this.keyGuideHasData
+  }
+
+    setMuted(muted: boolean): void {
     this.muted = muted
     this.muteChipEl.hidden = !muted
     setText(this.pauseMuteEl, muted ? '静音：开' : '静音：关')
@@ -1412,6 +1527,7 @@ class HudImpl implements HudV3 {
     this.toastLayerEl = this.q('.js-toast-layer')
     this.hudPromptEl = this.q('.js-hud-prompt')
     this.hudPromptTextEl = this.q('.js-hud-prompt-text')
+    this.keyGuideEl = this.q('.js-key-guide')
   }
 
   private wireTitle(): void {
@@ -2289,6 +2405,7 @@ class HudImpl implements HudV3 {
     // 避免血条、充能、层数进度与模态内容抢注意力。
     document.body.classList.toggle('is-modal-open', modalOpen)
     this.hudEl.hidden = titleOpen || endOpen
+    this.syncKeyGuideVisibility()
   }
 
   /* ================================================================ */

@@ -4512,3 +4512,184 @@ body.is-modal-open .floor-banner {
     display: none;
   }
 }
+
+/* ============================================================
+   局内键位引导条（中下部，节拍环/COMBO 之下，商店/背包之上）
+   ============================================================ */
+
+.key-guide {
+  position: fixed;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 74;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: rgba(8, 14, 12, 0.86);
+  border: 2px solid rgba(232, 178, 90, 0.34);
+  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.62);
+  pointer-events: none;
+}
+
+.key-guide[hidden] {
+  display: none;
+}
+
+.kg-item {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 54px;
+  height: 38px;
+  padding: 3px 8px;
+  gap: 2px;
+  background: rgba(14, 24, 20, 0.94);
+  border: 2px solid var(--kg-accent, var(--amber));
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transition: opacity 0.2s ease, filter 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.kg-item[hidden] {
+  display: none;
+}
+
+.kg-cd-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0%;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--kg-accent, #e8b25a) 36%, rgba(8, 14, 12, 0.88)) 0%,
+    rgba(6, 10, 9, 0.82) 100%
+  );
+  border-top: 2px solid var(--kg-accent, var(--amber));
+  transition: height 60ms linear;
+}
+
+.kg-key {
+  position: relative;
+  z-index: 2;
+  font-family: var(--font-num);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: var(--kg-accent, var(--amber-bright));
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.85);
+  white-space: nowrap;
+}
+
+.kg-label {
+  position: relative;
+  z-index: 2;
+  font-family: var(--font-cn);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.03em;
+  color: var(--text);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.75);
+  white-space: nowrap;
+}
+
+.kg-item.is-locked {
+  filter: grayscale(1);
+  opacity: 0.4;
+  border-color: rgba(154, 168, 158, 0.42);
+  background: rgba(12, 16, 15, 0.76);
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.45);
+}
+
+.kg-item.is-locked .kg-key {
+  color: #a6b2ab;
+}
+
+.kg-item.is-locked .kg-label {
+  color: #8f9b94;
+}
+
+.kg-item.is-cooling {
+  background: rgba(7, 11, 10, 0.94);
+  border-color: rgba(154, 168, 158, 0.45);
+}
+
+.kg-item.is-cooling .kg-cd-fill {
+  opacity: 1;
+}
+
+.kg-item.is-cooling .kg-key {
+  opacity: 0.76;
+}
+
+@keyframes keyGuideUnlock {
+  0% {
+    filter: grayscale(0.85) brightness(0.9);
+    transform: scale(0.9);
+    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6), 0 0 0 0 var(--kg-accent, #e8b25a);
+  }
+  50% {
+    filter: grayscale(0) brightness(1.45);
+    transform: scale(1.12);
+    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6), 0 0 16px 2px var(--kg-accent, #e8b25a);
+  }
+  100% {
+    filter: grayscale(0) brightness(1);
+    transform: scale(1);
+    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  }
+}
+
+.kg-item.is-unlocking {
+  animation: keyGuideUnlock 300ms cubic-bezier(0.2, 0.85, 0.35, 1);
+}
+
+@keyframes keyGuideReadyPulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6), 0 0 0 0 var(--kg-accent, #e8b25a);
+  }
+  45% {
+    transform: scale(1.08);
+    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6), 0 0 12px 1px var(--kg-accent, #e8b25a);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  }
+}
+
+.kg-item.is-ready-pulse {
+  animation: keyGuideReadyPulse 260ms ease-out;
+}
+
+@media (max-width: 900px) {
+  .key-guide {
+    gap: 4px;
+    padding: 3px 5px;
+    bottom: 8px;
+  }
+
+  .kg-item {
+    min-width: 44px;
+    height: 34px;
+    padding: 2px 6px;
+  }
+
+  .kg-key {
+    font-size: 11.5px;
+  }
+
+  .kg-label {
+    font-size: 9px;
+  }
+}
