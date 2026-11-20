@@ -11,13 +11,13 @@
       "stages": [
         7
       ],
-      "hpMul": 0.7,
-      "damageMul": 0.55,
-      "countMul": 0.9,
-      "spawnMul": 0.9,
+      "hpMul": 0.6,
+      "damageMul": 0.4,
+      "countMul": 0.8,
+      "spawnMul": 0.85,
       "goldMul": 1.2,
       "xpMul": 1.2,
-      "note": "一届 7 层，轻松娱乐"
+      "note": "一届 7 层，轻松娱乐：更低的怪伤/血量/密度"
     },
     "normal": {
       "name": "普通",

@@ -544,6 +544,11 @@ export class Game {
     this.rig.fitForArena(half)
     this.sceneName = sceneDef.name
     this.player?.grantInvuln(1.0)
+    // 简单难度：每层进场回 15% 生命，降低长跑挫败感
+    if (this.run.difficulty === 'easy' && this.player) {
+      this.player.heal(this.player.stats.maxHp * 0.15)
+      this.run.hp = this.player.hp
+    }
     this.rig.reset()
 
     this.layerTotal = quotaFor(this.run.difficulty, layer)
