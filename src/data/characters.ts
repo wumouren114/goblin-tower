@@ -127,8 +127,8 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
   murasame: {
     id: 'murasame',
     name: '丛雨',
-    title: '近战 · 突进',
-    role: '贴脸扇形拔刀清群，右键 远距离突进聚怪并回血',
+    title: '近战 · 拔刀三流派',
+    role: '扇形拔刀贴脸清群；流血灼尽生命 / 自动回能突进 / 收刀居合引爆标记',
     chargeGainMul: 1,
     base: { hp: 205, chargeMax: 80, stamina: 145, magic: 95, intelligence: 70, moveSpeed: 7.5 },
     attack: {
