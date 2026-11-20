@@ -1054,6 +1054,7 @@ export class Game {
       this.run.potential?.nodes ?? [],
     )
     this.combat?.setResonances(this.run.potential?.resonances ?? [])
+    this.combat?.setTrialBoons(this.run.trialBoons)
   }
 
   /** 调试：直接设定潜能（?potential=liushang&pnodes=murasame-liushang-rate,...） */
