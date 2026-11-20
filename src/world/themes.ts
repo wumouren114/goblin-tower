@@ -11,10 +11,50 @@ import type { ThemeDef, ThemeId } from '../types'
  *      区 1 云上花庭（春日晴空）  → 阶段 1
  *      区 2 星砂观星台（永恒黄昏）→ 阶段 2
  *      区 3 黄铜钟塔（塔的心室）  → 阶段 3
- *  - 同一场景区的 3 个变体靠「天气 / 时段 / 布局」区分，几何与碰撞完全一致。
- *  - family 决定地面细节与道具原型（textures.ts / props.ts），暂沿用旧家族，
- *    等场景地标与功能道具落地后再换。
+ *  - 同一场景区的 3 个变体靠「天气 / 时段 / 光色 / 地砖拼法 / 空气粒子」区分，
+ *    几何边界与碰撞完全一致。
  * ============================================================ */
+export type FloorTilePattern = 'flagstone' | 'crazy' | 'inlay'
+export type WallDebrisKind = 'moss' | 'stardust' | 'rubble'
+export type LightPatchKind = 'window' | 'canopy' | 'crystal' | 'arch'
+export type AirParticleKind = 'garden' | 'observatory' | 'clocktower'
+
+export interface SceneDetailProfile {
+  /** 地砖拼法：大方砖 / 碎拼 / 镶边 */
+  tilePattern: FloorTilePattern
+  /** 3D 镶边地砖色（与主地砖拉开层次） */
+  inlayColor: number
+  /** 墙裙颜色（墙脚 0.55~0.65m 独立材质） */
+  dadoColor: number
+  /** 墙裙顶压边颜色 */
+  dadoTrimColor: number
+  /** 沿墙边缘堆积类型（高度 0.1~0.2m） */
+  debrisKind: WallDebrisKind
+  /** 堆积多色变化 */
+  debrisColors: readonly [number, number, number]
+  /** 地面光斑类型（窗光 / 树影 / 晶光 / 拱窗） */
+  lightPatchKind: LightPatchKind
+  /** 地面光斑颜色与不透明度 */
+  lightPatchColor: number
+  lightPatchOpacity: number
+  /** 光斑投射偏转角（弧度，体现不同时段太阳/星光角度） */
+  lightPatchAngle: number
+  /** 空气粒子场景类（花瓣+浮尘 / 星尘+流星屑 / 火星+铜屑） */
+  airKind: AirParticleKind
+  /** 粒子总数（硬预算 <= 60） */
+  airCount: number
+  /** 主/副两种空气粒子色 */
+  airColors: readonly [number, number]
+  /** 空气粒子速度矢量与摆动幅度（体现天气差异：微风/大风/落花/流星/热流） */
+  airDrift: { vx: number; vy: number; vz: number; sway: number }
+  /** 主光方位角偏置（弧度，体现时段差异） */
+  keyAngleOffset: number
+  /** 中央地标转速（rad/s） */
+  landmarkSpinSpeed: number
+  /** 地标背后逆光描边色 */
+  backlightColor: number
+}
+
 export type ThemeV3 = Omit<ThemeDef, 'id'> & {
   /** 与 SceneDef.themeId 对应 */
   id: string
@@ -22,6 +62,8 @@ export type ThemeV3 = Omit<ThemeDef, 'id'> & {
   family: ThemeId
   /** 所属阶段 1..3（= 第几个大层） */
   stage: number
+  /** P5 六层场景细节与变体差异配置 */
+  detail: SceneDetailProfile
 }
 
 /**
@@ -57,6 +99,25 @@ export const THEMES_V3: Record<string, ThemeV3> = {
     keyIntensity: 2.0,
     propColors: [0xa8c6a0, 0xc6dcc0, 0x8fae8a],
     torchColor: 0xffd7a0,
+    detail: {
+      tilePattern: 'flagstone',
+      inlayColor: 0xdfe8dc,
+      dadoColor: 0x7b9888,
+      dadoTrimColor: 0xe6f2e8,
+      debrisKind: 'moss',
+      debrisColors: [0x6f9e6b, 0x8cbc7e, 0xffb3c6],
+      lightPatchKind: 'window',
+      lightPatchColor: 0xfff6d8,
+      lightPatchOpacity: 0.24,
+      lightPatchAngle: 0.38,
+      airKind: 'garden',
+      airCount: 44,
+      airColors: [0xffb4c8, 0xfff3c8],
+      airDrift: { vx: 0.45, vy: -0.22, vz: 0.25, sway: 0.85 },
+      keyAngleOffset: -0.35,
+      landmarkSpinSpeed: 0.52,
+      backlightColor: 0xfff2c6,
+    },
   },
   'stage1-candle': {
     id: 'stage1-candle',
@@ -77,6 +138,25 @@ export const THEMES_V3: Record<string, ThemeV3> = {
     keyIntensity: 2.05,
     propColors: [0xbfc9a8, 0xd6dcc4, 0xa4ae90],
     torchColor: 0xffe0a8,
+    detail: {
+      tilePattern: 'crazy',
+      inlayColor: 0xede5ce,
+      dadoColor: 0x92886f,
+      dadoTrimColor: 0xf6ebd2,
+      debrisKind: 'moss',
+      debrisColors: [0x8fae6e, 0xc8c488, 0xffd278],
+      lightPatchKind: 'canopy',
+      lightPatchColor: 0xffe9a6,
+      lightPatchOpacity: 0.26,
+      lightPatchAngle: 0.05,
+      airKind: 'garden',
+      airCount: 54,
+      airColors: [0xffe08a, 0xffffff],
+      airDrift: { vx: 2.2, vy: -0.08, vz: 0.75, sway: 1.35 },
+      keyAngleOffset: 0.15,
+      landmarkSpinSpeed: 1.25,
+      backlightColor: 0xffdf8c,
+    },
   },
   'stage1-courtyard': {
     id: 'stage1-courtyard',
@@ -97,6 +177,25 @@ export const THEMES_V3: Record<string, ThemeV3> = {
     keyIntensity: 1.95,
     propColors: [0xd8b8c8, 0xe6cdd8, 0xbfa0b0],
     torchColor: 0xffc8d8,
+    detail: {
+      tilePattern: 'inlay',
+      inlayColor: 0xf3dfe8,
+      dadoColor: 0x997d8c,
+      dadoTrimColor: 0xf7e4ee,
+      debrisKind: 'moss',
+      debrisColors: [0xf4a8c0, 0xffc4d6, 0x8aa884],
+      lightPatchKind: 'arch',
+      lightPatchColor: 0xffd9eb,
+      lightPatchOpacity: 0.25,
+      lightPatchAngle: -0.45,
+      airKind: 'garden',
+      airCount: 56,
+      airColors: [0xff96b8, 0xffdbe8],
+      airDrift: { vx: -0.65, vy: -0.78, vz: 0.35, sway: 1.1 },
+      keyAngleOffset: 0.62,
+      landmarkSpinSpeed: 0.36,
+      backlightColor: 0xffb8d4,
+    },
   },
 
   /* ---------------- 区 2：星砂观星台（永恒黄昏，暗底强自发光） ---------------- */
@@ -119,6 +218,25 @@ export const THEMES_V3: Record<string, ThemeV3> = {
     keyIntensity: 1.85,
     propColors: [0x6a70a0, 0x8488b8, 0x545a86],
     torchColor: 0xffd479,
+    detail: {
+      tilePattern: 'flagstone',
+      inlayColor: 0x7b86bc,
+      dadoColor: 0x2b3256,
+      dadoTrimColor: 0xd4b678,
+      debrisKind: 'stardust',
+      debrisColors: [0x6070aa, 0x8898d4, 0xffd888],
+      lightPatchKind: 'crystal',
+      lightPatchColor: 0xffe296,
+      lightPatchOpacity: 0.26,
+      lightPatchAngle: 0.25,
+      airKind: 'observatory',
+      airCount: 44,
+      airColors: [0xffe08a, 0xb8d4ff],
+      airDrift: { vx: 0.2, vy: 0.38, vz: -0.15, sway: 0.7 },
+      keyAngleOffset: -0.5,
+      landmarkSpinSpeed: 0.45,
+      backlightColor: 0xffdc84,
+    },
   },
   'stage2-slag': {
     id: 'stage2-slag',
@@ -139,6 +257,25 @@ export const THEMES_V3: Record<string, ThemeV3> = {
     keyIntensity: 1.8,
     propColors: [0x6e6e9c, 0x8a8ab8, 0x585882],
     torchColor: 0xa8f0ff,
+    detail: {
+      tilePattern: 'crazy',
+      inlayColor: 0x7d88ba,
+      dadoColor: 0x2f3154,
+      dadoTrimColor: 0x9ce8ff,
+      debrisKind: 'stardust',
+      debrisColors: [0x76b8d8, 0xa8f0ff, 0x626c9e],
+      lightPatchKind: 'window',
+      lightPatchColor: 0x9ff2ff,
+      lightPatchOpacity: 0.28,
+      lightPatchAngle: 0.72,
+      airKind: 'observatory',
+      airCount: 52,
+      airColors: [0xa8f4ff, 0xe8ffff],
+      airDrift: { vx: 1.6, vy: 0.12, vz: 1.1, sway: 0.6 },
+      keyAngleOffset: 0.28,
+      landmarkSpinSpeed: 0.68,
+      backlightColor: 0x9ef2ff,
+    },
   },
   'stage2-ember': {
     id: 'stage2-ember',
@@ -159,6 +296,25 @@ export const THEMES_V3: Record<string, ThemeV3> = {
     keyIntensity: 1.8,
     propColors: [0x6a6e9e, 0x868aba, 0x54587e],
     torchColor: 0xffb0d0,
+    detail: {
+      tilePattern: 'inlay',
+      inlayColor: 0x8284bc,
+      dadoColor: 0x2e2e56,
+      dadoTrimColor: 0xffb8d8,
+      debrisKind: 'stardust',
+      debrisColors: [0x8874b8, 0xffb4d4, 0xd8c8ff],
+      lightPatchKind: 'crystal',
+      lightPatchColor: 0xffb8dc,
+      lightPatchOpacity: 0.27,
+      lightPatchAngle: -0.62,
+      airKind: 'observatory',
+      airCount: 56,
+      airColors: [0xffb8dc, 0xffffff],
+      airDrift: { vx: -2.4, vy: -1.65, vz: 0.9, sway: 0.25 },
+      keyAngleOffset: 0.85,
+      landmarkSpinSpeed: 0.92,
+      backlightColor: 0xffb4dc,
+    },
   },
 
   /* ---------------- 区 3：黄铜钟塔（塔的心室，暖金 + 铜锈青绿） ---------------- */
@@ -181,6 +337,25 @@ export const THEMES_V3: Record<string, ThemeV3> = {
     keyIntensity: 1.8,
     propColors: [0x8a6a3f, 0xa8845a, 0x6f5632],
     torchColor: 0xff9a3c,
+    detail: {
+      tilePattern: 'flagstone',
+      inlayColor: 0xdcc08c,
+      dadoColor: 0x6e5434,
+      dadoTrimColor: 0x64ccb0,
+      debrisKind: 'rubble',
+      debrisColors: [0x6e5436, 0x5aa692, 0x9c7c4e],
+      lightPatchKind: 'arch',
+      lightPatchColor: 0xfff2c6,
+      lightPatchOpacity: 0.24,
+      lightPatchAngle: 0.3,
+      airKind: 'clocktower',
+      airCount: 44,
+      airColors: [0xffc864, 0x72e8c8],
+      airDrift: { vx: 0.35, vy: 0.45, vz: 0.2, sway: 0.65 },
+      keyAngleOffset: -0.25,
+      landmarkSpinSpeed: 0.48,
+      backlightColor: 0x8ef2d8,
+    },
   },
   'stage3-iron': {
     id: 'stage3-iron',
@@ -201,6 +376,25 @@ export const THEMES_V3: Record<string, ThemeV3> = {
     keyIntensity: 1.9,
     propColors: [0x86683f, 0xa2825a, 0x6b5232],
     torchColor: 0xff7a20,
+    detail: {
+      tilePattern: 'crazy',
+      inlayColor: 0xd4b68c,
+      dadoColor: 0x634d34,
+      dadoTrimColor: 0xffa64d,
+      debrisKind: 'rubble',
+      debrisColors: [0x624a32, 0x8c6844, 0xd87a34],
+      lightPatchKind: 'window',
+      lightPatchColor: 0xffb25c,
+      lightPatchOpacity: 0.27,
+      lightPatchAngle: -0.22,
+      airKind: 'clocktower',
+      airCount: 56,
+      airColors: [0xff9638, 0xffe078],
+      airDrift: { vx: 0.55, vy: 1.45, vz: -0.35, sway: 0.9 },
+      keyAngleOffset: 0.42,
+      landmarkSpinSpeed: 0.72,
+      backlightColor: 0xffb85c,
+    },
   },
   'stage3-throne': {
     id: 'stage3-throne',
@@ -221,6 +415,25 @@ export const THEMES_V3: Record<string, ThemeV3> = {
     keyIntensity: 1.95,
     propColors: [0x7c6440, 0x9a7f56, 0x5e4a30],
     torchColor: 0xffb347,
+    detail: {
+      tilePattern: 'inlay',
+      inlayColor: 0xd6b87c,
+      dadoColor: 0x4f3f38,
+      dadoTrimColor: 0xffcf5c,
+      debrisKind: 'rubble',
+      debrisColors: [0x58463c, 0x7c6448, 0xd4a84c],
+      lightPatchKind: 'crystal',
+      lightPatchColor: 0xffd86e,
+      lightPatchOpacity: 0.28,
+      lightPatchAngle: 0.0,
+      airKind: 'clocktower',
+      airCount: 52,
+      airColors: [0xffd464, 0xd4b8ff],
+      airDrift: { vx: -0.3, vy: 0.72, vz: 0.3, sway: 1.0 },
+      keyAngleOffset: 0.95,
+      landmarkSpinSpeed: 0.38,
+      backlightColor: 0xffd468,
+    },
   },
 }
 
