@@ -2787,10 +2787,12 @@ export class Game {
       magic: (def.base.magic + (c.magic ?? 0)) * allStat * mods.magicMul,
       stamina: (def.base.stamina + (c.stamina ?? 0)) * allStat * mods.staminaMul,
       intelligence: (def.base.intelligence + (c.intelligence ?? 0)) * allStat * mods.intelligenceMul,
-      // 瞬闪根被动：技能所需充能 -20%
+      // 瞬闪 / 双重人格 根被动：技能所需充能 -20%
       chargeMax: Math.max(
         30,
-        (def.base.chargeMax + (c.chargeMax ?? 0)) * allStat * (this.run.potential?.branch === 'shunshan' ? 0.8 : 1),
+        (def.base.chargeMax + (c.chargeMax ?? 0)) *
+          allStat *
+          (this.run.potential?.branch === 'shunshan' || this.run.potential?.branch === 'mutsumi-duet' ? 0.8 : 1),
       ),
       chargeGain: c.chargeGain ?? 0,
       armor: 0,

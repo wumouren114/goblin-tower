@@ -540,7 +540,9 @@ export class Combat {
     const chordMul = chord ? (requiem ? 2.2 : 1.6) : 1
     const rangeMul = chord ? (requiem ? 1.4 : 1.2) : 1
     const chordPierce = chord ? (requiem ? 5 : 3) : 0
-    const damage = baseDamage * chordMul * (!this.transformActive && this.style.id === 'mutsumi-duet' ? 0.9 : 1)
+    const duetBonus = this.transformActive && this.potentialBranch === 'duet' ? 1.15 : 1
+    const damage =
+      baseDamage * chordMul * (!this.transformActive && this.style.id === 'mutsumi-duet' ? 0.9 : 1) * duetBonus
     const chordColor = chord ? 0xffe6ad : undefined
     this.characterFx.mutsumiShot(px, pz, dir.x, dir.z, chord)
 
@@ -598,6 +600,31 @@ export class Combat {
         canCrit: true,
         chord,
         color: chordColor,
+      })
+    }
+    // 交响·根被动：额外一发（60% 伤害）；回声节点让这一发再 +20%
+    if (this.potentialBranch === 'symphony' && !chord) {
+      const ang = 0.16
+      const cos = Math.cos(ang)
+      const sin = Math.sin(ang)
+      const echoMul = this.hasNode('mutsumi-symphony-echo') ? 1.2 : 1
+      this.projectiles.spawn({
+        kind: 'cucumber',
+        x: px + dir.x * 0.5,
+        z: pz + dir.z * 0.5,
+        y: 0.7,
+        dirX: dir.x * cos - dir.z * sin,
+        dirZ: dir.x * sin + dir.z * cos,
+        speed,
+        damage: damage * 0.6 * echoMul,
+        range: baseRange * rangeMul,
+        hitRadius: 0.26 * hitMul,
+        scale: sizeMul * 0.8,
+        pierce: 0,
+        bounce: 0,
+        bounceMul,
+        canCrit: true,
+        chord: false,
       })
     }
     if (!chord) this.gainResource(1)
@@ -1139,7 +1166,8 @@ export class Combat {
       (p.pulseBaseRadius ?? 4.3) *
       (this.stats.intelligence / 100) *
       tierNum(tier, 'mortisRadiusMul', 1) *
-      (chord ? (requiem ? 1.4 : 1.2) : 1)
+      (chord ? (requiem ? 1.4 : 1.2) : 1) *
+      (this.potentialBranch === 'duet' && this.hasNode('mutsumi-duet-range') ? 1.15 : 1)
     const baseAmount = hitDamage(p.pulseBaseDamage ?? 11, this.stats.magic) * tierNum(tier, 'mortisPulseMul', 1)
     const amount = baseAmount * (chord ? (requiem ? 2.2 : 1.6) : 1)
     const lifesteal = tierNum(tier, 'mortisLifesteal', 0)
