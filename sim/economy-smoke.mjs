@@ -114,8 +114,8 @@ installFakeStorage()
 const DIFF = 'hard'
 const TOTAL = layerCount(DIFF)
 
-check('hard 难度层数 = 15', () => eq(TOTAL, 15))
-check('layers = 15 时第 15 层是 Boss 层', () => ok(isBossLayer(DIFF, 15) && !isBossLayer(DIFF, 14)))
+check('hard 难度层数 = 18（6+6+6）', () => eq(TOTAL, 18))
+check('第 18 层是 Boss 层，第 17 层不是', () => ok(isBossLayer(DIFF, 18) && !isBossLayer(DIFF, 17)))
 
 check('击杀金按 goldPerKillBase + floor((layer-1)/everyLayers) 增长', () => {
   eq(economy.killGold(1, 'small'), goldPerKillFor(1), 'L1 small')
@@ -453,7 +453,8 @@ check('Boss 层 resolveRoom 直接指向 Boss 战', () => {
 check('隧道随机可复现（同 seed 同结果）', () => {
   const a = tunnels.rollTunnels(7, 15, false, 'fish', new Rng(2024), 4)
   const b = tunnels.rollTunnels(7, 15, false, 'fish', new Rng(2024), 4)
-  deepEqual(a, b, 'rollTunnels')
+  // 同一 seed 的房间序列必须一致；卡的 uid 带自增序号，不做字面比较
+  deepEqual(a.map((o) => [o.room, o.kind]), b.map((o) => [o.room, o.kind]), 'rollTunnels')
 })
 
 check('宝箱预览与结算使用同一张卡（2A 回归）', () => {

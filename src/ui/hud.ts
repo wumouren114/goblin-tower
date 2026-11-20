@@ -206,6 +206,12 @@ const TUNNEL_META: Record<TunnelType, { label: string; hint: string }> = {
   rest: { label: '休息', hint: '回血与充能' },
 }
 
+const ROOM_BAND: Record<TunnelRoom, string> = {
+  event: '探索', chest: '探索', 'skill-card': '探索', minigame: '探索',
+  merchant: '交易', altar: '交易', trial: '交易',
+  'mob-wave': '战斗', 'elite-fight': '战斗', boss: '战斗', rest: '休息',
+}
+
 const ROOM_LABEL: Record<TunnelRoom, string> = {
   event: '陌生旅人',
   chest: '宝箱密室',
@@ -1075,7 +1081,7 @@ class HudImpl implements HudV3 {
       ref.card.className = `tunnel-card kind-${offer.kind}`
       setText(
         ref.band,
-        isTrial ? '考验' : isWeapon ? '专武' : isAwakening ? '专武' : isPotential ? '潜能' : isBonus ? '清层奖励' : TUNNEL_META[offer.kind]?.label ?? '未知',
+        isTrial ? '考验' : isWeapon ? '专武' : isAwakening ? '专武' : isPotential ? '潜能' : isBonus ? '清层奖励' : ROOM_BAND[offer.room] ?? TUNNEL_META[offer.kind]?.label ?? '未知',
       )
       const potentialBranch =
         isPotential && offer.payload?.potential?.branch

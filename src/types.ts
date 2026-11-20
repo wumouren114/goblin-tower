@@ -124,7 +124,7 @@ export interface AwakeningChoice {
 }
 
 /** 战斗门的战后奖励：专武 / 金币 / 道具（三选一由门决定） */
-export type BattleReward = 'weapon' | 'gold' | 'card'
+export type BattleReward = 'potential' | 'gold' | 'card'
 
 export interface TunnelPayload {
   /** 战斗门的战后奖励类型 */

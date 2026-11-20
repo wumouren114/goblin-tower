@@ -9,7 +9,7 @@
     "easy": {
       "name": "简单",
       "stages": [
-        7
+        9
       ],
       "hpMul": 0.6,
       "damageMul": 0.4,
@@ -22,8 +22,8 @@
     "normal": {
       "name": "普通",
       "stages": [
-        5,
-        7
+        7,
+        9
       ],
       "hpMul": 0.95,
       "damageMul": 0.85,
@@ -36,9 +36,9 @@
     "hard": {
       "name": "困难",
       "stages": [
-        5,
-        5,
-        5
+        6,
+        6,
+        6
       ],
       "hpMul": 1.45,
       "damageMul": 1.4,
@@ -117,10 +117,10 @@
   "portals": {
     "count": 3,
     "weights": {
-      "reward": 0.32,
-      "trade": 0.28,
-      "battle": 0.2,
-      "rest": 0.2
+      "reward": 0.28,
+      "trade": 0.24,
+      "battle": 0.32,
+      "rest": 0.16
     },
     "reward": {
       "chest": 0.8,

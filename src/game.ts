@@ -2285,7 +2285,8 @@ export class Game {
       }
       audio.startBgm('shop')
       audio.setBgmIntensity(0)
-      this.completeRoomMap(`${title}已被击败`)
+      // 大层 Boss 战结束固定给一次潜能（最终层已通关，不再给）
+      this.openPotential()
       return
     }
     if (this.run.layer >= layerCount(this.run.difficulty)) this.win()
@@ -2348,20 +2349,18 @@ export class Game {
     return table[stat] ?? '🎴'
   }
 
-  /** 清层后的固定顺序：潜能层先选潜能，随后进入时空隧道门 */
+  /** 清层结算：第 1 层固定给一次潜能；其余层直接开三扇门 */
   private openPostClearFlow(): void {
     const layer = this.run.layer
-    // 阶段末层不插觉醒/三选一，清完小怪直接进三扇首领门
     if (isBossLayer(this.run.difficulty, layer)) {
       this.openTunnels()
       return
     }
     const claimed = this.run.awakeningLayers ?? []
-    if ((layer === 3 || layer === 6 || layer === 9) && !claimed.includes(layer)) {
+    if (layer === 1 && !claimed.includes(layer)) {
       this.openPotential()
       return
     }
-    // 清层奖励（三选一增益卡）已移除：战斗关产出走隧道（道具 / 潜能 / 金币）
     this.openTunnels()
   }
 
@@ -2927,7 +2926,8 @@ export class Game {
       this.openCardReward()
       return
     }
-    this.openWeaponReward()
+    // 潜能类战斗关：胜利后进入潜能三选一
+    this.openPotential()
   }
 
   /** 战后三选一：增益卡 */
@@ -3105,7 +3105,7 @@ export class Game {
       this.openEventById(res.event.id, () => this.completeRoomMap('你离开了那个旅人'))
       return
     }
-    if (res.gold) {
+    if (res.gold && room.offer.room !== 'mob-wave' && room.offer.room !== 'elite-fight') {
       this.addGold(res.gold)
       this.hud.toast(`+${res.gold} 金币`, 'good')
       this.vfx.burst(room.npc.x, room.npc.z, { color: 0xffd166, count: 18, speed: 4, life: 0.5, size: 0.3, y: 0.8 })
@@ -3445,7 +3445,11 @@ export class Game {
       this.win()
       return
     }
-    this.enterLayer(next)
+    // 选门即进层：层数在「进入时空隧道」时 +1，房间完成后开下一轮三扇门
+    this.run.layer = next
+    this.run.stage = stageOfLayer(this.run.difficulty, next)
+    this.pushSnapshot()
+    this.openTunnels()
   }
 
   // ---------- 背包 ----------

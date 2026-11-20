@@ -315,17 +315,17 @@ function makePayload(
 /** 战斗门的战后奖励：专武 / 金币 / 道具 各 1/3 */
 function rollBattleReward(rng: Rng): BattleReward {
   const r = rng.next()
-  return r < 1 / 3 ? 'weapon' : r < 2 / 3 ? 'gold' : 'card'
+  return r < 1 / 3 ? 'potential' : r < 2 / 3 ? 'gold' : 'card'
 }
 
 const BATTLE_REWARD_TITLE: Record<BattleReward, string> = {
-  weapon: '战斗 · 潜能',
+  potential: '战斗 · 潜能',
   gold: '战斗 · 金币',
   card: '战斗 · 道具',
 }
 
 const BATTLE_REWARD_DESC: Record<BattleReward, string> = {
-  weapon: '战后三选一：潜能分支方向',
+  potential: '战后三选一：潜能分支方向',
   gold: '战后获得一笔金币',
   card: '战后三选一：增益卡',
 }
