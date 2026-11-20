@@ -165,3 +165,48 @@ node scripts/serve-dist.mjs 5199     # 提示 serving ... 后
 - 事件房目前挂在 `reward` 池 5%，用户口径：探索类只是种类名（奖励/事件/游戏三种），**不拆 TunnelType**；「游戏」房间尚未有骨架。
 - 记忆碎片**暂时只记录，无作用**（用户：先打通流程，后面补）。
 - 流浪商人：固定商店房间，对话分「交易 / 交换」两路；实现在 P0-a 里一起做。
+
+---
+
+## 8. 并行协作：文件所有权（必读）
+
+同一时间可能有两条线在改：云端 agent 做 P0-a（道具），本机做 P0-b（节奏调参）。
+**按文件切分，不要越界**；同文件冲突时以本文件 §2 的已锁定决策为准，由 `master` 一侧裁决。
+
+### A 线（云端 · 分支 `feat/cards-v5`）—— 只碰这些
+```
+src/data/cards.ts          ✅ 完全拥有
+src/systems/inventory.ts    ✅ 完全拥有（删合成逻辑）
+src/systems/shop.ts         ✅ 完全拥有
+src/systems/economy.ts      ✅ 完全拥有（makeCardItem / emptyCards）
+src/data/balance.json       ⚠️ 只允许改 "buffCards" 这一段
+src/ui/hud.ts               ⚠️ 只允许改背包/商店相关区块（见下）
+```
+**不要碰**：`src/game.ts`、`src/world/*`、`src/data/stages.ts`、`src/data/potentials.ts`、`src/data/events.ts`、`src/systems/tunnels.ts` 的权重逻辑。
+**不要 push master**，只提交到 `feat/cards-v5`，交付 patch 或 PR。
+
+### B 线（本机 · `master`）—— 只碰这些
+```
+src/data/balance.json       ⚠️ 只改 layerCurve / difficulties / warmup / shop（价格与品质曲线）
+src/data/gameConfig.ts      ✅ 完全拥有
+src/game.ts                 ✅ 完全拥有（战斗 / 房间 / 事件接线）
+src/world/*                 ✅ 完全拥有
+src/systems/tunnels.ts      ✅ 完全拥有（房间池与权重）
+src/data/stages.ts          ✅ 完全拥有
+```
+
+### 共享文件的拆分规则
+| 文件 | 规则 |
+| --- | --- |
+| `src/data/balance.json` | JSON 按 key 切：A 线只改 `buffCards`；B 线只改 `layerCurve / difficulties / warmup / shop`。**两边都在同一个 commit 里改就会冲突，改前先 `git pull --rebase`** |
+| `src/ui/hud.ts` | 按区块切：A 线只改背包面板 + 商店面板；B 线只改 HUD 主条 / 隧道面板 / 事件相关 |
+| `src/game.ts` | **A 线不动**。如果需要新增接线点，A 线在 PR 描述里写清"需要 B 线在 X 处调用 Y" |
+| `sim/*-smoke.mjs` | 各自新增自己的（A：`card-smoke.mjs`；B：已有 beat/potential/event） |
+
+### 合并顺序
+1. 先合 **B 线**（纯 JSON 调参，冲突面最小）
+2. 再合 **A 线**（分支 rebase 到 master 后解决 `balance.json` 单点冲突）
+3. 合并后**必须**跑一次全量：`npx tsc --noEmit && npm run smoke && npm run build`
+
+### 判定冲突对错的依据
+按 §2 的执行顺序判断：**道具 = 纯数值、不承载机制**。任何把"触发/条件/联动"塞进卡里的实现，一律按错处理。
