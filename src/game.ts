@@ -887,6 +887,7 @@ export class Game {
     // Boss 狂暴：二阶段且血量 <30% 时触发一次
     if (this.boss?.alive && this.boss.phase2 && !this.bossEnraged && this.boss.hp / this.boss.maxHp < 0.3) {
       this.bossEnraged = true
+      this.boss.setEnraged()
       audio.play('boss_enrage', { volume: 0.9 })
       this.rig.shake(0.3)
       this.hud.floatText(new THREE.Vector3(this.boss.x, 3.4, this.boss.z), '狂暴！', 'crit')
