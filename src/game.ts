@@ -2372,8 +2372,13 @@ export class Game {
    * - 已选分支 → 该分支未点的节点，每个节点只有一级
    * 节点点完后直接进隧道。
    */
+  /** 跨枝反应总开关（暂时下线，待设计新触发规则后恢复） */
+  private readonly resonancesEnabled = false
+
   /** 跨枝反应：两分支齐备即发动，返回命中的反应 id */
   private activateResonances(): string[] {
+    // 跨枝反应暂时下线：当前每角色只开放 1 条分支，2/3 分支组合会冲突
+    if (!this.resonancesEnabled) return []
     const pot = this.run.potential
     if (!pot) return []
     const have = new Set([pot.branch, pot.branch2, pot.branch3].filter(Boolean))
@@ -2433,7 +2438,7 @@ export class Game {
     const owned = new Set(
       [this.run.potential?.branch, this.run.potential?.branch2, this.run.potential?.branch3].filter(Boolean),
     )
-    const maxBranches = this.run.difficulty === 'hard' ? 3 : 2
+    const maxBranches = 1
     // 还有分支空位：普通/简单最多 2 条（最多 1 组反应），困难开放第 3 分支位（可同时成立 3 组反应）
     if (owned.size < maxBranches) {
       for (const branch of set.branches) {
