@@ -213,6 +213,12 @@ export interface RunState {
   training?: Partial<Record<CardStat, number>>
   /** 已购买训练次数：用于跨商店累计涨价 */
   trainingBuys?: number
+  /** 祭坛献祭：永久生命上限扣减（按 base maxHp 的百分比，0~0.7），不可逆 */
+  hpCapPenalty?: number
+  /** 祭坛/誓约换来的永久属性加成（全属性/攻击/魔力，百分比小数） */
+  boons?: { all?: number; attack?: number; magic?: number }
+  /** 神秘祭坛：本次进店已投入次数（用于涨价与权重偏移） */
+  mysteryPulls?: number
   /** v5 考验：立约中的誓约（层数与起始击杀数用于结算） */
   trial?: { id: string; layersLeft: number; killsAtStart: number }
   /** v5 潜能：已选分支 + 已点节点（一级，不升级） */

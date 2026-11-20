@@ -261,6 +261,8 @@ export class Game {
   private cardRewardActive = false
   private weaponRewardOffers: TunnelOffer[] = []
   private weaponRewardActive = false
+  private altarOffers: TunnelOffer[] = []
+  private altarActive = false
   private trialOffers: TunnelOffer[] = []
   private trialActive = false
   private pendingTrial: TrialDef | null = null
@@ -2291,6 +2293,16 @@ export class Game {
 
   pickTunnel(id: string): void {
     if (this.phase !== 'tunnel') return
+    if (this.altarActive) {
+      this.altarActive = false
+      this.altarOffers = []
+      this.hud.hideTunnels()
+      audio.click()
+      this.commitAltar(id)
+      if (this.weaponRewardActive) return
+      this.completeRoomMap('你离开了祭坛')
+      return
+    }
     if (this.trialActive) {
       const accept = this.trialOffers.find((o) => o.id === id)?.id === 'trial-accept'
       this.trialActive = false
@@ -2335,7 +2347,8 @@ export class Game {
       this.combat?.setBuild(this.run.style ?? choice.styleId, next)
       this.hud.toast(`专武：${choice.name} Lv${choice.level}`, 'good')
       audio.levelUp()
-      this.advanceToNextLayer()
+      if (this.roomMap) this.completeRoomMap('祭坛的契约已履行')
+      else this.advanceToNextLayer()
       return
     }
     if (this.potentialActive) {
@@ -2369,6 +2382,128 @@ export class Game {
     audio.click()
     audio.tunnel()
     this.enterRoomMap(offer)
+  }
+
+  /** 交易·祭坛：四档献祭（献卡 / 献血 / 双重 / 神秘） */
+  private openAltar(): void {
+    const pulls = this.run.mysteryPulls ?? 0
+    const mysteryCost = 20 + 6 * pulls
+    const offers: TunnelOffer[] = [
+      {
+        id: 'altar-card',
+        kind: 'trade',
+        room: 'altar',
+        title: '献卡',
+        desc: '交出背包里档位最低的一张卡，换取全属性 +8%（永久）',
+        icon: '🃏',
+        payload: {},
+      },
+      {
+        id: 'altar-hp',
+        kind: 'trade',
+        room: 'altar',
+        title: '献血',
+        desc: '永久失去 15% 生命上限，换取攻击与魔力 +18%',
+        icon: '🩸',
+        payload: {},
+      },
+      {
+        id: 'altar-both',
+        kind: 'trade',
+        room: 'altar',
+        title: '双重',
+        desc: '失去 10% 生命上限并交出一张卡，换取专武 +1 级',
+        icon: '⚖️',
+        payload: {},
+      },
+      {
+        id: 'altar-mystery',
+        kind: 'trade',
+        room: 'altar',
+        title: `神秘（${mysteryCost} 金）`,
+        desc: '投入金币，可能 999 金、可能一张卡、也可能什么也没有',
+        icon: '🎲',
+        payload: {},
+      },
+    ]
+    this.altarOffers = offers
+    this.altarActive = true
+    this.phase = 'tunnel'
+    audio.duck(false)
+    this.hud.showTunnelOffers(offers, this.run.layer, 'potential')
+    audio.click()
+  }
+
+  /** 祭坛结算：代价即时生效，祝福写进 run（不随重试回滚） */
+  private commitAltar(id: string): void {
+    const boons = { ...(this.run.boons ?? {}) }
+    const penalty = this.run.hpCapPenalty ?? 0
+    if (id === 'altar-card') {
+      const card = this.inventory.items
+        .filter((it) => it.kind === 'buff-card')
+        .sort((a, b) => (a.tier ?? 1) - (b.tier ?? 1))[0]
+      if (!card) {
+        this.hud.toast('背包里没有可献上的卡', 'bad')
+        return
+      }
+      this.inventory.remove(card.uid)
+      boons.all = (boons.all ?? 0) + 0.08
+      this.run.boons = boons
+      this.hud.toast(`献上「${card.name}」：全属性 +8%`, 'good')
+    } else if (id === 'altar-hp') {
+      this.run.hpCapPenalty = Math.min(0.7, penalty + 0.15)
+      boons.attack = (boons.attack ?? 0) + 0.18
+      boons.magic = (boons.magic ?? 0) + 0.18
+      this.run.boons = boons
+      this.hud.toast('献上一段生命：攻击与魔力 +18%', 'good')
+    } else if (id === 'altar-both') {
+      const card = this.inventory.items
+        .filter((it) => it.kind === 'buff-card')
+        .sort((a, b) => (a.tier ?? 1) - (b.tier ?? 1))[0]
+      if (!card) {
+        this.hud.toast('背包里没有可献上的卡', 'bad')
+        return
+      }
+      this.inventory.remove(card.uid)
+      this.run.hpCapPenalty = Math.min(0.7, penalty + 0.1)
+      this.weaponRewardOffers = this.buildWeaponOffers()
+      if (this.weaponRewardOffers.length === 0) {
+        this.hud.toast('专武已至顶，祭坛只收下了代价', 'bad')
+        return
+      }
+      this.weaponRewardActive = true
+      this.hud.showTunnelOffers(this.weaponRewardOffers, this.run.layer, 'awakening')
+      return
+    } else if (id === 'altar-mystery') {
+      const pulls = this.run.mysteryPulls ?? 0
+      const cost = 20 + 6 * pulls
+      if (this.run.gold < cost) {
+        this.hud.toast('金币不够', 'bad')
+        return
+      }
+      this.run.gold -= cost
+      this.run.mysteryPulls = pulls + 1
+      // 每投一次：一无所有 +5%，其余按比例压缩（999 恒定 5%）
+      const nothing = Math.min(0.92, 0.4 + 0.05 * pulls)
+      const jackpot = 0.05
+      const cardP = (1 - nothing - jackpot) * 0.55
+      const roll = this.rng.next()
+      if (roll < jackpot) {
+        this.run.gold += 999
+        this.hud.toast('祭坛深处传来一声闷响：金币 +999', 'good')
+      } else if (roll < jackpot + cardP) {
+        const def = this.rng.pick([...ITEM_CARDS])
+        this.grantRewardItem(makeCardItem(def.id, (this.run.layer >= 9 ? 3 : 2) as 1 | 2 | 3))
+        this.hud.toast('祭坛吐出一张卡', 'good')
+      } else if (roll < 1 - nothing) {
+        const back = 30 + 10 * pulls
+        this.run.gold += back
+        this.hud.toast(`祭坛退回 ${back} 金`, 'info')
+      } else {
+        this.hud.toast('什么也没有发生', 'info')
+      }
+    }
+    this.recalcStats()
   }
 
   /** 交易·考验：立约者给两个选项（接受 / 拒绝） */
@@ -2517,6 +2652,21 @@ export class Game {
 
   /** 战后三选一：专武升级方向（复用旧觉醒数据） */
   private openWeaponReward(): void {
+    const offers = this.buildWeaponOffers()
+    if (offers.length === 0) {
+      this.advanceToNextLayer()
+      return
+    }
+    this.weaponRewardOffers = offers
+    this.weaponRewardActive = true
+    this.phase = 'tunnel'
+    audio.duck(false)
+    this.hud.showTunnelOffers(offers, this.run.layer, 'awakening')
+    audio.levelUp()
+  }
+
+  /** 组装专武选项（祭坛「双重」也会复用） */
+  private buildWeaponOffers(): TunnelOffer[] {
     const style = styleForCharacter(this.run.character, this.run.style)
     const current = normalizeAwakenings(style.id, this.run.awakenings)
     const offers: TunnelOffer[] = []
@@ -2546,16 +2696,7 @@ export class Game {
         },
       })
     }
-    if (offers.length === 0) {
-      this.advanceToNextLayer()
-      return
-    }
-    this.weaponRewardOffers = offers
-    this.weaponRewardActive = true
-    this.phase = 'tunnel'
-    audio.duck(false)
-    this.hud.showTunnelOffers(offers, this.run.layer, 'awakening')
-    audio.levelUp()
+    return offers
   }
 
   /** 选完路线后真正进入房间地图：玩家可以走动，找到 NPC 按 Enter 开启房间内容 */
@@ -2685,6 +2826,11 @@ export class Game {
       audio.startBgm('shop')
       audio.setBgmIntensity(0)
       this.hud.showShop(this.shopOffers, this.run.gold, REFRESH_COST, 'room')
+      return
+    }
+    if (room.offer.room === 'altar') {
+      room.resolved = true
+      this.openAltar()
       return
     }
     if (res.altarCost !== undefined && res.altarReward) {
@@ -3120,14 +3266,23 @@ export class Game {
     const giant =
       this.run.potential?.branch === 'fish-bubble' &&
       (this.run.potential.nodes ?? []).includes('fish-bubble-giant')
-    const maxHp = Math.round((def.base.hp + (c.hp ?? 0)) * allStat * styleHpMul * (giant ? 1.2 : 1))
+    const boons = this.run.boons ?? {}
+    const boonAll = 1 + (boons.all ?? 0)
+    const capMul = 1 - Math.min(0.7, this.run.hpCapPenalty ?? 0)
+    const maxHp = Math.round((def.base.hp + (c.hp ?? 0)) * allStat * styleHpMul * (giant ? 1.2 : 1) * capMul * boonAll)
     p.scaleMul = giant ? 1.18 : 1
     const stats: PlayerStats = {
       ...p.stats,
       maxHp,
       moveSpeed:
         (def.base.moveSpeed + (c.moveSpeed ?? 0)) * mods.moveSpeedMul * (giant ? 0.85 : 1) * this.trialMul('moveSpeed'),
-      damage: (tier.damage ?? 10) * allStat * (giant ? 1.15 : 1) * this.trialMul('attack'),
+      damage:
+        (tier.damage ?? 10) *
+        allStat *
+        (giant ? 1.15 : 1) *
+        this.trialMul('attack') *
+        boonAll *
+        (1 + (boons.attack ?? 0)),
       magic: (def.base.magic + (c.magic ?? 0)) * allStat * mods.magicMul * (giant ? 1.15 : 1),
       stamina: (def.base.stamina + (c.stamina ?? 0)) * allStat * mods.staminaMul,
       intelligence: (def.base.intelligence + (c.intelligence ?? 0)) * allStat * mods.intelligenceMul,
