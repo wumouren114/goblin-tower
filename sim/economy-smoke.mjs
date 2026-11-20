@@ -183,14 +183,16 @@ check('商店价格曲线随层数单调上涨（55 金基准）', () => {
   eq(shopCurve[14], Math.round(shopPriceFor(55, 15)), 'L15 与访问器一致')
   ok(shopCurve[14] > shopCurve[0] * 2, 'L15 卡价应超过 L1 两倍')
 })
-check('品质倍率抬高价格并放大卡值', () => {
+check('三档卡按 tier 取值且品质倍率抬高价格', () => {
+  const tier1 = economy.makeCardItem('magic', 1)
   const tier2 = economy.makeCardItem('magic', 2)
   const tier3 = economy.makeCardItem('magic', 3)
   const q2 = BALANCE.shop.quality.tier2
-  const q3 = BALANCE.shop.quality.tier3
-  approx(tier2.value, 18 * q2.valueMul, 1e-9, `tier2 magic 18×${q2.valueMul}`)
-  approx(tier3.value, 18 * q3.valueMul, 1e-9, `tier3 magic 18×${q3.valueMul}`)
-  ok(tier2.name.startsWith(q2.name), 'tier2 名字应带品质前缀')
+  approx(tier1.value, 18, 1e-9, '蓝档 magic = 18')
+  approx(tier2.value, 36, 1e-9, '紫档 magic = 36')
+  approx(tier3.value, 66, 1e-9, '金档 magic = 66')
+  ok(tier2.name.startsWith('紫·'), 'tier2 名字应带紫档前缀')
+  ok(tier3.name.startsWith('金·'), 'tier3 名字应带金档前缀')
   ok(economy.priceOf(55, 1, q2.priceMul) > economy.priceOf(55, 1), '品质 priceMul 应抬高价格')
 })
 check('奖励卡折价 = 当前层商店价 50%', () => {
@@ -514,78 +516,69 @@ check('怪潮数量/金币接入难度参数（3B 回归）', () => {
 })
 
 // ═════════════════════════════════════════════════════════════════
-section('3. 背包：合成 / 满格 / 卡片汇总')
+section('3. 背包：无限格 / 同名原地升档 / 卡片汇总')
 
-check('18 格上限：第 19 件加不进', () => {
+check('取消 18 格上限：可装超过 18 件且永不为满', () => {
   const bag = new Inventory()
-  eq(bag.maxSlots, 18)
-  for (let index = 0; index < 18; index += 1) {
-    ok(bag.add(economy.makeCardItem('magic', 1)), `第 ${index + 1} 件应加入`)
+  for (let index = 0; index < 25; index += 1) {
+    ok(
+      bag.add({
+        uid: `c-${index}`,
+        kind: 'consumable',
+        name: '治疗药水',
+        desc: '',
+        icon: '🧪',
+        tier: 1,
+        value: 0.35,
+      }),
+      `第 ${index + 1} 件消耗品应加入`,
+    )
   }
-  eq(bag.count, 18)
-  ok(bag.isFull)
-  eq(bag.add(economy.makeCardItem('magic', 1)), false, '第 19 件')
+  eq(bag.count, 25)
+  eq(bag.isFull, false)
 })
 
-check('同种同级合成：tier1→tier2，数值 ×2，占 1 格', () => {
+check('同名唯一：再拿到同名原地升一档（蓝→紫→金），满金不再入包', () => {
   const bag = new Inventory()
   const a = economy.makeCardItem('stamina', 1)
-  const b = economy.makeCardItem('stamina', 1)
-  bag.add(a)
-  bag.add(b)
-  const baseValue = a.value
-  ok(bag.canMerge(a.uid, b.uid))
-  const merged = bag.merge(a.uid, b.uid)
-  ok(merged, '应合成成功')
+  ok(bag.add(a), '首次拿到蓝卡')
   eq(bag.count, 1)
-  eq(merged.tier, 2)
-  eq(merged.stat, 'stamina')
-  approx(merged.value, baseValue * 2, 1e-9, '合成后数值')
-  eq(bag.get(a.uid), undefined, '原卡 A 移除')
-  eq(bag.get(b.uid), undefined, '原卡 B 移除')
+  eq(bag.tierOf('stamina'), 1)
+  approx(bag.get(a.uid).value, 16, 1e-9, '蓝档耐力 16')
+
+  ok(bag.add(economy.makeCardItem('stamina', 1)), '再拿到同名原地升紫')
+  eq(bag.count, 1, '同名不新增格子')
+  eq(bag.tierOf('stamina'), 2)
+  approx(bag.get(a.uid).value, 32, 1e-9, '紫档耐力 32')
+
+  ok(bag.add(economy.makeCardItem('stamina', 2)), '再拿到同名原地升金')
+  eq(bag.count, 1)
+  eq(bag.tierOf('stamina'), 3)
+  approx(bag.get(a.uid).value, 58, 1e-9, '金档耐力 58')
+
+  eq(bag.add(economy.makeCardItem('stamina', 3)), false, '满金不再重复入包')
+  eq(bag.count, 1)
 })
 
-check('tier2→tier3 可合成，tier3 不可再合', () => {
+check('跳级卡原地直达目标档位（蓝→金）', () => {
   const bag = new Inventory()
-  const a = economy.makeCardItem('hp', 2)
-  const b = economy.makeCardItem('hp', 2)
-  bag.add(a)
-  bag.add(b)
-  const merged = bag.merge(a.uid, b.uid)
-  ok(merged, 'tier2 应能合 tier3')
-  eq(merged.tier, 3)
-  approx(merged.value, a.value * 2, 1e-9)
-
-  const c = economy.makeCardItem('hp', 3)
-  const d = economy.makeCardItem('hp', 3)
-  const bag2 = new Inventory()
-  bag2.add(c)
-  bag2.add(d)
-  eq(bag2.canMerge(c.uid, d.uid), false, 'tier3 不可合')
-  eq(bag2.merge(c.uid, d.uid), null, 'tier3 merge 返回 null')
-  eq(bag2.count, 2, '失败不应消耗物品')
+  const a = economy.makeCardItem('hp', 1)
+  ok(bag.add(a))
+  ok(bag.add(economy.makeCardItem('hp', 3)), '跳级金卡应直接升到 3 档')
+  eq(bag.count, 1)
+  eq(bag.tierOf('hp'), 3)
+  approx(bag.get(a.uid).value, 90, 1e-9, '金档生命 90')
 })
 
-check('不同种 / 不同级 / 消耗品 / 自己 都不能合', () => {
+check('旧二合一合成入口不可达（autoMerge/merge 无效）', () => {
   const bag = new Inventory()
   const magic = economy.makeCardItem('magic', 1)
   const stamina = economy.makeCardItem('stamina', 1)
-  const magic2 = economy.makeCardItem('magic', 2)
-  const potion = {
-    uid: 'potion-1',
-    kind: 'consumable',
-    name: '治疗药水',
-    desc: '',
-    icon: '🧪',
-    tier: 1,
-    value: 0.35,
-  }
-  for (const item of [magic, stamina, magic2, potion]) bag.add(item)
-  eq(bag.canMerge(magic.uid, magic.uid), false, '自己')
-  eq(bag.canMerge(magic.uid, stamina.uid), false, '不同种')
-  eq(bag.canMerge(magic.uid, magic2.uid), false, '不同级')
-  eq(bag.canMerge(magic.uid, potion.uid), false, '消耗品')
-  eq(bag.canMerge('nope', magic.uid), false, '不存在的 uid')
+  bag.add(magic)
+  bag.add(stamina)
+  eq(bag.autoMerge().length, 0, 'autoMerge 应返回空数组')
+  eq(bag.merge(magic.uid, stamina.uid), null, 'merge 应返回 null')
+  eq(bag.count, 2)
 })
 
 check('use() 只吃消耗品并返回该物品', () => {
@@ -624,12 +617,12 @@ check('use() 只吃消耗品并返回该物品', () => {
 check('cards 汇总：只累计增益卡，消耗品不上面板', () => {
   const bag = new Inventory()
   bag.add(economy.makeCardItem('magic', 1)) // 18
-  bag.add(economy.makeCardItem('hp', 2)) // 25 × tier2.valueMul
+  bag.add(economy.makeCardItem('hp', 2)) // 50 (紫档)
   bag.add(economy.makeCardItem('armor', 1)) // 0.05
   bag.add({ uid: 'c1', kind: 'consumable', name: '充能电池', desc: '', icon: '🔋', tier: 1, value: 1 })
   const cards = bag.cards
   approx(cards.magic, 18, 1e-9)
-  approx(cards.hp, 25 * BALANCE.shop.quality.tier2.valueMul, 1e-9)
+  approx(cards.hp, 50, 1e-9)
   approx(cards.armor, 0.05, 1e-9)
   eq(cards.stamina, 0)
 })

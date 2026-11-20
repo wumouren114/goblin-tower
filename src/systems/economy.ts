@@ -1,24 +1,25 @@
 /**
- * 经济纯数据层（v3）：击杀/通关金币、品质与定价、背包物品生成、五维汇总。
+ * 经济纯数据层（v5 P0-a）：击杀/通关金币、品质与定价、三档卡物品生成、五维汇总。
  * 不 import three.js、不碰 DOM；所有随机数走传入的 Rng（可复现）。
- * 数值只从 balance.json（经 balance.ts 访问器）与 characters.ts 读。
+ * 道具卡数值完全由 `src/data/cards.ts` 按档位（蓝/紫/金）推导，不再乘旧版 quality.valueMul。
  */
 import type { CardStat, CharacterId, DifficultyId, InventoryItem } from '../types'
 import type { Rng } from '../core/rng'
 import type { QualityRoll } from '../data/balance'
+import type { ItemCardStat } from '../data/cards'
 import { BALANCE, clearGoldFor, goldPerKillFor, rollQuality, shopPriceFor } from '../data/balance'
+import {
+  CARD_TIER_LABEL,
+  ITEM_CARDS,
+  cardBasePrice,
+  cardIdOfItem,
+  cardRuntimeValueAt,
+  cardTextAt,
+  isCardStat,
+  resolveCardDef,
+  tierFromNum,
+} from '../data/cards'
 import { CHARACTERS, GOLD_PER_KILL } from '../data/characters'
-
-// ── balance.json 里 balance.ts 尚未声明类型的段落（本模块只读，不改数据）──
-interface BuffCardDef {
-  id: string
-  name: string
-  stat: CardStat
-  value: number
-  basePrice: number
-  maxStacks: number
-  desc: string
-}
 
 interface QualityCfg {
   tier2: { valueMul: number; priceMul: number; name: string }
@@ -26,15 +27,13 @@ interface QualityCfg {
 }
 
 interface EconomyData {
-  buffCards: BuffCardDef[]
   shop: { quality: QualityCfg; slots: number; priceGrowthPerLayer: number }
 }
 
 const DATA = BALANCE as unknown as EconomyData
-const BUFF_CARDS = DATA.buffCards
 const QUALITY = DATA.shop.quality
 
-const CARD_ICONS: Record<CardStat, string> = {
+const CARD_ICONS: Record<ItemCardStat, string> = {
   magic: '✨',
   stamina: '⚡',
   intelligence: '🧠',
@@ -45,6 +44,7 @@ const CARD_ICONS: Record<CardStat, string> = {
   dodge: '💨',
   armor: '🛡️',
   crit: '💥',
+  hpRegen: '🌿',
 }
 
 let uidSeq = 0
@@ -54,29 +54,21 @@ function nextUid(): string {
   return `it-${Date.now().toString(36)}-${uidSeq}`
 }
 
-/** 保留 3 位小数，避免 0.25*1.9=0.47500000000000003 这类浮点噪声进存档 */
+/** 保留 3 位小数，避免浮点噪声进存档 */
 function tidy(v: number): number {
   return Number(v.toFixed(3))
 }
 
-function tierValueMul(tier: 1 | 2 | 3): number {
-  if (tier === 2) return QUALITY.tier2.valueMul
-  if (tier === 3) return QUALITY.tier3.valueMul
+function clampTier(tier: number): 1 | 2 | 3 {
+  if (tier >= 3) return 3
+  if (tier === 2) return 2
   return 1
 }
 
-function tierLabel(tier: 1 | 2 | 3): string {
-  if (tier === 2) return QUALITY.tier2.name
-  if (tier === 3) return QUALITY.tier3.name
-  return ''
-}
-
-function cardDefOf(cardId: string): BuffCardDef {
-  return (
-    BUFF_CARDS.find((c) => c.id === cardId) ??
-    BUFF_CARDS.find((c) => c.stat === cardId) ??
-    BUFF_CARDS[0]
-  )
+export function tierPriceMul(tier: 1 | 2 | 3): number {
+  if (tier === 2) return QUALITY.tier2.priceMul
+  if (tier === 3) return QUALITY.tier3.priceMul
+  return 1
 }
 
 /** 单只敌人的击杀金币：本层基准 × GOLD_PER_KILL 比例（small=1 为基准） */
@@ -91,7 +83,7 @@ export function clearGold(id: DifficultyId, layer: number): number {
   return clearGoldFor(id, Math.max(1, Math.round(layer)))
 }
 
-/** 商店/掉落品质：层数越深越容易出精制(tier2)/臻品(tier3) */
+/** 商店/掉落品质：层数越深越容易出高档 */
 export function qualityFor(layer: number, rng: Rng): QualityRoll {
   return rollQuality(Math.max(1, Math.round(layer)), () => rng.next())
 }
@@ -101,32 +93,37 @@ export function priceOf(base: number, layer: number, qualityMul = 1): number {
   return Math.max(1, shopPriceFor(base, Math.max(1, Math.round(layer)), qualityMul))
 }
 
-/** 背包满时奖励卡的折价：当前层商店价的一半，至少 1 金 */
+/** 奖励卡折价：当前层商店价的一半，至少 1 金 */
 export function salvageGold(item: InventoryItem, layer: number): number {
   if (item.kind !== 'buff-card') return 1
-  const def = cardDefOf(item.stat ?? '')
-  const qualityMul =
-    item.tier === 2 ? QUALITY.tier2.priceMul : item.tier === 3 ? QUALITY.tier3.priceMul : 1
-  return Math.max(1, Math.round(priceOf(def.basePrice, layer, qualityMul) * 0.5))
+  const cardId = cardIdOfItem(item)
+  const def = (cardId ? resolveCardDef(cardId) : undefined) ?? ITEM_CARDS[0]
+  const qualityMul = tierPriceMul(clampTier(item.tier))
+  return Math.max(1, Math.round(priceOf(cardBasePrice(def), layer, qualityMul) * 0.5))
 }
 
-/** 增益卡物品：value 已按品质档放大（tier 倍率见 balance.shop.quality.*.valueMul） */
+/**
+ * 三档道具卡物品：数值与词条完全由 `cards.ts` 按 tier（1=蓝 / 2=紫 / 3=金）推导。
+ * `hpRegen` 暂未并入 `CardStat`，其 `stat` 置为 undefined 以兼容旧存档校验，
+ * 卡身份通过 `cardIdOfItem(item)` 统一识别。
+ */
 export function makeCardItem(cardId: string, tier: 1 | 2 | 3): InventoryItem {
-  const def = cardDefOf(cardId)
-  const label = tierLabel(tier)
+  const def = resolveCardDef(cardId) ?? ITEM_CARDS[0]
+  const clamped = clampTier(tier)
+  const cardTier = tierFromNum(clamped)
   return {
     uid: nextUid(),
     kind: 'buff-card',
-    name: label ? `${label}${def.name}` : def.name,
-    desc: def.desc,
+    name: `${CARD_TIER_LABEL[cardTier]}·${def.name}`,
+    desc: cardTextAt(def, cardTier),
     icon: CARD_ICONS[def.stat] ?? '🎴',
-    tier,
-    stat: def.stat,
-    value: tidy(def.value * tierValueMul(tier)),
+    tier: clamped,
+    stat: isCardStat(def.stat) ? def.stat : undefined,
+    value: cardRuntimeValueAt(def, cardTier),
   }
 }
 
-/** 卡片进/出背包时增减五维（dir=-1 为取出/合成消耗） */
+/** 卡片进/出背包时增减五维（dir=-1 为移除） */
 export function applyItemToCards(
   cards: Record<CardStat, number>,
   item: InventoryItem,
@@ -151,7 +148,9 @@ export function emptyCards(): Record<CardStat, number> {
   }
 }
 
-/** 生命上限 = 角色基础生命 + 所有生命结晶累计 */
+/** 生命上限 = 角色基础生命 + 生命结晶数值 */
 export function recomputeMaxHp(charId: CharacterId, cards: Record<CardStat, number>): number {
   return Math.max(1, Math.round(CHARACTERS[charId].base.hp + (cards.hp ?? 0)))
 }
+
+export { cardIdOfItem }

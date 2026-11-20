@@ -30,8 +30,8 @@ import { CHARACTERS } from '../data/characters'
 import { STYLES_BY_CHARACTER, type StyleId } from '../data/awakenings'
 import { artReady, artUrl, type ArtKey } from '../art/atlasImport'
 import { roomIconDataUrl } from '../art/roomIcons'
-import { BALANCE, DIFFICULTIES, DIFFICULTY_IDS } from '../data/balance'
-import { canMergeItems, DEFAULT_BAG_SLOTS } from '../systems/inventory'
+import { DIFFICULTIES, DIFFICULTY_IDS } from '../data/balance'
+import { CARD_TIER_LABEL } from '../data/cards'
 import {
   clamp01,
   div,
@@ -231,12 +231,11 @@ const SHOP_KIND_LABEL: Record<ShopOffer['kind'], string> = {
   training: '金币训练',
 }
 
-/** 品质名从 balance 读取，读不到就回退 */
-const QUALITY_NAMES = (BALANCE.shop as unknown as { quality?: { tier2?: { name?: string }; tier3?: { name?: string } } }).quality
+/** 三档卡标签：1 蓝 / 2 紫 / 3 金 */
 const TIER_LABEL: Record<1 | 2 | 3, string> = {
-  1: '普通',
-  2: QUALITY_NAMES?.tier2?.name ?? '精制',
-  3: QUALITY_NAMES?.tier3?.name ?? '臻品',
+  1: CARD_TIER_LABEL.blue,
+  2: CARD_TIER_LABEL.purple,
+  3: CARD_TIER_LABEL.gold,
 }
 
 /** 五维数值文本：18 -> +18、-8 -> -8、0.03 -> +3% */
@@ -755,7 +754,7 @@ class HudImpl implements HudV3 {
   private readonly invCellRefs: InvCellRef[] = []
   private readonly invStatValueEls = new Map<CardStat, HTMLElement>()
   private invItems: InventoryItem[] = []
-  private invMaxSlots = DEFAULT_BAG_SLOTS
+  private readonly invMinCells = 12
   private invSelected: string | null = null
   private invGold = 0
   /** 上次丢弃的时间戳：防连点把下一格物品也丢掉 */
@@ -1088,10 +1087,10 @@ class HudImpl implements HudV3 {
   }
 
   showInventory(items: InventoryItem[], gold: number, maxSlots: number): void {
-    this.invMaxSlots = Math.max(1, Math.min(24, Math.floor(maxSlots) || DEFAULT_BAG_SLOTS))
-    this.ensureInvCells(this.invMaxSlots)
+    void maxSlots
     this.invSelected = null
     this.invItems = items.slice()
+    this.ensureInvCells(Math.max(this.invMinCells, this.invItems.length))
     this.renderInventory(gold)
     this.invEl.classList.add('is-open')
     this.refreshHud()
@@ -1099,6 +1098,7 @@ class HudImpl implements HudV3 {
 
   updateInventory(items: InventoryItem[], gold: number): void {
     this.invItems = items.slice()
+    this.ensureInvCells(Math.max(this.invMinCells, this.invItems.length))
     if (this.invSelected && !this.invItems.some((item) => item.uid === this.invSelected)) {
       this.invSelected = null
     }
@@ -1903,12 +1903,6 @@ class HudImpl implements HudV3 {
       this.handlers.onUseItem(item.uid)
       return
     }
-    const selected = this.invSelected ? this.invItems.find((entry) => entry.uid === this.invSelected) : null
-    if (selected && canMergeItems(selected, item)) {
-      this.invSelected = null
-      this.handlers.onMergeItem(selected.uid, item.uid)
-      return
-    }
     this.invSelected = item.uid === this.invSelected ? null : item.uid
     this.renderInventory(this.invGold)
   }
@@ -1929,10 +1923,12 @@ class HudImpl implements HudV3 {
   private renderInventory(gold: number): void {
     this.invGold = Math.max(0, gold)
     setText(this.invGoldEl, fmtInt(this.invGold))
-    setText(this.invCountEl, `${this.invItems.length} / ${this.invMaxSlots}`)
-    setText(this.invHintEl, '点击两张同级同种的卡牌合成；消耗品点击即使用；点格子右上角 × 丢弃。')
-    const full = this.invItems.length >= this.invMaxSlots
-    this.invWarnEl.hidden = !full
+    setText(this.invCountEl, `${this.invItems.length} 件`)
+    setText(this.invHintEl, '同名道具卡自动原地升档（蓝→紫→金）；消耗品点击即使用；点格子右上角 × 丢弃。')
+    this.invWarnEl.hidden = true
+
+    const visibleCells = Math.max(this.invMinCells, this.invItems.length)
+    this.ensureInvCells(visibleCells)
 
     const selectedItem = this.invSelected
       ? this.invItems.find((item) => item.uid === this.invSelected) ?? null
@@ -1940,7 +1936,7 @@ class HudImpl implements HudV3 {
 
     for (let i = 0; i < this.invCellRefs.length; i += 1) {
       const ref = this.invCellRefs[i]
-      if (i >= this.invMaxSlots) {
+      if (i >= visibleCells) {
         ref.cell.hidden = true
         continue
       }
@@ -1957,7 +1953,6 @@ class HudImpl implements HudV3 {
       }
       ref.cell.className = `inv-cell ${tierClass(item.tier)}`
       if (item.uid === this.invSelected) ref.cell.classList.add('is-selected')
-      if (selectedItem && canMergeItems(selectedItem, item)) ref.cell.classList.add('is-mergeable')
       if (item.kind === 'consumable') ref.cell.classList.add('is-consumable')
       ref.discard.hidden = false
       ref.discard.setAttribute('aria-label', `丢弃 ${item.name}`)
@@ -1968,6 +1963,8 @@ class HudImpl implements HudV3 {
       const bits: string[] = [SHOP_KIND_LABEL[item.kind] ?? '物品']
       if (item.stat && typeof item.value === 'number') {
         bits.push(`${STAT_LABEL[item.stat]} ${formatStatValue(item.stat, item.value)}`)
+      } else if (item.kind === 'buff-card' && item.desc) {
+        bits.push(item.desc)
       } else if (typeof item.value === 'number' && item.kind === 'consumable') {
         bits.push(`${fmtDelta(item.value)}`)
       }
@@ -1977,7 +1974,7 @@ class HudImpl implements HudV3 {
     if (selectedItem) {
       setText(
         this.invHintEl,
-        `已选中「${selectedItem.name}」：点击另一张同级同种的卡牌合成；点右上角 × 丢弃；再次点击取消选中。`,
+        `已选中「${selectedItem.name}」：${selectedItem.desc || '道具卡'}；点右上角 × 丢弃；再次点击取消选中。`,
       )
     }
 
