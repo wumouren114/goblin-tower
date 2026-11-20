@@ -2065,7 +2065,7 @@ class HudImpl implements HudV3 {
       const icon = span('ic-icon', '')
       const name = span('ic-name', '空')
       const meta = span('ic-meta', '')
-      // 丢弃按钮：放在格子右上角，阻止冒泡避免触发「选中/合成」
+      // 丢弃按钮：放在格子右上角，阻止冒泡避免触发「使用消耗品」
       const discard = el('button', 'ic-discard')
       discard.type = 'button'
       discard.textContent = '×'
