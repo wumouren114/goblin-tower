@@ -19,6 +19,7 @@ import { createProjectileMesh, disposeProjectileArt } from '../art/projectiles'
 import { disposeMinionArt } from '../art/minions'
 import { pickConeTargets, pickLineTargets, gatherTo, pullToward } from './attack'
 import { BeatClock } from '../core/beatClock'
+import { StatusField } from './statusEffects'
 import {
   awakeningLevel,
   defaultStyle,
@@ -217,6 +218,12 @@ export class Combat {
   private potentialNodes: ReadonlySet<string> = new Set()
   /** 节奏普攻的节拍时钟（134 BPM 八分音符网格） */
   private readonly beat = new BeatClock()
+  /** 剑意的「标记」：逐敌状态（Hittable 没有 id，用 WeakMap 分配稳定 key） */
+  private readonly marks = new StatusField()
+  private readonly targetIds = new WeakMap<Hittable, string>()
+  private targetIdSeq = 0
+  /** 剑意·蓄势的每秒回能计时 */
+  private jianyiRegenTimer = 1
   private awakenings: Partial<Record<AwakeningId, number>> = {}
   private resourceValue = 0
   private activeWorld: CombatWorld | null = null
@@ -279,6 +286,7 @@ export class Combat {
     this.potentialBranch = normalizeBranch(branch)
     this.potentialNodes = new Set(nodes)
     this.bleeds.clear()
+    this.marks.clearAll()
   }
 
   /** 重新对齐节拍网格（进层 / 换曲时调） */
@@ -312,6 +320,17 @@ export class Combat {
     let mul = this.potentialBranch === 'jianyi' ? 0.8 : 1
     if (this.potentialBranch === 'shunshan' && this.hasNode('murasame-shunshan-power')) mul *= 1.2
     return mul
+  }
+
+  /** 给敌人分配稳定 id（标记用） */
+  private keyOf(t: Hittable): string {
+    let id = this.targetIds.get(t)
+    if (!id) {
+      this.targetIdSeq += 1
+      id = `m${this.targetIdSeq}`
+      this.targetIds.set(t, id)
+    }
+    return id
   }
 
   private hasNode(id: string): boolean {
@@ -900,18 +919,22 @@ export class Combat {
       const killed = t.hit(dmg, dir.x * 1.2, dir.z * 1.2)
       this.hooks.onHit(t, dmg, crit, killed)
       dealt += dmg
-      // 剑意·根被动：技能命中时额外结算一段（简化版，不吃技能伤害衰减）
+      // 剑意·根被动：技能命中「带标记」的目标时结算，每层 25% 技能伤害
       if (this.potentialBranch === 'jianyi' && t.alive) {
-        const settle = dmg * 0.5 * (this.hasNode('murasame-jianyi-amp') ? 1.1 : 1)
-        const settled = t.hit(settle, 0, 0)
-        this.hooks.onHit(t, settle, false, settled)
-        dealt += settle
-        // 裂帛：结算时对 3m 内造成 60% 结算伤害
-        if (this.hasNode('murasame-jianyi-boom') && settled) {
-          for (const near of world.enemies) {
-            if (!near.alive || near === t) continue
-            if (Math.hypot(near.x - t.x, near.z - t.z) > 3) continue
-            near.hit(settle * 0.6, 0, 0)
+        const key = this.keyOf(t)
+        const stacks = this.marks.consume('mark', key)
+        if (stacks > 0) {
+          const settle = dmg * 0.25 * stacks
+          const settled = t.hit(settle, 0, 0)
+          this.hooks.onHit(t, settle, false, settled)
+          dealt += settle
+          this.burstAt(t.x, t.z, 0xffb347, 6)
+          if (this.hasNode('murasame-jianyi-boom')) {
+            for (const near of world.enemies) {
+              if (!near.alive || near === t) continue
+              if (Math.hypot(near.x - t.x, near.z - t.z) > 3) continue
+              near.hit(settle * 0.6, 0, 0)
+            }
           }
         }
       }
@@ -1190,6 +1213,15 @@ export class Combat {
       }
     }
 
+    this.marks.update(step * 1000)
+    if (this.potentialBranch === 'jianyi' && this.hasNode('murasame-jianyi-regen')) {
+      this.jianyiRegenTimer -= step
+      if (this.jianyiRegenTimer <= 0) {
+        this.jianyiRegenTimer += 1
+        this.meter.add(2)
+      }
+    }
+
     if (this.minionExpiryQueue.length > 0) {
       const expired = this.minionExpiryQueue.splice(0)
       for (const m of expired) this.onMinionExpire(m, world)
@@ -1282,12 +1314,23 @@ export class Combat {
     if (this.charId === 'mutsumi') amount *= 1 + this.mutsumiAmp(t)
     if (this.charId === 'fish') amount *= 1 + this.foamAmp(t)
     if (this.charId === 'mutsumi' && ctx.chord) amount *= this.chordToughMul(t)
+    // 剑意·含锋：带标记的目标多受 10%
+    if (this.potentialBranch === 'jianyi' && this.hasNode('murasame-jianyi-amp') && this.marks.has('mark', this.keyOf(t))) {
+      amount *= 1.1
+    }
     const crit = ctx.canCrit && rng.chance(this.stats.critChance)
     if (crit) amount *= this.stats.critMultiplier
     const killed = t.hit(amount, ctx.dirX * 1.4, ctx.dirZ * 1.4)
     if (ctx.slow && ctx.slow > 0) this.slowTarget(t, ctx.slow, 0.8)
     if (crit) this.hooks.onSfx('crit')
     this.hooks.onHit(t, amount, crit, killed)
+    // 剑意·根被动：普攻给目标挂标记（最多 3 层，4 秒）
+    if (this.potentialBranch === 'jianyi' && ctx.source === 'player' && t.alive) {
+      const key = this.keyOf(t)
+      const before = this.marks.stacks('mark', key)
+      this.marks.apply('mark', key, 4000, { maxStacks: 3 })
+      if (this.marks.stacks('mark', key) > before) this.burstAt(t.x, t.z, 0xff8a3a, 3)
+    }
     // 超级泡泡·根被动：命中附带 2.5m 爆炸（50% 伤害）
     if (this.potentialBranch === 'bubble' && ctx.source === 'player' && t.alive && this.activeWorld) {
       for (const near of this.activeWorld.enemies) {
