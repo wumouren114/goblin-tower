@@ -405,6 +405,14 @@ export interface HudSnapshot {
   cardCount?: number
   /** 可选：当前背包物品快照（供右上角第二状态栏展示已穿戴道具） */
   inventory?: readonly InventoryItem[]
+  /** 增益：道具卡层数 / 祝福 / 誓约兑现 */
+  cards?: Partial<Record<string, number>>
+  boons?: { all?: number; attack?: number; magic?: number }
+  trialBoons?: Partial<Record<string, number>>
+  /** 负面：祭坛生命上限扣减 / 进行中的誓约 */
+  hpCapPenalty?: number
+  trialName?: string
+  trialBurden?: string
   difficulty?: DifficultyId
 }
 

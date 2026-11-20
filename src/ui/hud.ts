@@ -449,8 +449,15 @@ const UI_TEMPLATE = /* html */ `
         <div class="sb-meta">
           <span class="sb-floor js-sb-floor">第 1 层 · 阶段 1</span>
           <span class="sb-gold">🪙 <b class="js-sb-gold">0</b></span>
+          <span class="sb-kills">击杀 <b class="js-sb-kills">0</b></span>
         </div>
         <div class="sb-items js-sb-items"><span class="sb-empty">暂无道具</span></div>
+        <div class="sb-effects js-sb-effects"></div>
+        <span class="sb-more-hint">点击查看详情</span>
+      </div>
+      <div class="sb-detail js-sb-detail" hidden aria-label="装备与状态详情">
+        <div class="sb-detail-head"><b>装备与状态</b><span>点击状态栏收起</span></div>
+        <div class="sb-detail-body js-sb-detail-body"></div>
       </div>
       <div class="mute-chip js-mute" hidden>🔇 已静音</div>
     </div>
@@ -703,7 +710,13 @@ class HudImpl implements HudV3 {
   private goldEl!: HTMLElement
   private sbFloorEl!: HTMLElement
   private sbGoldEl!: HTMLElement
+  private sbEffectsEl!: HTMLElement
+  private sbDetailEl!: HTMLElement
+  private sbDetailBodyEl!: HTMLElement
+  private sbStatusBarEl!: HTMLElement
+  private sbDetailOpen = false
   private sbItemsEl!: HTMLElement
+  private lastSbEffectsKey = ''
   private lastSbItemsKey = ''
   private diffEl!: HTMLElement
   private killsEl!: HTMLElement
@@ -932,6 +945,8 @@ class HudImpl implements HudV3 {
     setText(this.sbFloorEl, `第 ${Math.max(1, Math.floor(snapshot.floor || 1))} 层 · 阶段 ${Math.max(1, Math.floor(snapshot.stage || 1))}`)
     setText(this.sbGoldEl, fmtInt(snapshot.gold || 0))
     this.renderStatusBarItems(snapshot.inventory ?? this.invItems, snapshot.cardCount)
+    this.renderSbEffects(snapshot)
+    setText(this.q('.js-sb-kills'), String(snapshot.kills ?? 0))
     const diffName =
       snapshot.difficultyName ||
       (snapshot.difficulty ? DIFFICULTIES[snapshot.difficulty]?.name : '') ||
@@ -1605,6 +1620,11 @@ class HudImpl implements HudV3 {
     this.sbFloorEl = this.q('.js-sb-floor')
     this.sbGoldEl = this.q('.js-sb-gold')
     this.sbItemsEl = this.q('.js-sb-items')
+    this.sbEffectsEl = this.q('.js-sb-effects')
+    this.sbDetailEl = this.q('.js-sb-detail')
+    this.sbDetailBodyEl = this.q('.js-sb-detail-body')
+    this.sbStatusBarEl = this.q('.js-status-bar')
+    this.sbStatusBarEl.addEventListener('click', () => this.toggleSbDetail())
     this.diffEl = this.q('.js-diff')
     this.killsEl = this.q('.js-kills')
     this.killsStatEl = this.q('.js-kills-stat')
@@ -2316,6 +2336,59 @@ class HudImpl implements HudV3 {
     this.handlers.onDiscardItem?.(item.uid)
     // 回调通常已让 game 触发 updateInventory；这里兜底重绘，确保丢弃后立即从面板消失
     this.renderInventory(this.invGold)
+  }
+
+  /** 状态栏：增益/负面效果 chips（点击状态栏展开详情，暂停时同样可见） */
+  private renderSbEffects(snap: HudSnapshot): void {
+    const effects: { text: string; bad: boolean }[] = []
+    const statLabel: Record<string, string> = {
+      hp: '生命', attack: '攻击', magic: '魔力', armor: '护甲', dodge: '闪避', crit: '暴击',
+      moveSpeed: '移速', stamina: '耐力', skillCharge: '充能', hpRegen: '回血', goldGain: '金币',
+    }
+    for (const [stat, tier] of Object.entries(snap.cards ?? {})) {
+      if (!tier || tier <= 0) continue
+      effects.push({ text: `${statLabel[stat] ?? stat} +${tier}`, bad: false })
+    }
+    const boons = snap.boons ?? {}
+    if (boons.all) effects.push({ text: `全属性 +${Math.round(boons.all * 100)}%`, bad: false })
+    if (boons.attack) effects.push({ text: `攻击 +${Math.round(boons.attack * 100)}%`, bad: false })
+    if (boons.magic) effects.push({ text: `魔力 +${Math.round(boons.magic * 100)}%`, bad: false })
+    for (const [stat, val] of Object.entries(snap.trialBoons ?? {})) {
+      if (val) effects.push({ text: `誓约·${statLabel[stat] ?? stat} +${Math.round(val * 100)}%`, bad: false })
+    }
+    if (snap.hpCapPenalty) effects.push({ text: `生命上限 −${Math.round(snap.hpCapPenalty * 100)}%`, bad: true })
+    if (snap.trialName) effects.push({ text: `誓约中：${snap.trialName}`, bad: true })
+
+    const key = effects.map((e) => `${e.bad}:${e.text}`).join('|')
+    if (key !== this.lastSbEffectsKey) {
+      this.lastSbEffectsKey = key
+      const chips = effects.slice(0, 6).map((e) => span(e.bad ? 'sb-effect bad' : 'sb-effect good', e.text))
+      if (effects.length > 6) chips.push(span('sb-more', `+${effects.length - 6}`))
+      this.sbEffectsEl.replaceChildren(...chips)
+    }
+
+    if (this.sbDetailOpen) {
+      const items = (snap.inventory ?? []).filter((it) => it.kind === 'buff-card')
+      const rows: HTMLElement[] = [
+        div('sb-detail-section-title', '已穿戴道具'),
+        ...(items.length === 0
+          ? [div('sb-detail-none', '暂无道具卡')]
+          : items.map((it) =>
+              div('sb-detail-row', `${displayOfferIcon(it.icon)} ${it.name} · ${it.desc ?? ''}`),
+            )),
+        div('sb-detail-section-title', '当前效果'),
+        ...(effects.length === 0
+          ? [div('sb-detail-none', '无增益/负面')]
+          : effects.map((e) => div(e.bad ? 'sb-detail-row bad' : 'sb-detail-row', e.text))),
+      ]
+      if (snap.trialBurden) rows.push(div('sb-detail-row bad', `誓约代价：${snap.trialBurden}`))
+      this.sbDetailBodyEl.replaceChildren(...rows)
+    }
+  }
+
+  private toggleSbDetail(): void {
+    this.sbDetailOpen = !this.sbDetailOpen
+    this.sbDetailEl.hidden = !this.sbDetailOpen
   }
 
   /** 右上角第二状态栏：展示当前已穿戴道具卡（最多 4 张，超出显示 +N） */

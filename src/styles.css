@@ -5016,3 +5016,31 @@ body.is-modal-open .floor-banner {
   font-size: 10.5px;
   color: #8295b8;
 }
+
+/* ── 右上状态栏：效果 chips + 点击详情（暂停时也可见） ── */
+.sb-kills { color: #cfd8ee; font-size: 11px; }
+.sb-kills b { color: #fff0b8; }
+.sb-effects { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 5px; max-width: 250px; }
+.sb-effect {
+  font-size: 10px; line-height: 1.2; padding: 2px 5px; border-radius: 3px;
+  border: 1px solid rgba(143, 255, 200, .45); background: rgba(22, 60, 48, .72); color: #bfffe0;
+}
+.sb-effect.bad {
+  border-color: rgba(255, 120, 120, .5); background: rgba(70, 22, 28, .75); color: #ffc2c2;
+}
+.sb-more-hint { display: block; font-size: 9px; color: #8e9ab8; margin-top: 3px; }
+.hud-status-bar { cursor: pointer; }
+.sb-detail {
+  position: fixed; top: 14px; right: 14px; width: 300px; max-height: 62vh; overflow-y: auto;
+  z-index: 200; padding: 10px 12px; border: 2px solid #7c8bb5;
+  background: linear-gradient(160deg, rgba(18, 22, 38, .97), rgba(26, 30, 52, .97));
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .6); font-family: inherit;
+}
+.sb-detail[hidden] { display: none; }
+.sb-detail-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.sb-detail-head b { color: #ffe6a8; font-size: 13px; }
+.sb-detail-head span { color: #8e9ab8; font-size: 10px; }
+.sb-detail-section-title { color: #9fd8ff; font-size: 11px; margin: 8px 0 4px; border-bottom: 1px solid rgba(159, 216, 255, .25); }
+.sb-detail-row { font-size: 11px; color: #dbe4ff; padding: 3px 0; line-height: 1.4; word-break: break-word; }
+.sb-detail-row.bad { color: #ffb9b9; }
+.sb-detail-none { font-size: 11px; color: #7f8aa8; padding: 3px 0; }
