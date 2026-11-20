@@ -29,6 +29,8 @@ export interface PropKind {
   colliderR: number
   /** 随机挑选权重 */
   weight: number
+  /** 同类 2~3 种实例染色变体（通过 InstancedMesh.setColorAt 区分，不增 drawcall / 不改碰撞） */
+  variantColors?: readonly number[]
 }
 
 /** 材质创建参数 */
@@ -38,17 +40,122 @@ interface MatOpts {
   flat?: boolean
   emissive?: number
   emissiveIntensity?: number
+  map?: THREE.Texture
 }
 
 function std(color: number, o: MatOpts = {}): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color,
+    map: o.map ?? null,
     roughness: o.roughness ?? 0.92,
     metalness: o.metalness ?? 0.0,
     flatShading: o.flat ?? true,
     emissive: o.emissive ?? 0x000000,
     emissiveIntensity: o.emissiveIntensity ?? 0,
   })
+}
+
+function hexCss(hex: number, a = 1): string {
+  const r = (hex >> 16) & 0xff
+  const g = (hex >> 8) & 0xff
+  const b = hex & 0xff
+  return a >= 1 ? `rgb(${r},${g},${b})` : `rgba(${r},${g},${b},${a})`
+}
+
+/** 生成 64×64 程序化障碍物表面纹理（木纹板缝 / 铆钉金属 / 裂纹倒角石材） */
+function makePropSurfaceTexture(kind: 'wood' | 'stone' | 'metal', baseHex: number): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 64
+  canvas.height = 64
+  const ctx = canvas.getContext('2d')!
+  ctx.imageSmoothingEnabled = false
+
+  ctx.fillStyle = hexCss(baseHex)
+  ctx.fillRect(0, 0, 64, 64)
+
+  if (kind === 'wood') {
+    // 4 条木板缝 + 细木纹 + 四角铁铆钉 + 顶/左倒角高光
+    for (let row = 0; row < 4; row += 1) {
+      const y = row * 16
+      const shade = row % 2 === 0 ? 0.05 : -0.05
+      ctx.fillStyle = hexCss(toneHex(baseHex, shade))
+      ctx.fillRect(0, y, 64, 15)
+      // 木纹细条
+      for (let g = 2; g < 14; g += 3) {
+        ctx.fillStyle = hexCss(toneHex(baseHex, g % 2 === 0 ? -0.14 : 0.1), 0.55)
+        ctx.fillRect(1, y + g, 62, 1)
+      }
+      // 板缝阴影
+      ctx.fillStyle = hexCss(toneHex(baseHex, -0.45))
+      ctx.fillRect(0, y + 15, 64, 1)
+      // 板顶边缘微高光
+      ctx.fillStyle = hexCss(toneHex(baseHex, 0.2), 0.75)
+      ctx.fillRect(0, y, 64, 1)
+    }
+    // 外框倒角高光与铁钉
+    ctx.strokeStyle = hexCss(toneHex(baseHex, 0.24), 0.75)
+    ctx.strokeRect(1.5, 1.5, 61, 61)
+    ctx.fillStyle = hexCss(0x2d2a32, 0.9)
+    for (const [rx, ry] of [[4, 4], [58, 4], [4, 58], [58, 58], [4, 30], [58, 30]]) {
+      ctx.fillRect(rx, ry, 2, 2)
+      ctx.fillStyle = hexCss(0xcbd2e0, 0.65)
+      ctx.fillRect(rx, ry, 1, 1)
+      ctx.fillStyle = hexCss(0x2d2a32, 0.9)
+    }
+  } else if (kind === 'stone') {
+    // 石块切面 + 边缘倒角高光 + 细微裂纹与凿痕
+    ctx.fillStyle = hexCss(toneHex(baseHex, 0.22), 0.85)
+    ctx.fillRect(0, 0, 64, 2)
+    ctx.fillRect(0, 0, 2, 64)
+    ctx.fillStyle = hexCss(toneHex(baseHex, -0.35), 0.9)
+    ctx.fillRect(0, 62, 64, 2)
+    ctx.fillRect(62, 0, 2, 64)
+    // 石面斑驳与微裂纹
+    for (let i = 0; i < 42; i += 1) {
+      const px = (i * 19 + 7) % 58 + 3
+      const py = (i * 31 + 11) % 58 + 3
+      ctx.fillStyle = hexCss(toneHex(baseHex, i % 2 === 0 ? 0.14 : -0.18), 0.55)
+      ctx.fillRect(px, py, (i % 3) + 1, 1)
+    }
+    ctx.strokeStyle = hexCss(toneHex(baseHex, -0.5), 0.78)
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(10, 14)
+    ctx.lineTo(22, 22)
+    ctx.lineTo(18, 34)
+    ctx.lineTo(29, 44)
+    ctx.moveTo(46, 10)
+    ctx.lineTo(40, 24)
+    ctx.lineTo(50, 32)
+    ctx.stroke()
+  } else {
+    // 锻铁/黄铜拉丝 + 铆钉 + 边缘高光
+    for (let y = 0; y < 64; y += 2) {
+      ctx.fillStyle = hexCss(toneHex(baseHex, y % 4 === 0 ? 0.12 : -0.1), 0.45)
+      ctx.fillRect(0, y, 64, 1)
+    }
+    ctx.fillStyle = hexCss(toneHex(baseHex, 0.34), 0.85)
+    ctx.fillRect(0, 0, 64, 2)
+    ctx.fillStyle = hexCss(toneHex(baseHex, -0.4), 0.9)
+    ctx.fillRect(0, 62, 64, 2)
+    for (let rx = 6; rx < 60; rx += 12) {
+      ctx.fillStyle = hexCss(toneHex(baseHex, -0.45), 0.9)
+      ctx.fillRect(rx, 8, 3, 3)
+      ctx.fillRect(rx, 52, 3, 3)
+      ctx.fillStyle = hexCss(toneHex(baseHex, 0.42), 0.9)
+      ctx.fillRect(rx, 8, 1, 1)
+      ctx.fillRect(rx, 52, 1, 1)
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.magFilter = THREE.NearestFilter
+  tex.minFilter = THREE.NearestMipmapLinearFilter
+  tex.wrapS = THREE.RepeatWrapping
+  tex.wrapT = THREE.RepeatWrapping
+  tex.colorSpace = THREE.SRGBColorSpace
+  tex.needsUpdate = true
+  return tex
 }
 
 function mixHex(a: number, b: number, t: number): number {
@@ -91,6 +198,7 @@ export class PropSet {
 
   private readonly geos: THREE.BufferGeometry[] = []
   private readonly ownedMats: THREE.Material[] = []
+  private readonly ownedTex: THREE.Texture[] = []
 
   constructor(theme: ThemeLike) {
     // ---- 共享单位几何体（缩放放在零件里） ----
@@ -101,15 +209,22 @@ export class PropSet {
     this.oct = this.trackGeo(new THREE.OctahedronGeometry(1, 0))
     this.sphere = this.trackGeo(new THREE.SphereGeometry(1, 8, 6))
 
-    // ---- 主题材质 ----
+    // ---- 主题程序化表面纹理（木纹/石裂纹/铆钉金属）与材质 ----
     const p = theme.propColors
-    const stone = this.trackMat(std(mixHex(p[0] ?? theme.wallColor, theme.wallColor, 0.35)))
-    const stoneDark = this.trackMat(std(toneHex(mixHex(p[2] ?? theme.wallColor, theme.wallColor, 0.4), -0.08)))
-    const stoneLight = this.trackMat(std(mixHex(p[1] ?? theme.wallColor, theme.wallTopColor, 0.3)))
-    const wood = this.trackMat(std(mixHex(p[1] ?? 0x6a5038, 0x6b4a2a, 0.55), { roughness: 0.95 }))
-    const woodDark = this.trackMat(std(mixHex(0x3a2a1c, p[0] ?? 0x4a3a2a, 0.35), { roughness: 0.95 }))
-    const metal = this.trackMat(std(0x34343d, { metalness: 0.72, roughness: 0.42 }))
-    const metalLight = this.trackMat(std(0x75707c, { metalness: 0.6, roughness: 0.35 }))
+    const stoneBase = mixHex(p[0] ?? theme.wallColor, theme.wallColor, 0.35)
+    const woodBase = mixHex(p[1] ?? 0x7a5a3a, 0x7b5634, 0.55)
+    const metalBase = 0x464854
+    const stoneTex = this.trackTex(makePropSurfaceTexture('stone', stoneBase))
+    const woodTex = this.trackTex(makePropSurfaceTexture('wood', woodBase))
+    const metalTex = this.trackTex(makePropSurfaceTexture('metal', metalBase))
+
+    const stone = this.trackMat(std(0xffffff, { map: stoneTex, roughness: 0.88, metalness: 0.05 }))
+    const stoneDark = this.trackMat(std(toneHex(mixHex(p[2] ?? theme.wallColor, theme.wallColor, 0.4), -0.08), { map: stoneTex, roughness: 0.9 }))
+    const stoneLight = this.trackMat(std(mixHex(p[1] ?? theme.wallColor, theme.wallTopColor, 0.36), { map: stoneTex, roughness: 0.82 }))
+    const wood = this.trackMat(std(0xffffff, { map: woodTex, roughness: 0.9 }))
+    const woodDark = this.trackMat(std(mixHex(0x523a26, p[0] ?? 0x5c4632, 0.35), { map: woodTex, roughness: 0.92 }))
+    const metal = this.trackMat(std(0x8e92a0, { map: metalTex, metalness: 0.72, roughness: 0.38 }))
+    const metalLight = this.trackMat(std(0xc8c2d0, { map: metalTex, metalness: 0.65, roughness: 0.3 }))
     const warmMetal = this.trackMat(
       std(mixHex(0x4a4048, theme.accentColor, 0.22), {
         metalness: 0.55,
@@ -163,6 +278,11 @@ export class PropSet {
   private trackMat<T extends THREE.Material>(m: T): T {
     this.ownedMats.push(m)
     return m
+  }
+
+  private trackTex<T extends THREE.Texture>(t: T): T {
+    this.ownedTex.push(t)
+    return t
   }
 
   /**
@@ -222,8 +342,10 @@ export class PropSet {
   dispose(): void {
     for (const g of this.geos) g.dispose()
     for (const m of this.ownedMats) m.dispose()
+    for (const t of this.ownedTex) t.dispose()
     this.geos.length = 0
     this.ownedMats.length = 0
+    this.ownedTex.length = 0
     this.kinds.length = 0
   }
 }
@@ -249,6 +371,7 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
   // ---- 通用：断墙/碎石 ----
   const rubble: PropKind = {
     key: 'rubble',
+    variantColors: [0xffffff, 0xe2e8f0, 0xd4ccbe],
     weight: 3,
     colliderR: 0.8,
     parts: [
@@ -259,32 +382,38 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
     ],
   }
 
-  // ---- 通用：木箱（优先用原画 prop_crate） ----
+  // ---- 通用：木箱（木纹 + 铁包角 + 十字加固条 + 3 色变体） ----
   const crate: PropKind =
     lib.artProp('crate', 'prop_crate', 1.06, 0.72, 3) ?? {
       key: 'crate',
       weight: 3,
       colliderR: 0.72,
+      variantColors: [0xffffff, 0xe8d2b8, 0xcab098],
       parts: [
         P(box, m.wood, [0, 0.5, 0], [1.08, 1, 1.08]),
         P(box, m.woodDark, [0, 1.04, 0], [1.16, 0.13, 1.16]),
-        P(box, m.woodDark, [0, 0.5, 0.555], [0.16, 1, 0.04]),
-        P(box, m.woodDark, [0, 0.5, -0.555], [0.16, 1, 0.04]),
-        P(box, m.woodDark, [0.555, 0.5, 0], [0.04, 1, 0.16]),
+        // 顶盖倒角金属包边 + 四面十字铁箍
+        P(box, m.metalLight, [0, 1.11, 0], [1.02, 0.03, 1.02]),
+        P(box, m.metal, [0, 0.5, 0.555], [0.16, 1.02, 0.05]),
+        P(box, m.metal, [0, 0.5, -0.555], [0.16, 1.02, 0.05]),
+        P(box, m.metal, [0.555, 0.5, 0], [0.05, 1.02, 0.16]),
+        P(box, m.metal, [-0.555, 0.5, 0], [0.05, 1.02, 0.16]),
       ],
     }
 
-  // ---- 通用：木桶（优先用原画 prop_barrel） ----
+  // ---- 通用：木桶（木纹桶身 + 三道铆钉铁箍 + 顶沿倒角 + 3 色变体） ----
   const barrel: PropKind =
     lib.artProp('barrel', 'prop_barrel', 1.18, 0.58, 2) ?? {
       key: 'barrel',
       weight: 2,
       colliderR: 0.58,
+      variantColors: [0xffffff, 0xe4cbb0, 0xc6a88c],
       parts: [
         P(cyl, m.wood, [0, 0.56, 0], [0.55, 1.12, 0.55]),
-        P(cyl, m.metal, [0, 0.28, 0], [0.585, 0.1, 0.585]),
-        P(cyl, m.metal, [0, 0.85, 0], [0.585, 0.1, 0.585]),
-        P(cyl, m.woodDark, [0, 1.14, 0], [0.43, 0.08, 0.43]),
+        P(cyl, m.metal, [0, 0.22, 0], [0.59, 0.1, 0.59]),
+        P(cyl, m.metalLight, [0, 0.56, 0], [0.585, 0.07, 0.585]),
+        P(cyl, m.metal, [0, 0.9, 0], [0.59, 0.1, 0.59]),
+        P(cyl, m.woodDark, [0, 1.14, 0], [0.46, 0.08, 0.46]),
       ],
     }
 
@@ -294,6 +423,7 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
       const pillar: PropKind =
         lib.artProp('moss-pillar', 'prop_pillar', 2.5, 0.62, 2) ?? {
           key: 'moss-pillar',
+          variantColors: [0xffffff, 0xdfeede, 0xd6d2c4],
           weight: 2,
           colliderR: 0.62,
           parts: [
@@ -342,6 +472,7 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
       // 铁砧
       const anvil: PropKind = {
         key: 'anvil',
+        variantColors: [0xffffff, 0xd8dce8, 0xe8d4be],
         weight: 3,
         colliderR: 0.72,
         parts: [
@@ -355,6 +486,7 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
       // 熔岩巨石
       const lavaRock: PropKind = {
         key: 'lava-rock',
+        variantColors: [0xffffff, 0xd6d4e6, 0xe6d2c8],
         weight: 3,
         colliderR: 0.75,
         parts: [
@@ -409,6 +541,7 @@ function buildKinds(theme: ThemeLike, lib: PropSet): PropKind[] {
       const frozenPillar: PropKind =
         lib.artProp('frozen-pillar', 'prop_pillar', 2.5, 0.62, 2, 0xd8e8ff) ?? {
           key: 'frozen-pillar',
+          variantColors: [0xffffff, 0xdfeee8, 0xe8dcb8],
           weight: 2,
           colliderR: 0.62,
           parts: [

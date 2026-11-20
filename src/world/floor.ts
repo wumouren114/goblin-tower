@@ -45,6 +45,7 @@ interface TowerCache {
   open: number
   group: THREE.Group
   lidPivot: THREE.Group
+  lockMat: THREE.MeshStandardMaterial
   glowIndex: number
   sealIndex: number
   sealColor: number
@@ -273,6 +274,7 @@ export class TowerFloor implements WorldV3 {
   private def: SceneDef | null = null
   private theme: ThemeV3 | null = null
   private tex: TextureBook | null = null
+  private detailTextures: THREE.Texture[] = []
   private props: PropSet | null = null
 
   private torches: TorchEntry[] = []
@@ -318,7 +320,10 @@ export class TowerFloor implements WorldV3 {
   private altarUsed = false
   private altarFlash = 0
   private altarInteractR = 4.8
-  private altarSteps: THREE.Mesh[] = []
+  private altarSteps: THREE.Object3D[] = []
+  private altarRecessMat: THREE.MeshStandardMaterial | null = null
+  private altarMotes: THREE.InstancedMesh | null = null
+  private altarMoteBaseR = 1.2
   private altarCollider: Circle | null = null
   private altarRuneSize = 1
   private altarRuneBaseY = 0.79
@@ -711,19 +716,68 @@ export class TowerFloor implements WorldV3 {
   }
 
   /* ---------------- 祭坛 ---------------- */
+  /** 生成 64×64 祭坛玄武岩刻纹贴图（石块倒角 + 刻槽符文 + 细裂纹） */
+  private makeAltarStoneTexture(baseHex: number): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas')
+    canvas.width = 64
+    canvas.height = 64
+    const ctx = canvas.getContext('2d')!
+    ctx.imageSmoothingEnabled = false
+    const toCss = (h: number, a = 1) => `rgba(${(h >> 16) & 255},${(h >> 8) & 255},${h & 255},${a})`
+    ctx.fillStyle = toCss(baseHex)
+    ctx.fillRect(0, 0, 64, 64)
+    // 石台横向刻缝与顶沿高光
+    for (const y of [0, 21, 42]) {
+      ctx.fillStyle = toCss(mixHex(baseHex, 0xffffff, 0.22), 0.8)
+      ctx.fillRect(0, y, 64, 1)
+      ctx.fillStyle = toCss(mixHex(baseHex, 0x000000, 0.45), 0.9)
+      ctx.fillRect(0, Math.min(63, y + 20), 64, 1)
+    }
+    // 竖向凿刻符文凹线（微亮紫灰描边）
+    ctx.fillStyle = toCss(mixHex(baseHex, 0xc98eff, 0.45), 0.55)
+    for (let x = 8; x < 64; x += 16) {
+      ctx.fillRect(x, 6, 2, 10)
+      ctx.fillRect(x + 4, 27, 2, 10)
+      ctx.fillRect(x, 48, 2, 10)
+    }
+    // 细裂纹磨损
+    ctx.strokeStyle = toCss(mixHex(baseHex, 0x000000, 0.55), 0.7)
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(14, 12)
+    ctx.lineTo(20, 20)
+    ctx.lineTo(17, 28)
+    ctx.moveTo(46, 34)
+    ctx.lineTo(52, 46)
+    ctx.stroke()
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.magFilter = THREE.NearestFilter
+    tex.minFilter = THREE.NearestMipmapLinearFilter
+    tex.wrapS = THREE.RepeatWrapping
+    tex.wrapT = THREE.RepeatWrapping
+    tex.colorSpace = THREE.SRGBColorSpace
+    tex.needsUpdate = true
+    this.detailTextures.push(tex)
+    return tex
+  }
+
   private buildAltar(half: number, wallH: number, tex: TextureBook): void {
     const theme = this.theme
     if (!theme) return
 
+    // 石质底座程序化刻纹贴图（玄武岩灰紫基调，贴合祭坛化身立绘风格）
+    const basaltBase = mixHex(mixHex(theme.wallColor, theme.floorAltColor, 0.32), 0x454052, 0.52)
+    const altarTex = this.makeAltarStoneTexture(basaltBase)
     const stoneMat = new THREE.MeshStandardMaterial({
-      color: mixHex(theme.wallColor, theme.floorAltColor, 0.32),
-      roughness: 0.94,
-      metalness: 0.05,
+      map: altarTex,
+      color: 0xffffff,
+      roughness: 0.88,
+      metalness: 0.08,
       flatShading: true,
     })
     const stepR = Math.min(3.0, half * 0.2)
 
-    // 三级八边形台阶（低矮）
+    // 三级八边形台阶（低矮，表面带凿刻石纹与倒角高光）
     const steps = [
       { rTop: stepR * 0.82, rBot: stepR, h: 0.3, y: 0.15 },
       { rTop: stepR * 0.64, rBot: stepR * 0.76, h: 0.26, y: 0.43 },
@@ -737,6 +791,62 @@ export class TowerFloor implements WorldV3 {
       this.root.add(m)
       this.altarSteps.push(m)
     }
+
+    // 顶台献祭凹槽（放卡/放血之位：暗玄武岩框 + 绯紫发光凹槽，与祭坛化身胸口凹槽呼应）
+    const accentGlow = mixHex(this.interactAccent(), 0xff6ec7, 0.42)
+    const basinMat = new THREE.MeshStandardMaterial({
+      color: 0x221e2b,
+      roughness: 0.72,
+      metalness: 0.2,
+      flatShading: true,
+    })
+    const basin = new THREE.Mesh(new THREE.BoxGeometry(stepR * 0.52, 0.08, stepR * 0.38), basinMat)
+    basin.position.set(0, 0.79, 0)
+    this.root.add(basin)
+    this.altarSteps.push(basin)
+
+    const recessMat = new THREE.MeshStandardMaterial({
+      color: mixHex(accentGlow, 0xffffff, 0.25),
+      emissive: new THREE.Color(accentGlow),
+      emissiveIntensity: 0.85,
+      roughness: 0.25,
+      metalness: 0.2,
+      flatShading: true,
+    })
+    this.altarRecessMat = recessMat
+    const recess = new THREE.Mesh(new THREE.BoxGeometry(stepR * 0.36, 0.03, stepR * 0.22), recessMat)
+    recess.position.set(0, 0.835, 0)
+    this.root.add(recess)
+    this.altarSteps.push(recess)
+
+    // 6 枚浮动符文微粒（合批 1 drawcall，克制体量，不喧宾夺主）
+    const moteMat = new THREE.MeshBasicMaterial({
+      color: mixHex(accentGlow, 0xffd8f0, 0.35),
+      transparent: true,
+      opacity: 0.72,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      toneMapped: false,
+    })
+    const moteMats: THREE.Matrix4[] = []
+    this.altarMoteBaseR = stepR * 0.64
+    const mq = new THREE.Quaternion()
+    for (let i = 0; i < 6; i += 1) {
+      const a = (i / 6) * Math.PI * 2
+      moteMats.push(
+        new THREE.Matrix4().compose(
+          new THREE.Vector3(Math.cos(a) * this.altarMoteBaseR, 1.15 + (i % 3) * 0.25, Math.sin(a) * this.altarMoteBaseR),
+          mq,
+          new THREE.Vector3(0.085, 0.13, 0.085),
+        ),
+      )
+    }
+    const motes = this.instanced(new THREE.OctahedronGeometry(1, 0), moteMat, moteMats, false)
+    motes.name = 'AltarRuneMotes'
+    motes.renderOrder = 3
+    this.altarMotes = motes
+    this.root.add(motes)
+    this.altarSteps.push(motes)
 
     // 发光符文圈
     const accent = this.interactAccent()
@@ -1288,12 +1398,16 @@ export class TowerFloor implements WorldV3 {
       geo: THREE.BufferGeometry
       mat: THREE.Material
       matrices: THREE.Matrix4[]
+      colors: number[]
     }
     const buckets = new Map<string, Bucket>()
     const partQuat = new THREE.Quaternion()
     const partEuler = new THREE.Euler()
 
-    for (const pl of placements) {
+    for (let pi = 0; pi < placements.length; pi += 1) {
+      const pl = placements[pi]
+      const variants = pl.kind.variantColors
+      const tint = variants && variants.length > 0 ? variants[pi % variants.length] : 0xffffff
       const propM = new THREE.Matrix4().compose(
         new THREE.Vector3(pl.x, 0, pl.z),
         new THREE.Quaternion().setFromAxisAngle(UP, pl.rot),
@@ -1305,7 +1419,7 @@ export class TowerFloor implements WorldV3 {
         const key = part.geo.uuid + '|' + part.mat.uuid
         let bucket = buckets.get(key)
         if (!bucket) {
-          bucket = { geo: part.geo, mat: part.mat, matrices: [] }
+          bucket = { geo: part.geo, mat: part.mat, matrices: [], colors: [] }
           buckets.set(key, bucket)
         }
         const pr = part.rot
@@ -1317,13 +1431,20 @@ export class TowerFloor implements WorldV3 {
           new THREE.Vector3(part.scale[0], part.scale[1], part.scale[2]),
         )
         bucket.matrices.push(new THREE.Matrix4().multiplyMatrices(propM, local))
+        bucket.colors.push(tint)
       }
     }
 
+    const tmpCol = new THREE.Color()
     for (const bucket of buckets.values()) {
       const im = new THREE.InstancedMesh(bucket.geo, bucket.mat, bucket.matrices.length)
-      for (let i = 0; i < bucket.matrices.length; i++) im.setMatrixAt(i, bucket.matrices[i])
+      const useTint = bucket.colors.some((c) => c !== 0xffffff)
+      for (let i = 0; i < bucket.matrices.length; i++) {
+        im.setMatrixAt(i, bucket.matrices[i])
+        if (useTint) im.setColorAt(i, tmpCol.setHex(bucket.colors[i]))
+      }
       im.instanceMatrix.needsUpdate = true
+      if (im.instanceColor) im.instanceColor.needsUpdate = true
       im.castShadow = true
       im.receiveShadow = true
       im.frustumCulled = false
@@ -1388,53 +1509,122 @@ export class TowerFloor implements WorldV3 {
     }
   }
 
-  /** 木箱 + 金属箍 + 发光封印；开箱时只翻盖，不产生额外实时灯光 */
+  /** 生成宝箱 64×64 程序化木纹与暗缝贴图（仅纯程序化 Canvas2D） */
+  private makeChestWoodTexture(baseHex: number): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas')
+    canvas.width = 64
+    canvas.height = 64
+    const ctx = canvas.getContext('2d')!
+    ctx.imageSmoothingEnabled = false
+    const toCss = (h: number, a = 1) => `rgba(${(h >> 16) & 255},${(h >> 8) & 255},${h & 255},${a})`
+    ctx.fillStyle = toCss(baseHex)
+    ctx.fillRect(0, 0, 64, 64)
+    for (let row = 0; row < 4; row += 1) {
+      const y = row * 16
+      ctx.fillStyle = toCss(mixHex(baseHex, row % 2 === 0 ? 0xffffff : 0x000000, 0.06))
+      ctx.fillRect(0, y, 64, 15)
+      for (let g = 3; g < 14; g += 3) {
+        ctx.fillStyle = toCss(mixHex(baseHex, 0x1a0e06, 0.35), 0.45)
+        ctx.fillRect(0, y + g, 64, 1)
+      }
+      ctx.fillStyle = toCss(mixHex(baseHex, 0x000000, 0.5))
+      ctx.fillRect(0, y + 15, 64, 1)
+      ctx.fillStyle = toCss(mixHex(baseHex, 0xffe4b8, 0.25), 0.65)
+      ctx.fillRect(0, y, 64, 1)
+    }
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.magFilter = THREE.NearestFilter
+    tex.minFilter = THREE.NearestMipmapLinearFilter
+    tex.wrapS = THREE.RepeatWrapping
+    tex.wrapT = THREE.RepeatWrapping
+    tex.colorSpace = THREE.SRGBColorSpace
+    tex.needsUpdate = true
+    this.detailTextures.push(tex)
+    return tex
+  }
+
+  /** 木箱 + 木纹 + 金属包角 + 呼吸微光锁扣 + 开启态内衬；不产生额外实时灯光 */
   private spawnTowerCache(x: number, z: number, rot: number, index: number): void {
     const theme = this.theme
     const tex = this.tex
     if (!theme || !tex) return
 
+    const woodHex = mixHex(theme.propColors[0], 0x704a2a, 0.5)
+    const woodTex = this.makeChestWoodTexture(woodHex)
     const woodMat = new THREE.MeshStandardMaterial({
-      color: mixHex(theme.propColors[0], 0x6b4a2d, 0.42),
-      roughness: 0.88,
-      metalness: 0.03,
+      map: woodTex,
+      color: 0xffffff,
+      roughness: 0.84,
+      metalness: 0.04,
       flatShading: true,
     })
     const bandMat = new THREE.MeshStandardMaterial({
-      color: mixHex(theme.wallTopColor, 0x5a4028, 0.5),
-      roughness: 0.48,
-      metalness: 0.68,
+      color: mixHex(theme.wallTopColor, 0xb88b4a, 0.58),
+      roughness: 0.36,
+      metalness: 0.78,
       flatShading: true,
     })
     const accent = this.interactAccent()
     const sealColor = mixHex(accent, 0xffffff, 0.2)
+    const lockMat = new THREE.MeshStandardMaterial({
+      color: mixHex(accent, 0xffe49e, 0.5),
+      roughness: 0.26,
+      metalness: 0.75,
+      emissive: new THREE.Color(accent),
+      emissiveIntensity: 0.6,
+      flatShading: true,
+    })
+    const liningMat = new THREE.MeshStandardMaterial({
+      color: mixHex(accent, 0x5c2e28, 0.65),
+      roughness: 0.9,
+      emissive: new THREE.Color(accent),
+      emissiveIntensity: 0.14,
+      flatShading: true,
+    })
 
     const group = new THREE.Group()
     group.position.set(x, 0, z)
     group.rotation.y = rot
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.64, 0.76), woodMat)
-    body.position.y = 0.33
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.62, 0.76), woodMat)
+    body.position.y = 0.31
     body.castShadow = true
     body.receiveShadow = true
     group.add(body)
 
-    for (const bx of [-0.25, 0.25]) {
-      const band = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.72, 0.8), bandMat)
-      band.position.set(bx, 0.36, 0)
-      band.castShadow = true
-      group.add(band)
+    // 盒内丝绒内衬（箱盖翻开后可见，明确区分已开/未开状态）
+    const lining = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.04, 0.62), liningMat)
+    lining.position.set(0, 0.615, 0)
+    group.add(lining)
+
+    // 4 根金属包角 + 2 道箍带合批为 1 个 InstancedMesh（省 drawcall）
+    const trimMats: THREE.Matrix4[] = []
+    const qId = new THREE.Quaternion()
+    for (const sx of [-0.43, 0.43]) {
+      for (const sz of [-0.36, 0.36]) {
+        trimMats.push(new THREE.Matrix4().compose(new THREE.Vector3(sx, 0.32, sz), qId, new THREE.Vector3(0.09, 0.66, 0.09)))
+      }
     }
+    for (const bx of [-0.24, 0.24]) {
+      trimMats.push(new THREE.Matrix4().compose(new THREE.Vector3(bx, 0.34, 0), qId, new THREE.Vector3(0.08, 0.68, 0.8)))
+    }
+    const trimMesh = this.instanced(new THREE.BoxGeometry(1, 1, 1), bandMat, trimMats, true)
+    group.add(trimMesh)
+
+    // 前置锁扣（未开时微光呼吸，已开后熄灭暗化）
+    const lockPlate = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.22, 0.07), lockMat)
+    lockPlate.position.set(0, 0.56, -0.39)
+    group.add(lockPlate)
 
     const lidPivot = new THREE.Group()
     lidPivot.position.set(0, 0.61, 0.35)
-    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.14, 0.82), woodMat)
-    lid.position.set(0, 0.07, -0.35)
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.16, 0.82), woodMat)
+    lid.position.set(0, 0.08, -0.35)
     lid.castShadow = true
     lidPivot.add(lid)
-    const lidBand = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.155, 0.84), bandMat)
-    lidBand.position.set(0.24, 0.07, -0.35)
-    lidPivot.add(lidBand)
+    const lidRim = new THREE.Mesh(new THREE.BoxGeometry(0.99, 0.045, 0.85), bandMat)
+    lidRim.position.set(0, 0.025, -0.35)
+    lidPivot.add(lidRim)
     group.add(lidPivot)
 
     // 光晕/封印走合批：坐标是世界空间，不挂在 group 上（group 只放实体箱体）
@@ -1454,6 +1644,7 @@ export class TowerFloor implements WorldV3 {
       open: 0,
       group,
       lidPivot,
+      lockMat,
       glowIndex,
       sealIndex,
       sealColor,
@@ -2279,6 +2470,22 @@ export class TowerFloor implements WorldV3 {
       this.crystal.rotation.y = t * 0.55
       this.crystal.position.y = this.crystalBaseY + Math.sin(t * 1.1) * 0.12 + this.altarFlash * 0.18
     }
+    if (this.altarRecessMat) {
+      this.altarRecessMat.emissiveIntensity = 0.72 + Math.sin(t * 2.1) * 0.22 + this.altarFlash * 0.6
+    }
+    if (this.altarMotes && this.altarMotes.visible) {
+      const m = new THREE.Matrix4()
+      const q = new THREE.Quaternion()
+      const s = new THREE.Vector3(0.085, 0.13, 0.085)
+      for (let i = 0; i < 6; i += 1) {
+        const a = (i / 6) * Math.PI * 2 + t * 0.42
+        const y = 1.15 + (i % 3) * 0.22 + Math.sin(t * 1.8 + i * 1.1) * 0.12
+        q.setFromAxisAngle(UP, t * 1.4 + i)
+        m.compose(new THREE.Vector3(Math.cos(a) * this.altarMoteBaseR, y, Math.sin(a) * this.altarMoteBaseR), q, s)
+        this.altarMotes.setMatrixAt(i, m)
+      }
+      this.altarMotes.instanceMatrix.needsUpdate = true
+    }
     if (this.altarBeam) {
       const mat = this.altarBeam.material as THREE.MeshBasicMaterial
       mat.opacity = 0.1 + (this.altarUsed ? 0.07 : 0.02) + Math.sin(t * 1.4) * 0.018 + this.altarFlash * 0.24
@@ -2309,8 +2516,10 @@ export class TowerFloor implements WorldV3 {
         cache.open = Math.min(1, cache.open + dt * 3.8)
         const e = 1 - (1 - cache.open) * (1 - cache.open)
         cache.lidPivot.rotation.x = 1.18 * e
+        cache.lockMat.emissiveIntensity = 0.04
         if (cache.open > 0.15) this.sealBatch?.setAlpha(cache.sealIndex, 0)
       } else {
+        cache.lockMat.emissiveIntensity = 0.55 + Math.sin(t * 2.6 + cache.phase) * 0.3
         const y = cache.sealBaseY + Math.sin(t * 1.7 + cache.phase) * 0.08
         const s = 0.9 + Math.sin(t * 2.1 + cache.phase) * 0.06
         const alpha = 0.82 + Math.sin(t * 2.3 + cache.phase) * 0.08
@@ -2575,6 +2784,8 @@ export class TowerFloor implements WorldV3 {
     this.altarUsed = false
     this.altarFlash = 0
     this.altarSteps.length = 0
+    this.altarRecessMat = null
+    this.altarMotes = null
     this.altarCollider = null
     this.caches.length = 0
     this.keyLight = null
@@ -2617,6 +2828,8 @@ export class TowerFloor implements WorldV3 {
       this.tex.dispose()
       this.tex = null
     }
+    for (const dt of this.detailTextures) dt.dispose()
+    this.detailTextures.length = 0
     if (this.props) {
       this.props.dispose()
       this.props = null
