@@ -1423,3 +1423,608 @@ export class CharacterFx {
     this.scene.remove(this.aura)
   }
 }
+
+// ───────────────────── 潜能独立特效（v5 程序化导出） ─────────────────────
+
+export interface PotentialFxHandle {
+  readonly group: THREE.Group
+  readonly duration: number
+  /** 手动推进一帧（用于离线测试/预览）；返回 true 表示仍在播放 */
+  update(dt: number): boolean
+  /** 立即移出场景并释放本次实例材质 */
+  dispose(): void
+}
+
+interface ActivePotentialFx {
+  update(dt: number): boolean
+}
+
+const activePotentialFx = new Set<ActivePotentialFx>()
+let potentialFxRaf = 0
+let potentialFxLastMs = 0
+
+function drivePotentialFx(nowMs: number): void {
+  const dt = potentialFxLastMs > 0 ? Math.min(0.05, Math.max(0.001, (nowMs - potentialFxLastMs) / 1000)) : 1 / 60
+  potentialFxLastMs = nowMs
+  for (const fx of [...activePotentialFx]) {
+    if (!fx.update(dt)) activePotentialFx.delete(fx)
+  }
+  if (activePotentialFx.size > 0 && typeof requestAnimationFrame === 'function') {
+    potentialFxRaf = requestAnimationFrame(drivePotentialFx)
+  } else {
+    potentialFxRaf = 0
+    potentialFxLastMs = 0
+  }
+}
+
+function registerPotentialFx(fx: ActivePotentialFx): void {
+  if (typeof requestAnimationFrame !== 'function') return
+  activePotentialFx.add(fx)
+  if (!potentialFxRaf) {
+    potentialFxLastMs = 0
+    potentialFxRaf = requestAnimationFrame(drivePotentialFx)
+  }
+}
+
+/** 共用轻量几何体缓存，避免频繁创建销毁 */
+let sharedDropGeo: THREE.CircleGeometry | null = null
+let sharedDiamondTex: THREE.DataTexture | null = null
+let sharedRingTex: THREE.DataTexture | null = null
+let sharedShieldArcGeo: THREE.CylinderGeometry | null = null
+const sharedBadgeTexCache = new Map<string, THREE.DataTexture>()
+
+function makeDataTex(size: number, paint: (x: number, y: number, buf: Uint8Array, idx: number) => void): THREE.DataTexture {
+  const data = new Uint8Array(size * size * 4)
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      paint(x, y, data, (y * size + x) * 4)
+    }
+  }
+  const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat)
+  tex.magFilter = THREE.NearestFilter
+  tex.minFilter = THREE.NearestFilter
+  tex.needsUpdate = true
+  return tex
+}
+
+function diamondTexture(): THREE.DataTexture {
+  if (sharedDiamondTex) return sharedDiamondTex
+  sharedDiamondTex = makeDataTex(16, (x, y, buf, idx) => {
+    const cx = Math.abs(x - 7.5)
+    const cy = Math.abs(y - 7.5)
+    const d = cx + cy
+    if (d <= 6.2) {
+      const core = d <= 2.6
+      buf[idx] = 255
+      buf[idx + 1] = core ? 240 : 168
+      buf[idx + 2] = core ? 175 : 46
+      buf[idx + 3] = d <= 5.2 ? 255 : 180
+    }
+  })
+  return sharedDiamondTex
+}
+
+function beatPulseTexture(): THREE.DataTexture {
+  if (sharedRingTex) return sharedRingTex
+  sharedRingTex = makeDataTex(32, (x, y, buf, idx) => {
+    const d = Math.hypot(x - 15.5, y - 15.5)
+    if (d >= 11.2 && d <= 14.2) {
+      const peak = 1 - Math.abs(d - 12.7) / 1.6
+      buf[idx] = 255
+      buf[idx + 1] = 255
+      buf[idx + 2] = 255
+      buf[idx + 3] = Math.round(Math.max(0, Math.min(1, peak)) * 255)
+    }
+  })
+  return sharedRingTex
+}
+
+export interface ResonanceBadgeColors {
+  primary: [number, number, number]
+  secondary: [number, number, number]
+  rim: [number, number, number]
+}
+
+const RESONANCE_PALETTES: Record<string, ResonanceBadgeColors> = {
+  // 丛雨三组跨枝反应
+  'murasame-res-bleed-mark': { primary: [224, 58, 82], secondary: [255, 158, 59], rim: [255, 224, 168] },
+  'murasame-res-bleed-charge': { primary: [224, 58, 82], secondary: [124, 232, 255], rim: [232, 250, 255] },
+  'murasame-res-mark-charge': { primary: [255, 158, 59], secondary: [255, 229, 143], rim: [255, 248, 214] },
+  // 大肥鱼三组跨枝反应
+  'fish-res-clone-swarm': { primary: [110, 226, 255], secondary: [255, 209, 102], rim: [236, 252, 255] },
+  'fish-res-clone-bubble': { primary: [110, 226, 255], secondary: [255, 133, 192], rim: [255, 230, 244] },
+  'fish-res-swarm-bubble': { primary: [92, 242, 214], secondary: [140, 158, 255], rim: [224, 246, 255] },
+  // 若叶睦三组跨枝反应
+  'mutsumi-res-rhythm-symphony': { primary: [255, 212, 121], secondary: [201, 168, 255], rim: [255, 244, 214] },
+  'mutsumi-res-rhythm-duet': { primary: [255, 212, 121], secondary: [255, 107, 158], rim: [255, 230, 238] },
+  'mutsumi-res-symphony-duet': { primary: [201, 168, 255], secondary: [118, 242, 228], rim: [236, 252, 250] },
+}
+
+const FALLBACK_COMBO_SETS: Record<CharacterId, readonly [ResonanceBadgeColors, ResonanceBadgeColors, ResonanceBadgeColors]> = {
+  murasame: [
+    RESONANCE_PALETTES['murasame-res-bleed-mark'],
+    RESONANCE_PALETTES['murasame-res-bleed-charge'],
+    RESONANCE_PALETTES['murasame-res-mark-charge'],
+  ],
+  fish: [
+    RESONANCE_PALETTES['fish-res-clone-swarm'],
+    RESONANCE_PALETTES['fish-res-clone-bubble'],
+    RESONANCE_PALETTES['fish-res-swarm-bubble'],
+  ],
+  mutsumi: [
+    RESONANCE_PALETTES['mutsumi-res-rhythm-symphony'],
+    RESONANCE_PALETTES['mutsumi-res-rhythm-duet'],
+    RESONANCE_PALETTES['mutsumi-res-symphony-duet'],
+  ],
+}
+
+/** 供预览脚本与徽章贴图共用的三组配色解析 */
+export function resonanceBadgePalette(charId: CharacterId, comboId: string): ResonanceBadgeColors {
+  const direct = RESONANCE_PALETTES[comboId]
+  if (direct) return direct
+  const presets = FALLBACK_COMBO_SETS[charId] ?? FALLBACK_COMBO_SETS.mutsumi
+  let hash = 0
+  for (let i = 0; i < comboId.length; i += 1) hash = (hash * 31 + comboId.charCodeAt(i)) >>> 0
+  return presets[hash % 3]
+}
+
+/** 生成 32×32 像素风「两分支图标交叠」RGBA 像素数据（可供预览脚本直接读取） */
+export function buildResonanceBadgePixels(charId: CharacterId, comboId: string): Uint8Array {
+  const pal = resonanceBadgePalette(charId, comboId)
+  const size = 32
+  const data = new Uint8Array(size * size * 4)
+  const set = (x: number, y: number, r: number, g: number, b: number, a = 255): void => {
+    if (x < 0 || x >= size || y < 0 || y >= size) return
+    const idx = (y * size + x) * 4
+    data[idx] = r
+    data[idx + 1] = g
+    data[idx + 2] = b
+    data[idx + 3] = a
+  }
+  const [r1, g1, b1] = pal.primary
+  const [r2, g2, b2] = pal.secondary
+  const [rr, gr, br] = pal.rim
+
+  // 左圆徽章（分支 A）+ 右圆徽章（分支 B）交叠，交汇处高亮白金缝线
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const d1 = Math.hypot(x - 11.5, y - 15.5)
+      const d2 = Math.hypot(x - 19.5, y - 15.5)
+      const in1 = d1 <= 9.2
+      const in2 = d2 <= 9.2
+      if (!in1 && !in2) continue
+      const rim1 = Math.abs(d1 - 8.4) <= 1.05
+      const rim2 = Math.abs(d2 - 8.4) <= 1.05
+      if (in1 && in2) {
+        // 交叠中心：双色融合 + 亮芯
+        const core = Math.abs(x - 15.5) <= 1.2 && Math.abs(y - 15.5) <= 5.5
+        if (core) set(x, y, rr, gr, br, 255)
+        else set(x, y, Math.min(255, Math.round((r1 + r2) * 0.55)), Math.min(255, Math.round((g1 + g2) * 0.55)), Math.min(255, Math.round((b1 + b2) * 0.55)), 250)
+      } else if (in1) {
+        if (rim1) set(x, y, rr, gr, br, 245)
+        else set(x, y, r1, g1, b1, 230)
+      } else if (in2) {
+        if (rim2) set(x, y, rr, gr, br, 245)
+        else set(x, y, r2, g2, b2, 230)
+      }
+    }
+  }
+  // 角色语言小刻纹：丛雨=斜刃 / 鱼=双泡 / 睦=菱形拍点
+  if (charId === 'murasame') {
+    for (let i = -4; i <= 4; i += 1) set(15 + i, 15 - i, 255, 252, 240, 255)
+  } else if (charId === 'fish') {
+    for (const [cx, cy] of [[10, 14], [21, 16]] as const) {
+      set(cx, cy, 245, 255, 255, 255)
+      set(cx + 1, cy, 245, 255, 255, 220)
+      set(cx, cy + 1, 245, 255, 255, 220)
+    }
+  } else {
+    for (let dy = -3; dy <= 3; dy += 1) {
+      for (let dx = -3; dx <= 3; dx += 1) {
+        if (Math.abs(dx) + Math.abs(dy) === 3) set(15 + dx, 15 + dy, 255, 248, 220, 255)
+      }
+    }
+  }
+  return data
+}
+
+/**
+ * 1. 流血 tick 特效（流殇分支）：
+ *    仅生成 2~3 颗暗红小血滴贴地溅落（0.25s），严格克制粒子量，
+ *    避免一局数百跳流血把战斗画面糊成一团。
+ */
+export function fxBloodTick(scene: THREE.Scene, x: number, z: number): PotentialFxHandle {
+  const duration = 0.25
+  const group = new THREE.Group()
+  group.position.set(x, 0, z)
+  scene.add(group)
+
+  if (!sharedDropGeo) {
+    sharedDropGeo = new THREE.CircleGeometry(1, 8)
+    sharedDropGeo.rotateX(-Math.PI / 2)
+  }
+
+  const count = Math.random() < 0.5 ? 2 : 3
+  const drops: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; size: number }[] = []
+  for (let i = 0; i < count; i += 1) {
+    const angle = (i / count) * TAU + rand(-0.55, 0.55)
+    const speed = rand(0.55, 1.15)
+    const size = rand(0.055, 0.085)
+    const mat = new THREE.MeshBasicMaterial({
+      color: i === 0 ? 0xa8162a : 0x7c0f1e,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    })
+    const mesh = new THREE.Mesh(sharedDropGeo, mat)
+    mesh.position.set(0, rand(0.14, 0.24), 0)
+    mesh.scale.setScalar(size)
+    group.add(mesh)
+    drops.push({ mesh, mat, vx: Math.cos(angle) * speed, vy: rand(0.45, 0.85), vz: Math.sin(angle) * speed, size })
+  }
+
+  let age = 0
+  let disposed = false
+  const handle: PotentialFxHandle = {
+    group,
+    duration,
+    update(dt: number): boolean {
+      if (disposed) return false
+      age += dt
+      if (age >= duration) {
+        handle.dispose()
+        return false
+      }
+      const k = age / duration
+      for (const d of drops) {
+        d.vy -= 5.2 * dt
+        d.mesh.position.x += d.vx * dt
+        d.mesh.position.y = Math.max(0.035, d.mesh.position.y + d.vy * dt)
+        d.mesh.position.z += d.vz * dt
+        d.mat.opacity = 0.9 * (1 - k * k)
+        d.mesh.scale.setScalar(d.size * (1 - k * 0.35))
+      }
+      return true
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      activePotentialFx.delete(handle)
+      for (const d of drops) d.mat.dispose()
+      scene.remove(group)
+    },
+  }
+  registerPotentialFx(handle)
+  return handle
+}
+
+/**
+ * 2. 剑意标记特效（剑意分支）：
+ *    在目标头顶横排亮出 1~3 枚橙色小菱形（严格对应当前层数），
+ *    挂出瞬间做一次短促放大闪烁，便于玩家一眼读出可结算层数。
+ */
+export function fxMarkStack(scene: THREE.Scene, x: number, z: number, stacks: number): PotentialFxHandle {
+  const duration = 0.65
+  const count = Math.max(1, Math.min(3, Math.round(stacks)))
+  const group = new THREE.Group()
+  group.position.set(x, 1.62, z)
+  scene.add(group)
+
+  const tex = diamondTexture()
+  const sprites: { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; baseX: number }[] = []
+  const spacing = 0.28
+  for (let i = 0; i < count; i += 1) {
+    const mat = new THREE.SpriteMaterial({
+      map: tex,
+      color: i === count - 1 ? 0xffb347 : 0xff8c24,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+    const sprite = new THREE.Sprite(mat)
+    const baseX = (i - (count - 1) * 0.5) * spacing
+    sprite.position.set(baseX, 0, 0)
+    sprite.scale.setScalar(0.32)
+    group.add(sprite)
+    sprites.push({ sprite, mat, baseX })
+  }
+
+  let age = 0
+  let disposed = false
+  const handle: PotentialFxHandle = {
+    group,
+    duration,
+    update(dt: number): boolean {
+      if (disposed) return false
+      age += dt
+      if (age >= duration) {
+        handle.dispose()
+        return false
+      }
+      const k = age / duration
+      // 前 18% 时间闪亮放大，随后稳定回落并渐隐
+      const flash = k < 0.18 ? 1 + Math.sin((k / 0.18) * Math.PI) * 0.45 : 1
+      const fade = k > 0.7 ? (1 - k) / 0.3 : 1
+      for (const s of sprites) {
+        s.sprite.scale.setScalar(0.24 * flash)
+        s.sprite.position.set(s.baseX, Math.sin(age * 8) * 0.025, 0)
+        s.mat.opacity = Math.max(0, Math.min(1, fade))
+      }
+      return true
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      activePotentialFx.delete(handle)
+      for (const s of sprites) s.mat.dispose()
+      scene.remove(group)
+    },
+  }
+  registerPotentialFx(handle)
+  return handle
+}
+
+/**
+ * 3. 丛雨 F 格挡盾光：
+ *    在角色面朝方向 0.75m 处展开一道 0.8s 的弧形青白盾光，
+ *    边缘带高频微抖动感，明确传达「可弹反/减伤」的防护窗口。
+ */
+export function fxBlockShield(scene: THREE.Scene, x: number, z: number, facing: number): PotentialFxHandle {
+  const duration = 0.8
+  const group = new THREE.Group()
+  group.position.set(x, 0.72, z)
+  group.rotation.y = facing
+  scene.add(group)
+
+  if (!sharedShieldArcGeo) {
+    // 100° 弧面盾片（面朝本地 +Z）
+    sharedShieldArcGeo = new THREE.CylinderGeometry(0.85, 0.85, 0.95, 16, 1, true, -Math.PI * 0.28, Math.PI * 0.56)
+  }
+
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0x8ef5ff,
+    transparent: true,
+    opacity: 0.42,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+  const rimMat = new THREE.MeshBasicMaterial({
+    color: 0xeaffff,
+    transparent: true,
+    opacity: 0.72,
+    side: THREE.DoubleSide,
+    wireframe: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+  const coreMesh = new THREE.Mesh(sharedShieldArcGeo, coreMat)
+  const rimMesh = new THREE.Mesh(sharedShieldArcGeo, rimMat)
+  rimMesh.scale.set(1.03, 1.02, 1.03)
+  group.add(coreMesh, rimMesh)
+
+  let age = 0
+  let disposed = false
+  const handle: PotentialFxHandle = {
+    group,
+    duration,
+    update(dt: number): boolean {
+      if (disposed) return false
+      age += dt
+      if (age >= duration) {
+        handle.dispose()
+        return false
+      }
+      const k = age / duration
+      const intro = Math.min(1, age / 0.08)
+      const outro = k > 0.78 ? (1 - k) / 0.22 : 1
+      const jitter = Math.sin(age * 52) * 0.025 + Math.cos(age * 37) * 0.015
+      coreMesh.scale.set(intro, 0.85 + intro * 0.15, intro)
+      rimMesh.scale.set((1.03 + jitter) * intro, 1.02 + jitter * 0.6, (1.03 - jitter) * intro)
+      coreMat.opacity = 0.42 * intro * outro
+      rimMat.opacity = (0.68 + Math.sin(age * 44) * 0.12) * intro * outro
+      return true
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      activePotentialFx.delete(handle)
+      coreMat.dispose()
+      rimMat.dispose()
+      scene.remove(group)
+    },
+  }
+  registerPotentialFx(handle)
+  return handle
+}
+
+/**
+ * 4. 大肥鱼 Q 回收水线：
+ *    count 道青蓝细水线从玩家四周（约 2.5m 处）沿微弧线汇向玩家中心（0.4s），
+ *    呈现召唤物化水回流、兑换金币的收束感。
+ */
+export function fxRecallWater(scene: THREE.Scene, x: number, z: number, count: number): PotentialFxHandle {
+  const duration = 0.4
+  const n = Math.max(1, Math.min(12, Math.round(count)))
+  const group = new THREE.Group()
+  group.position.set(x, 0, z)
+  scene.add(group)
+
+  const streams: {
+    line: THREE.Line
+    geo: THREE.BufferGeometry
+    mat: THREE.LineBasicMaterial
+    startAngle: number
+    startDist: number
+    swirl: number
+  }[] = []
+
+  const segs = 10
+  for (let i = 0; i < n; i += 1) {
+    const startAngle = (i / n) * TAU + rand(-0.22, 0.22)
+    const startDist = rand(2.1, 2.9)
+    const swirl = (i % 2 === 0 ? 1 : -1) * rand(0.32, 0.55)
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((segs + 1) * 3), 3))
+    const mat = new THREE.LineBasicMaterial({
+      color: i % 2 === 0 ? 0x5ae2ff : 0xaef6ff,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    })
+    const line = new THREE.Line(geo, mat)
+    group.add(line)
+    streams.push({ line, geo, mat, startAngle, startDist, swirl })
+  }
+
+  let age = 0
+  let disposed = false
+  const updateStreams = (k: number): void => {
+    const head = Math.min(1, k * 1.15)
+    const tail = Math.max(0, k * 1.15 - 0.52)
+    for (const st of streams) {
+      const pos = st.geo.getAttribute('position') as THREE.BufferAttribute
+      for (let j = 0; j <= segs; j += 1) {
+        const u = tail + (head - tail) * (j / segs)
+        const r = st.startDist * (1 - u)
+        const a = st.startAngle + st.swirl * u
+        const y = 0.22 + Math.sin(u * Math.PI) * 0.42 + u * 0.24
+        pos.setXYZ(j, Math.cos(a) * r, y, Math.sin(a) * r)
+      }
+      pos.needsUpdate = true
+      st.mat.opacity = Math.max(0, 0.92 * (1 - k * 0.85))
+    }
+  }
+  updateStreams(0.05)
+
+  const handle: PotentialFxHandle = {
+    group,
+    duration,
+    update(dt: number): boolean {
+      if (disposed) return false
+      age += dt
+      if (age >= duration) {
+        handle.dispose()
+        return false
+      }
+      updateStreams(age / duration)
+      return true
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      activePotentialFx.delete(handle)
+      for (const st of streams) {
+        st.geo.dispose()
+        st.mat.dispose()
+      }
+      scene.remove(group)
+    },
+  }
+  registerPotentialFx(handle)
+  return handle
+}
+
+/**
+ * 5. 若叶睦 F 强拍窗口脉冲：
+ *    脚下 0.5s 贴地双环节拍脉冲（冰蓝外环收缩 + 暖金内环亮闪），
+ *    与现有 HUD beat ring 保持统一视觉语言。
+ */
+export function fxStrongBeat(scene: THREE.Scene, x: number, z: number): PotentialFxHandle {
+  const duration = 0.5
+  const group = new THREE.Group()
+  group.position.set(x, 0.055, z)
+  scene.add(group)
+
+  const geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2)
+  const tex = beatPulseTexture()
+  const outerMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    color: 0x9fd8ff,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+  const innerMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    color: 0xffd479,
+    transparent: true,
+    opacity: 0.95,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  })
+  const outer = new THREE.Mesh(geo, outerMat)
+  const inner = new THREE.Mesh(geo, innerMat)
+  inner.position.y = 0.004
+  outer.scale.setScalar(2.4)
+  inner.scale.setScalar(1.35)
+  group.add(outer, inner)
+
+  let age = 0
+  let disposed = false
+  const handle: PotentialFxHandle = {
+    group,
+    duration,
+    update(dt: number): boolean {
+      if (disposed) return false
+      age += dt
+      if (age >= duration) {
+        handle.dispose()
+        return false
+      }
+      const k = age / duration
+      // 外环随 0.5s 窗口向脚下收紧，内环做一次脉冲扩散
+      const outerScale = 2.4 - k * 1.25
+      const innerScale = 1.1 + Math.sin(k * Math.PI) * 0.7
+      outer.scale.setScalar(outerScale)
+      inner.scale.setScalar(innerScale)
+      outerMat.opacity = 0.88 * (1 - k * 0.75)
+      innerMat.opacity = 0.95 * Math.pow(1 - k, 1.3)
+      return true
+    },
+    dispose(): void {
+      if (disposed) return
+      disposed = true
+      activePotentialFx.delete(handle)
+      geo.dispose()
+      outerMat.dispose()
+      innerMat.dispose()
+      scene.remove(group)
+    },
+  }
+  registerPotentialFx(handle)
+  return handle
+}
+
+/**
+ * 6. 跨枝反应常驻标识徽章：
+ *    采用与 characterFx 一致的 Sprite billboard 手法，绘制两分支图标交叠的 32×32 像素徽章，
+ *    按 comboId 区分三组专属配色，供调用方挂在血条下方跟随显示。
+ */
+export function fxResonanceBadge(scene: THREE.Scene, charId: CharacterId, comboId: string): THREE.Sprite {
+  const cacheKey = `${charId}:${comboId}`
+  let tex = sharedBadgeTexCache.get(cacheKey)
+  if (!tex) {
+    const pixels = buildResonanceBadgePixels(charId, comboId)
+    tex = new THREE.DataTexture(pixels, 32, 32, THREE.RGBAFormat)
+    tex.magFilter = THREE.NearestFilter
+    tex.minFilter = THREE.NearestFilter
+    tex.flipY = true
+    tex.needsUpdate = true
+    sharedBadgeTexCache.set(cacheKey, tex)
+  }
+  const mat = new THREE.SpriteMaterial({
+    map: tex,
+    transparent: true,
+    depthWrite: false,
+  })
+  const sprite = new THREE.Sprite(mat)
+  sprite.scale.set(0.56, 0.56, 1)
+  sprite.position.set(0, 1.35, 0)
+  sprite.userData = { charId, comboId }
+  scene.add(sprite)
+  return sprite
+}
