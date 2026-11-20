@@ -2085,8 +2085,11 @@ export class Game {
     // 精英最高、特殊怪（术士/爆破手/封路者/长矛）比普通怪多
     const special = kind === 'caster' || kind === 'bomber' || kind === 'blocker' || kind === 'spear'
     const rewardKind = kind === 'elite' ? 'elite' : kind === 'brute' || special ? 'brute' : 'small'
-    const gold = killGold(this.run.layer, rewardKind)
-    this.pickups.spawn('gold', g.x, g.z, gold)
+    // 收益口径：每只怪都有概率掉金（用敌人 goldChance），金额整体 ×0.7；精英必掉且额外两份
+    const gold = Math.max(1, Math.round(killGold(this.run.layer, rewardKind) * 0.7))
+    if (kind === 'elite' || this.rng.chance(g.goldChance)) {
+      this.pickups.spawn('gold', g.x, g.z, gold)
+    }
     if (kind === 'elite') {
       this.pickups.spawn('gold', g.x + 1, g.z, gold)
       this.pickups.spawn('gold', g.x - 1, g.z, gold)
