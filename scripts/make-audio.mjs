@@ -1045,6 +1045,66 @@ const SFX_SPECS = {
       noiseVoice(b, false, 0, 0.012, { vol: 0.16, hp: 1800, lp: 6500, decay: 0.0035 })
     },
   },
+  sfx_enemy_charger_windup: {
+    peakDb: -5,
+    durationS: 0.6,
+    render: (b) => {
+      // 冲锋前摇：低频上扬 + 气流蓄力声（~600ms）
+      tone(b, false, 0, 0.56, 72, { type: 'saw', vol: 0.26, a: 0.04, d: 0.12, s: 0.78, r: 0.08, slideTo: 215 })
+      tone(b, false, 0, 0.56, 54, { type: 'sine', vol: 0.34, a: 0.03, d: 0.12, s: 0.8, r: 0.08, slideTo: 132 })
+      noiseVoice(b, false, 0.02, 0.54, { vol: 0.28, a: 0.14, hp: 260, lp: 1400, sweepHp: 1100, sweepLp: 5600, decay: 0.36 })
+    },
+  },
+  sfx_enemy_summoner_cast: {
+    peakDb: -6,
+    durationS: 0.4,
+    render: (b) => {
+      // 召唤施法：低沉共鸣 + 短促铃音（~400ms）
+      tone(b, false, 0, 0.36, 110, { type: 'tri', vol: 0.34, a: 0.02, d: 0.1, s: 0.65, r: 0.1, vibrato: 0.015, vibratoRate: 7 })
+      tone(b, false, 0, 0.34, 165, { type: 'sine', vol: 0.22, a: 0.02, d: 0.08, s: 0.6, r: 0.1 })
+      tone(b, false, 0.04, 0.2, 1318.5, { type: 'sine', vol: 0.24, a: 0.002, pdecay: 0.06 })
+      tone(b, false, 0.11, 0.22, 1760, { type: 'sine', vol: 0.22, a: 0.002, pdecay: 0.07 })
+      tone(b, false, 0.11, 0.14, 2637, { type: 'tri', vol: 0.08, a: 0.001, pdecay: 0.04 })
+    },
+  },
+  sfx_enemy_bomber_fuse: {
+    peakDb: -7,
+    durationS: 0.5,
+    render: (b) => {
+      // 自爆引线：持续嘶嘶声 + 火星噼啪 + 轻微上扬紧迫感（~500ms）
+      noiseVoice(b, false, 0, 0.48, { vol: 0.34, a: 0.008, hp: 3200, lp: 9600, sweepHp: 4600, sweepLp: 10500, decay: 0.38 })
+      for (const t0 of [0.05, 0.13, 0.22, 0.3, 0.38, 0.43]) {
+        noiseVoice(b, false, t0, 0.022, { vol: 0.2, a: 0.0005, hp: 4200, lp: 10500, decay: 0.006 })
+      }
+      tone(b, false, 0, 0.46, 420, { type: 'sine', vol: 0.075, a: 0.02, d: 0.1, s: 0.75, r: 0.08, slideTo: 780 })
+    },
+  },
+  sfx_potential_pick: {
+    peakDb: -5,
+    durationS: 0.3,
+    render: (b) => {
+      // 潜能三选一确认：清脆上扬三音（~300ms）
+      const notes = [523.25, 659.25, 1046.5]
+      notes.forEach((f, i) => {
+        const t0 = i * 0.072
+        tone(b, false, t0, 0.14, f, { type: 'square', duty: 0.25, vol: 0.18, a: 0.002, pdecay: 0.055 })
+        tone(b, false, t0, 0.16, f, { type: 'sine', vol: 0.26, a: 0.002, pdecay: 0.075 })
+      })
+      tone(b, false, 0.144, 0.14, 1568, { type: 'tri', vol: 0.1, a: 0.002, pdecay: 0.06 })
+    },
+  },
+  sfx_mark_settle: {
+    peakDb: -4,
+    durationS: 0.25,
+    render: (b) => {
+      // 剑意结算：金属锐响 + 斩击瞬态 + 短尾音（~250ms）
+      noiseVoice(b, false, 0, 0.045, { vol: 0.34, a: 0.0005, hp: 2600, lp: 10500, decay: 0.014 })
+      tone(b, false, 0, 0.22, 2349.3, { type: 'square', duty: 0.25, vol: 0.2, a: 0.0005, pdecay: 0.068, slideTo: 2093 })
+      tone(b, false, 0, 0.22, 3136, { type: 'sine', vol: 0.24, a: 0.0005, pdecay: 0.082 })
+      tone(b, false, 0.006, 0.18, 4435, { type: 'tri', vol: 0.12, a: 0.0005, pdecay: 0.055 })
+      delay(b, 0.055, 0.22, 0.2, false)
+    },
+  },
 }
 
 /** 文档 08 里的时长要求（秒），make 时自检、check 时也会再验一遍 */
@@ -1068,6 +1128,11 @@ const SFX_DURATION_RANGE = {
   sfx_tunnel: [0.4, 0.7],
   sfx_caster_shot: [0.1, 0.15],
   sfx_beat_tick: [0.04, 0.08],
+  sfx_enemy_charger_windup: [0.45, 0.75],
+  sfx_enemy_summoner_cast: [0.3, 0.5],
+  sfx_enemy_bomber_fuse: [0.38, 0.62],
+  sfx_potential_pick: [0.22, 0.38],
+  sfx_mark_settle: [0.18, 0.32],
 }
 
 function renderSfx(name, spec) {
