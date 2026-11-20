@@ -86,7 +86,7 @@ class MoleTapMiniGame implements MiniGame {
     this.holes[this.currentHole] = 0
     this.whackFlash = { hole, age: 0 }
     this.currentHole = -1
-    this.shell.setStatus(`${this.hits} / ${TOTAL_MOLES}`, this.pal.good)
+    this.shell?.setStatus(`${this.hits} / ${TOTAL_MOLES}`, this.pal.good)
   }
 
   private tick(dt: number): void {
