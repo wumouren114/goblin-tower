@@ -1,35 +1,32 @@
 # HANDOFF · 残响高塔（交接给下一个执行者）
 
-> 最后更新：2026-11（v5 重构进行中）
-> 读完这份就能接手。**先看 §2 的"已锁定决策"，不要推翻它们**——那些是产品侧拍过板的。
+> 最后更新：2026-11（v5 合并后实况 · 基于 `master`）
+> 读完这份就能接手。**先看 §2 的「已锁定决策」，不要推翻它们**——那些是产品侧拍过板的。
 
 ---
 
 ## 1. 项目与运行
 
-Vite + TypeScript(strict) + three.js，3D 低多边形场景 + 程序化像素 billboard 角色。
+Vite + TypeScript(strict) + three.js，3D 低多边形场景 + 程序化像素 billboard 角色。**要求 Node >= 22.18**（冒烟脚本依赖 Node 原生 TS type-stripping）。
 
 ```bash
 cd <repo>
 npm install
 npx tsc --noEmit          # 类型门槛
-npm run smoke             # 冒烟门槛：542 + 77 + 46 + 16 + 16 + 12 项全绿
+npm run smoke             # 冒烟门槛：10 套全绿（542+77+46+26+16+16+12+9+8+8）
 npm run build             # 产物 dist/
+node scripts/check-audio.mjs   # 音频清单与电平/循环校验（29/29）
 
-# 沙箱里 vite dev 会 spawn EPERM，用静态服务 + 无头浏览器看效果：
+# 静态服务 + 无头浏览器截图验收：
 npm run build
-node scripts/serve-dist.mjs 5199     # 提示 serving ... 后
-# 无头截图（Windows Edge + SwiftShader）：
-"/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" \
-  --headless=new --disable-gpu --enable-unsafe-swiftshader --use-angle=swiftshader \
-  --window-size=1280,720 --virtual-time-budget=8000 \
-  --screenshot="$PWD/shots/check.png" \
-  "http://127.0.0.1:5199/?autostart=hard&char=murasame&floor=8&warmup=2&autoattack=1"
+node scripts/serve-dist.mjs 5199
+# 离线像素资产自检（无需开游戏）：
+node scripts/preview-archetypes.mjs   # → shots/archetypes.png
+node scripts/preview-minions.mjs      # → shots/minions.png
+node scripts/preview-npc.mjs          # → shots/npc.png
 ```
 
-调试 URL 参数：`autostart=easy|normal|hard`、`char=mutsumi|murasame|fish`、`floor=N`、`warmup=秒`、`autoattack=1`、`seed=N`、`event=1`（随机事件面板）、`eventpick=1`（自动选第一项）。
-
-**Git**：远端 `origin/master`（GitHub）。用户要求**改动验收通过后自行 commit + push**，不必每次询问。仓库已设本地身份 `wumouren114 <3887597480@qq.com>`。push 前有 pre-push 钩子（跑美术检查），约 3 分钟，output 会被 libpng warning 刷屏，属正常。
+**Git**：远端 `origin/master`（GitHub）。本地身份 `wumouren114 <3887597480@qq.com>`。开发一律拉 `feat/*` 或 `audit/*` 分支并 push，不直接推 `master`。
 
 ---
 
@@ -37,189 +34,114 @@ node scripts/serve-dist.mjs 5199     # 提示 serving ... 后
 
 ### 2.1 系统分工
 - **道具卡 = 纯数值层**，机制一律不进卡。
-- **潜能（原"专武分支"）= 机制层**，承担"新增招式 / 触发 / 联动"。
+- **潜能（原「专武分支」）= 机制层**，承担「新增招式 / 触发 / 联动」。
 
-### 2.2 道具卡
-- 一张卡 = 一个名字 + **3 档（蓝/紫/金）**，**同名唯一**，再拿到同名 = 原地升一档。
-- 池子只出"比当前持有高一档"的那一档；**满金后退池**。
-- 允许跳级（一次 +2 档），但**跳级概率要压低**（用户明确：池子不够靠降跳级，不靠扩名字）。
-- 10 张卡 10 个属性键，**1:1**，不扩同键第二张（"带代价的卡"由祭坛承担）。
-- 背包**不限格数**；**取消二合一合成**。
-
-### 2.2b 战斗关的产出（2026-11 拍板）
-
-- **取消「清层三选一增益卡」**（`openBonusCards` 已删）。清完一层直接进隧道。
-- 战斗关的产出全部走隧道类型：**道具关 / 潜能关 / 金币关**。旧的三选一界面不再出现。
-- 旧觉醒（3/6/9 层的二选一）**暂时保留**，等潜能关接通后由潜能取代。
+### 2.2 道具卡、背包与商人
+- 一张卡 = 一个名字 + **3 档（蓝/紫/金）**，**同名唯一**，再拿到同名 = 原地升一档；满金退池。
+- 池子只出「比当前持有高一档」的那一档；允许跳级但概率压低（<= 12%）。
+- 10 张卡 10 个属性键，1:1；背包**不限格数**；**已删除二合一合成**。
+- 商人「交换」：同档不同名三选一，价格 `0 / 15 / 25 / 40 / 65`（同房递增，离房重置），无合法目标置灰不扣钱。
 
 ### 2.3 潜能
-- 每角色 **3 条分支**，选定即锁定，别的分支节点领不到。
-- 每条分支 = **根被动 + 1 条代价 + 3 个可点节点**；节点**只有一级**，固定数值，不升级。
-- 代价必须"咬自己"（流殇砍普攻、瞬闪砍普攻、剑意砍技能），**标记结算/流血是独立伤害源，不吃这些衰减**。
-- 跨大层才拿第二/第三条潜能（简单 2 / 普通 2 / 困难 3）。
-- 分支之间靠 `resonances` 产生反应。
+- 3 角色 × 3 分支 × 3 节点 = **27 个节点**（全部已接入战斗），选定分支即锁定；节点固定一级，不升级。
+- 分支代价必须「咬自己」（流殇/瞬闪砍普攻、剑意砍技能等），独立伤害源（流血/标记结算）不吃衰减。
+- 跨大层获得新潜能，分支间通过 `resonances` 产生反应。
 
-### 2.4 关卡结构
-- 简单 **5+5**，普通 **6+6**，困难 **5+5+5**（每大层 5–6 小层）。
-- **每大层最后一关 = Boss**；通关且存在下一大层 → **直接获得一个新潜能**（不走隧道）。
-- 其余小层结束 → **3 条时空隧道三选一**。
-- 第一关固定为潜能关（选第一条分支）。
-- 专武/潜能关**保持稀缺**（约 4–5 次/局）。
+### 2.4 关卡与九门结构
+- 难度层数：简单 `7`（或 `5+5` 调整中）、普通 `5+7`（12 层）、困难 `5+5+5`（15 层）。
+- 每大层最后一关 = Boss；其余小层清完进 **3 条时空隧道三选一**（已取消清层三选一增益卡）。
+- 九门全通：战斗类（怪潮 / 精英 / Boss）、奖励探索类（宝箱 / 技能卡 / 探索事件 / 小游戏）、交易类（商人 / 四档祭坛 / 考验）、休憩类（营地）。
 
-### 2.5 交互
-- **所有场景交互统一 `Enter`**（商人 / 祭坛 / 可交互物 / 事件 NPC）。
-- `E` 留给战斗键（丛雨=处决、睦=推开、大肥鱼=回收召唤物）；`F` 是每角色专属的第二键。
+### 2.5 交互与操作
+- **所有场景交互统一 `Enter`**（商人 / 祭坛 / 考验 / 事件 / 小游戏 / 传送门）。
+- `E` / `F` 留给角色专属战斗键；**已删除 Shift 冲刺**，暴击倍率固定 `×2.0`，受击无敌 `0.3s`。
 
-### 2.6 节奏（**设计定稿，但尚未写入 balance.json**）
-- 方向：**怪多、单只脆、密度高、无喘息**（简单难度可保留分波）。
-- 目标参数（草案，见 §5 P0-b）：quota 70+10×层、刷新 0.5s 递减到 0.22、批次 3（6 层后 4）、同屏 30+5×层（上限 90）、小怪 HP ×0.55、伤害 ×0.6、移速 ×1.05→1.6。
-- 金币控制：击杀 0.4/只、清层 90+15×层、困难 goldMul 0.85、商店涨价 ×1.10/层。
-- 已落地：受击无敌 0.65→0.3、删除 Shift 冲刺、暴击倍率固定 ×2.0。
+### 2.6 事件、考验与世界观
+- 世界观：失忆勇者带少女同伴攀塔；三大层是塔吞下的「世界回声」（云上花庭 / 星砂观星台 / 黄铜钟塔）；塔在称量并收集「想往上爬的人」；塔顶「恶龙」是最终 Boss 的比喻，打倒它取回记忆。
+- 事件不写死隐藏真身（运行时随机抽）、不写概率数字、轻惩罚、允许「不了了之」。
+- 小游戏与考验拒绝均**无惩罚**；祭坛四档献祭代价不可逆。
 
-### 2.7 事件
-- 不写死身份：同一事件在不同局里是不同的人（隐藏 `role`，运行时抽）。
-- **不写概率数字**，文档只写"常见/少见"。
-- 惩罚轻：金币得失 ≤ 一层收益、减益 ≤ 3 层、不扣生命上限、不删卡。
-- **允许"不了了之"**：伏笔（arc）只在后续事件真的出现时才可能兑现。
-- 三种骨架：抉择型 / 信息型（无惩罚）/ 馈赠型（无惩罚）。
-
-### 2.9 敌人（2026-11 拍板）
-
-- **五类威胁原型**：远程压制 / 封路 / 冲锋线 / 召唤 / 自爆。**不加**治疗型、护盾型。
-- **「封路」的实现**：由**魔法类小怪施放持续伤害区域**来封路，不做可破坏路障、不靠体型堵塞。场地保持平坦。
-- **需要新外观**：五类怪各自要有独立造型，不能只靠哥布林换色。
-- **精英 / Boss**：精英 = 原型强化版（同一套行为 + 额外词条）；Boss = **专属招式，不走原型框架**。
-
-### 2.8 世界观
-失忆勇者带二次元少女攀塔，终点击败"恶龙"（最终 Boss 的比喻），夺回记忆。每一大层 = **被塔吞下的一个世界回声**（云上花庭 / 星砂观星台 / 黄铜钟塔）。
+### 2.7 敌人原型
+- 五类威胁原型：远程压制 / 封路（魔法怪铺持续伤害区域，场地保持平坦）/ 冲锋线（前摇 >= 800ms，无冲刺可走位躲）/ 召唤 / 自爆。不加治疗型与护盾型。
 
 ---
 
-## 3. 代码地图
+## 3. 模块状态表（当前 `master` 实况）
 
-| 文件 | 职责 | 状态 |
+| 模块 | 关键文件 | 当前状态 | 冒烟 / 校验 |
+| --- | --- | --- | --- |
+| 潜能系统（27/27） | `src/data/potentials.ts`、`src/systems/combat.ts`、`src/core/beatClock.ts` | ✅ 9 分支 27 节点全接入（含节奏 A 方案、60 连击爆裂、剑意标记结算、眩晕） | `potential-smoke` (16) + `beat-smoke` (16) |
+| 状态效果系统 | `src/systems/statusEffects.ts` | ✅ 纯逻辑 `StatusField`（`stun` / `mark` 抗性与叠层结算）已接入 | `status-smoke` (8) |
+| 道具卡 / 背包 / 商店 | `src/data/cards.ts`、`src/systems/{inventory,shop,economy}.ts` | ✅ 三档卡、无限背包、同名升档、商人交换全通 | `card-smoke` (9) + `economy-smoke` (46) |
+| 九门与隧道 | `src/systems/tunnels.ts`、`src/game.ts` | ✅ 宝箱 / 技能卡 / 商人 / 祭坛 / 考验 / 小游戏 / 事件 / 战斗 / 休憩全通 | `economy-smoke` (46) |
+| 探索事件（8 篇） | `src/data/events.ts`、`src/systems/eventState.ts`、`src/ui/eventPanel.ts` | ✅ 完整小故事（场景/NPC/hint/余韵/世界观）已接面板；关卡文档见 `docs/14` | `event-smoke` (12) |
+| 小游戏（3 阶段） | `src/minigames/{index,shared,windmill,starlines,gears}.ts` | ✅ 风车校准 / 星轨连线 / 齿轮啮合已接入游戏门，支持 `?minigame=` 直进 | `tsc` + `vite build` |
+| 考验门（6 条） | `src/data/trials.ts`、`src/game.ts` | ✅ 立约/拒绝、期间负面与层推进已接入；文档见 `docs/15` | `tsc` + `vite build` |
+| 祭坛（四档） | `src/data/altar.ts`、`src/game.ts` | ✅ 献卡 / 献血 / 双重 / 神秘祭坛文案与交互已接入 | `tsc` + `vite build` |
+| 场景细节与地标 | `src/world/{themes,textures,floor}.ts`、`src/data/stages.ts` | ✅ 9 套二次元亮色主题、6 层细节、柔化光斑、风车/黄道仪/齿轮地标 | `world-smoke` (542) |
+| 敌人原型与封路区 | `src/data/enemyArchetypes.ts`、`src/systems/{enemyBehavior,hazardZone}.ts`、`src/art/characters.ts` | ✅ 骨架 + 精修 5 类像素外观 + 封路持续伤害区已接线 | `enemy-smoke` (8) + `art-smoke` (26) |
+| 召唤物与房间 NPC 外观 | `src/art/minions.ts`、`src/entities/roomNpc.ts` | ✅ 3 种召唤物放大/剪影/贴地光环 + 3 种新房间 NPC（trial/altar/minigame）独立立绘 | `preview-minions` / `preview-npc` |
+| 音频产物 | `scripts/make-audio.mjs`、`assets/audio/*` | ✅ 5 BGM（战斗曲含 134BPM 节拍层）+ 24 SFX（含拍点音/新怪/潜能/剑意结算） | `check-audio.mjs` (29/29) |
+
+---
+
+## 4. 并行协作：文件所有权
+
+多人 / 多分支并行开发时按目录切分，避免同文件冲突：
+
+| 归属线 | 负责目录 / 文件 | 禁止触碰 |
 | --- | --- | --- |
-| `src/data/potentials.ts` | 潜能数据：3 角色 × 3 分支 × 3 节点 + 9 组反应 + 通用项 | ✅ 数据完成，**未接入战斗** |
-| `src/data/cards.ts` | 道具卡：10 张 × 3 档，同名唯一/满档退池的取值函数 | ✅ 数据完成，**未接入商店/背包** |
-| `src/data/events.ts` | 8 个探索事件（6 个带随机真身）+ 伏笔 id 登记 | ✅ 数据完成 |
-| `src/systems/eventState.ts` | 线索/标记/伏笔/记忆碎片；快照可存档 | ✅ 完成 |
-| `src/ui/eventPanel.ts` | 事件面板（自包含 DOM + 内联样式） | ✅ 可玩 |
-| `src/core/beatClock.ts` | 节奏普攻时钟（134BPM，±35/±60ms） | ✅ 单测完成，**未接入普攻** |
-| `src/world/themes.ts` | 9 套主题（3 场景区 × 3 变体），明亮二次元色板 | ✅ 完成并可调 |
-| `src/world/floor.ts` | 场景构建；`buildLandmark()` 三种地标；墙体材质已跟主题 | ✅ 样板完成 |
-| `src/data/stages.ts` | 阶段/场景/地标/副标题 | ✅ |
-| `src/systems/tunnels.ts` | 隧道生成；`reward` 池 = 宝箱 / 技能卡 / 事件(5%) | ✅ |
-| `src/game.ts` | 主循环（2800+ 行上帝对象） | 见 §5 |
-| `src/data/gameConfig.ts` | 玩家/敌人数值常量 | 已改 iFrames |
+| **主线 / 接线侧（本机 `master`）** | `src/game.ts`、`src/systems/*`、`src/ui/*`、`src/types.ts`、`src/data/balance.json`（节奏/经济参数） | — |
+| **内容 / 美术 / 纯数据侧（云端 `feat/*`）** | `src/art/*`、`src/entities/roomNpc.ts`、`src/minigames/*`、`src/data/{events,trials,altar,enemyArchetypes}.ts`、`scripts/{make-audio,check-audio,preview-*}.mjs`、`assets/audio/*`、`docs/*` | `src/game.ts`、`src/systems/*`、`src/ui/*`、`src/types.ts`（除非任务单明确授权） |
 
-冒烟：`sim/*-smoke.mjs`（world / combat / economy / art / beat / potential / event）。
+> 冲突裁决原则：一切以 §2「已锁定决策」为准，且每次合并前必须全绿通过 `npx tsc --noEmit && npm run smoke && npm run build`。
 
 ---
 
-## 4. 已完成（可直接复用）
+## 5. 已知问题与待办
 
-1. 明亮化配色 + 三种中央地标（风车/黄道仪/齿轮），**每层中央不再是无意义的塔心祭坛**。
-2. 交互统一 Enter（代码 + 9 处 NPC 文案 + HUD + 注释）。
-3. 删除未被引用的旧 `THEMES` 表（89 行死代码）。
-4. 事件数据 + 状态层 + 面板 + 事件房接入隧道（5% 概率刷出）。
-5. 战斗基线：删冲刺、iFrames 0.3、暴击 ×2.0。
-6. 潜能与卡表数据 + 两套冒烟断言。
-
----
-
-## 5. 下一步（按优先级）
-
-### P0-a 道具三档接进商店 / 背包 / 商人 ⭐ 建议先做
-- 用 `src/data/cards.ts` 替换 `balance.json` 的 `buffCards`（保留旧表直到切换完成）。
-- 背包：同名唯一、原地升档、**删除 `canMergeItems/autoMerge/merge`**、取消 18 格上限。
-- 商店：只出货"比持有高一档"的卡；出档概率按层升高、跳级概率低。
-- 商人「交换」：同档不同名三选一；价格 0 / 15 / 25 / 40 / 65（×1.6），**同一房间内累计，离开房间重置**；池内无合法目标时置灰不扣钱。
-- 验收：一局能拿 1–2 张金卡 + 数张散卡；`npm run smoke` 全绿；旧合成入口完全不可达。
-
-### P0-b 把节奏参数写进 balance.json
-按 §2.6 的数值改 `layerCurve` / `difficulties` / `shop`，跑 `node sim/simulate.mjs` 看通关率。目标：普通 35–55%，困难 25–40%。**这只是调参，不改结构。**
-
-### P1 敌人机制（威胁分工）
-现状：4 种哥布林共用"追击 + 一招"。需要 5 类原型：远程压制 / 封路 / 冲锋线 / 召唤 / 自爆，每类 1–2 实例，**且必须在无冲刺的前提下可用走位化解**。
-
-### P2 潜能接进战斗
-替换 `getWeaponTier` 的 7 级线性与 `awakenings.ts` 的 18 觉醒读取点。接完后才能删除 `weapons` / `awakenings`。
-
-### P3 事件效果补齐
-`src/game.ts` 的 `applyEventEffects()` 里标「待接线」的分支：给卡 / buff / debuff / 遭遇战 / 负向治疗。
-
-### P4 招式特效
-按 `docs/10-招式特效提示词.md` 做，先丛雨 3 个主招式验证风格。
-
-### P5 场景细节层与功能道具
-6 层细节（地砖拼法 / 墙裙 / 边缘堆积 / 地面光斑 / 空气粒子 / 地标逆光）；道具改成"可破坏 / 限制移动"两类，**删除塔藏箱**，其金币产出并回击杀。
-
-### P6 节奏普攻接入
-`docs/` 里的节奏分支（睦·节奏）需要 `beatClock` 接进 `tryAttack`：拍点门控 + 伤害倍率 + 节拍环 HUD + 耐力转连击伤害。
+1. **誓约（Trial）转正 `boon` 未全部落地**：目前 `src/game.ts` 已接通考验立约、期间负面与层推进倒计时，但部分 `boon`（如到期返还当前金币 40%、单挑切磋专武 +1 / 落败扣血上限、每秒回血 0.5% 等）需逐项补完实际生效逻辑。
+2. **召唤物新外观与交互未实机压测**：`createMinionMeshVariant` 的尺寸、金色呼吸环与大肥鱼 10 只群聚时的画面表现、以及 `E 回收 / F 水枪` 在高密度怪潮下的手感仍需实机验证。
+3. **旧系统残留待清理**：`src/data/awakenings.ts`、`balance.json.weapons`、塔藏箱、HUD「专武 Lv」等旧路径仍与新系统并存，清理前置条件与安全删除顺序见 `docs/13-旧系统残留审计.md`。
+4. **经济与数值平衡待调优**：金币关与后期金币偏高、重掷偏便宜、部分潜能分支强弱分化较大、第 9 层后封路区叠加伤害无上限，具体建议见 `docs/16-数值评估.md`。
+5. **打包体积提示**：`vite build` 主包略超 1200KB（受内联音频与像素资源引用影响），后续可按需做 `manualChunks` 拆分。
 
 ---
 
-## 6. 陷阱（踩过的坑）
+## 6. 调试参数全表（`src/main.ts`）
 
-1. **旧系统还在跑，不能直接删**：`awakenings.ts`（combat 在读）、`balance.json.weapons`（`getWeaponTier`）、`buffCards + maxStacks`、塔藏箱、HUD「专武 7」。**顺序必须是"先接新系统，再拔旧代码"**。
-2. **`floor.ts` 里的段落注释 `/* ---- 火把 ---- */` 在 `build()` 内部也有一份**。用文本替换插入方法时极易插进函数体，导致语法错误。改这个文件请用带上下文的精确锚点。
-3. **改 `TunnelRoom` 会连带 4 处 `Record<TunnelRoom, …>`**：`roomIcons.ts` 的 `DRAWERS`、`floor.ts` 的 `ROOM_ACCENT`、`roomNpc.ts` 的 `NPC_INFO`、`hud.ts` 的 `ROOM_LABEL`。TS 会逐个报错，按提示补即可。
-4. **场景墙体材质曾写死纯白**（`floor.ts:507`），不跟主题色，已修。若再改光照，先确认 wall/floor 都取 `theme.*`。
-5. **经济冒烟有分布断言**（奖励类房间子概率 ±6%）。改隧道池权重后要复跑，否则会红。
-6. **删冲刺会让难度明显上升**（少了 0.21s 无敌 + 3m 位移）。若玩家反馈太难，优先调 `iFrames` / 敌人单伤 / 同屏上限，不要急着加回冲刺。
-7. **无头截图必须先 build**，且服务器进程要在同一条命令里拉起，否则会被回收。
+所有参数通过 URL Query 传入（例如 `http://127.0.0.1:5199/?autostart=normal&char=mutsumi&floor=6&potential=mutsumi-rhythm`）：
+
+| 参数 | 取值示例 | 作用 |
+| --- | --- | --- |
+| `autostart` | `easy` / `normal` / `hard` | 跳过标题页直接以指定难度开局 |
+| `char` | `mutsumi` / `murasame` / `fish` | 指定开局角色（默认 `mutsumi`） |
+| `style` | 旧 `StyleId`（如 `murasame-iai`） | 指定旧战斗风格（兼容调试） |
+| `floor` | 正整数（如 `6`） | 直接跳到指定层数 |
+| `warmup` | 秒数（如 `2`） | 自动预热推进指定秒数（配合无头截图） |
+| `seed` | 整数（如 `42`） | 固定本局随机种子，复现房间/掉落 |
+| `px` / `pz` | 浮点数 | 指定玩家出生世界坐标 |
+| `autoattack` | `1` | 开启自动普攻 |
+| `pickbonus` | `1` | 自动选择第一个奖励项 |
+| `potential` | 分支 id（如 `mutsumi-rhythm`） | 开局直接装配指定潜能分支 |
+| `pnodes` | 逗号分隔节点 id | 配合 `potential` 装配指定潜能节点 |
+| `blocker` | `1` | 在玩家前方刷出一只封路者 |
+| `hazard` | `1` | 在玩家脚下直接生成一块封路持续伤害区 |
+| `fishskill` | `1` | 立即触发大肥鱼召唤技能 |
+| `minigame` | `windmill` / `starlines` / `gears` | 直接弹出对应像素小游戏面板 |
+| `shop` | `1` | 直接打开商店面板 |
+| `exchange` | `1` | 直接打开商人「交换」面板 |
+| `event` | `1` | 立即弹出随机探索事件面板 |
+| `eventpick` | `1` | 自动选中事件第一个选项 |
+| `saveloop` | `1` | 触发存档往返自检 |
+| `debug` | `1` | 显示调试信息覆盖层 |
+| `screen` | `title` / `select` / `gameover` 等 | 直接切换到指定 UI 界面 |
 
 ---
 
-## 7. 待用户拍板/未解决
+## 7. 踩坑备忘
 
-- 风车塔身与地面**对比度偏低**（观感问题）。
-- 三场景的"6 层细节"未做，目前只有"亮"，还没有"花庭感"。
-- 事件房目前挂在 `reward` 池 5%，用户口径：探索类只是种类名（奖励/事件/游戏三种），**不拆 TunnelType**；「游戏」房间尚未有骨架。
-- 记忆碎片**暂时只记录，无作用**（用户：先打通流程，后面补）。
-- 流浪商人：固定商店房间，对话分「交易 / 交换」两路；实现在 P0-a 里一起做。
-
----
-
-## 8. 并行协作：文件所有权（必读）
-
-同一时间可能有两条线在改：云端 agent 做 P0-a（道具），本机做 P0-b（节奏调参）。
-**按文件切分，不要越界**；同文件冲突时以本文件 §2 的已锁定决策为准，由 `master` 一侧裁决。
-
-### A 线（云端 · 分支 `feat/cards-v5`）—— 只碰这些
-```
-src/data/cards.ts          ✅ 完全拥有
-src/systems/inventory.ts    ✅ 完全拥有（删合成逻辑）
-src/systems/shop.ts         ✅ 完全拥有
-src/systems/economy.ts      ✅ 完全拥有（makeCardItem / emptyCards）
-src/data/balance.json       ⚠️ 只允许改 "buffCards" 这一段
-src/ui/hud.ts               ⚠️ 只允许改背包/商店相关区块（见下）
-```
-**不要碰**：`src/game.ts`、`src/world/*`、`src/data/stages.ts`、`src/data/potentials.ts`、`src/data/events.ts`、`src/systems/tunnels.ts` 的权重逻辑。
-**不要 push master**，只提交到 `feat/cards-v5`，交付 patch 或 PR。
-
-### B 线（本机 · `master`）—— 只碰这些
-```
-src/data/balance.json       ⚠️ 只改 layerCurve / difficulties / warmup / shop（价格与品质曲线）
-src/data/gameConfig.ts      ✅ 完全拥有
-src/game.ts                 ✅ 完全拥有（战斗 / 房间 / 事件接线）
-src/world/*                 ✅ 完全拥有
-src/systems/tunnels.ts      ✅ 完全拥有（房间池与权重）
-src/data/stages.ts          ✅ 完全拥有
-```
-
-### 共享文件的拆分规则
-| 文件 | 规则 |
-| --- | --- |
-| `src/data/balance.json` | JSON 按 key 切：A 线只改 `buffCards`；B 线只改 `layerCurve / difficulties / warmup / shop`。**两边都在同一个 commit 里改就会冲突，改前先 `git pull --rebase`** |
-| `src/ui/hud.ts` | 按区块切：A 线只改背包面板 + 商店面板；B 线只改 HUD 主条 / 隧道面板 / 事件相关 |
-| `src/game.ts` | **A 线不动**。如果需要新增接线点，A 线在 PR 描述里写清"需要 B 线在 X 处调用 Y" |
-| `sim/*-smoke.mjs` | 各自新增自己的（A：`card-smoke.mjs`；B：已有 beat/potential/event） |
-
-### 合并顺序
-1. 先合 **B 线**（纯 JSON 调参，冲突面最小）
-2. 再合 **A 线**（分支 rebase 到 master 后解决 `balance.json` 单点冲突）
-3. 合并后**必须**跑一次全量：`npx tsc --noEmit && npm run smoke && npm run build`
-
-### 判定冲突对错的依据
-按 §2 的执行顺序判断：**道具 = 纯数值、不承载机制**。任何把"触发/条件/联动"塞进卡里的实现，一律按错处理。
+1. **旧系统不可硬删**：`combat.ts` 与 `economy-smoke.mjs` 仍引用旧 `awakenings` / `weapons` 字段，必须严格按 `docs/13-旧系统残留审计.md` 先切引用再删代码。
+2. **`RoomNpcKind` 与 `TunnelRoom` 联动**：改 `TunnelRoom` 会影响 `roomIcons.ts` / `floor.ts` / `roomNpc.ts` / `hud.ts` 四处映射；新增房间 NPC 视觉时保持 `RoomNpcKind` 枚举不变，在 `roomNpc.ts` 内按 `room` 扩展视觉分支即可。
+3. **新增音效必须同步 `check-audio.mjs`**：在 `scripts/make-audio.mjs` 新增 `sfx_*.wav` 后，必须在 `scripts/check-audio.mjs` 的 `DOC_SFX_RANGES` 补充对应时长区间，否则音频校验会红。
+4. **经济冒烟分布断言**：`sim/economy-smoke.mjs` 校验隧道大类与子房概率（±5% / ±6%），改 `balance.json.portals` 后必须复跑。
