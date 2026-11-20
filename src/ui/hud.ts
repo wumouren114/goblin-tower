@@ -1274,6 +1274,38 @@ class HudImpl implements HudV3 {
     this.refreshHud()
   }
 
+  private beatEl: HTMLDivElement | null = null
+  private beatFlash = 0
+
+  /** 节奏分支的节拍环：越接近拍点越小越亮 */
+  updateBeat(phase: number, judge: 'perfect' | 'good' | 'miss' | null): void {
+    if (!this.beatEl) {
+      const el = document.createElement('div')
+      el.style.cssText = [
+        'position:fixed',
+        'left:50%',
+        'bottom:96px',
+        'transform:translateX(-50%)',
+        'width:56px',
+        'height:56px',
+        'border:2px solid #9fd8ff',
+        'border-radius:50%',
+        'pointer-events:none',
+        'z-index:60',
+        'opacity:.35',
+      ].join(';')
+      document.body.appendChild(el)
+      this.beatEl = el
+    }
+    const near = Math.max(0, 1 - Math.min(phase, 1 - phase) * 2)
+    const size = 34 + 40 * (1 - near)
+    const color = judge === 'perfect' ? '#ffd479' : judge === 'miss' ? '#ff7a7a' : '#9fd8ff'
+    this.beatEl.style.width = `${size}px`
+    this.beatEl.style.height = `${size}px`
+    this.beatEl.style.borderColor = color
+    this.beatEl.style.opacity = String(0.18 + 0.72 * near * near)
+  }
+
   setMuted(muted: boolean): void {
     this.muted = muted
     this.muteChipEl.hidden = !muted

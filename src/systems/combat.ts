@@ -18,6 +18,7 @@ import { getBillboardYaw } from '../art/sprites'
 import { createProjectileMesh, disposeProjectileArt } from '../art/projectiles'
 import { disposeMinionArt } from '../art/minions'
 import { pickConeTargets, pickLineTargets, gatherTo, pullToward } from './attack'
+import { BeatClock } from '../core/beatClock'
 import {
   awakeningLevel,
   defaultStyle,
@@ -45,6 +46,28 @@ export interface Hittable {
   alive: boolean
   /** 返回：这一下是否把它打死了 */
   hit(amount: number, kx: number, kz: number): boolean
+}
+
+/** 潜能分支：数据层用完整 id（murasame-liushang），战斗内部用短名 */
+export type PotentialBranchId =
+  | 'liushang'
+  | 'shunshan'
+  | 'jianyi'
+  | 'rhythm'
+  | 'symphony'
+  | 'duet'
+
+export function normalizeBranch(id: string | null | undefined): PotentialBranchId | null {
+  if (!id) return null
+  const tail = id.includes('-') ? id.slice(id.indexOf('-') + 1) : id
+  return tail === 'liushang' ||
+    tail === 'shunshan' ||
+    tail === 'jianyi' ||
+    tail === 'rhythm' ||
+    tail === 'symphony' ||
+    tail === 'duet'
+    ? tail
+    : null
 }
 
 /** game.ts 提供给战斗系统的世界操作 */
@@ -178,8 +201,10 @@ export class Combat {
   /* ── v4.6 角色觉醒 ── */
   private style: StyleDef = defaultStyle('mutsumi')
   /** 潜能分支与已点节点（一级，不升级）；目前接了丛雨三条 */
-  private potentialBranch: 'liushang' | 'shunshan' | 'jianyi' | null = null
+  private potentialBranch: PotentialBranchId | null = null
   private potentialNodes: ReadonlySet<string> = new Set()
+  /** 节奏普攻的节拍时钟（134 BPM 八分音符网格） */
+  private readonly beat = new BeatClock()
   private awakenings: Partial<Record<AwakeningId, number>> = {}
   private resourceValue = 0
   private activeWorld: CombatWorld | null = null
@@ -239,10 +264,24 @@ export class Combat {
   /** v4.6：开局/读档/重试时设置风格与觉醒，并清空短循环资源 */
   /** 设置潜能：分支 + 已点节点。换分支会清掉旧流血，避免残留 */
   setPotential(branch: string | null | undefined, nodes: readonly string[]): void {
-    this.potentialBranch =
-      branch === 'liushang' || branch === 'shunshan' || branch === 'jianyi' ? branch : null
+    this.potentialBranch = normalizeBranch(branch)
     this.potentialNodes = new Set(nodes)
     this.bleeds.clear()
+  }
+
+  /** 重新对齐节拍网格（进层 / 换曲时调） */
+  resetBeat(nowMs: number = performance.now()): void {
+    this.beat.reset(nowMs)
+  }
+
+  /** 当前节拍相位 0..1（HUD 节拍环用；非节奏分支返回 null） */
+  get beatPhase(): number | null {
+    return this.potentialBranch === 'rhythm' ? this.beat.position(performance.now()).phase : null
+  }
+
+  /** 当前节拍判定（HUD 可用；非节奏分支返回 null） */
+  get beatJudge(): 'perfect' | 'good' | 'miss' | null {
+    return this.potentialBranch === 'rhythm' ? this.beat.judge(performance.now()) : null
   }
 
   /** 分支代价：流殇/瞬闪砍普攻，剑意砍技能（标记结算不吃） */
@@ -455,8 +494,15 @@ export class Combat {
     this.cooldownLeft = Math.max(0, this.cooldownLeft - dt)
     if (this.cooldownLeft > 0) return false
     const def = CHARACTERS[this.charId]
-    const interval = attackInterval(this.stats.stamina, def.attack.minInterval) * this.styleAttackIntervalMul()
+    const rhythm = this.potentialBranch === 'rhythm'
+    // 节奏分支：攻速锁到拍点（不再随耐力变化）
+    const interval = rhythm
+      ? this.beat.gridMs / 1000
+      : attackInterval(this.stats.stamina, def.attack.minInterval) * this.styleAttackIntervalMul()
     this.cooldownLeft = Math.max(0.01, interval)
+    const judge = rhythm ? this.beat.judge(performance.now()) : null
+    const rhythmMul = judge === 'perfect' ? 1.25 : judge === 'good' ? 1.1 : judge === 'miss' ? 0.85 : 1
+    if (judge === 'perfect') this.hooks.onSfx('crit')
     const dir = this.dirFromAim(px, pz, aimX, aimZ)
     const tier = getWeaponTier(this.charId, this.lv)
     this.hooks.onSfx('attack')
@@ -468,7 +514,7 @@ export class Combat {
       this.attackFish(px, pz, dir, tier, world)
       return true
     }
-    this.attackMutsumi(px, pz, dir, tier, world)
+    this.attackMutsumi(px, pz, dir, tier, world, rhythmMul)
     return true
   }
 
@@ -478,12 +524,13 @@ export class Combat {
     dir: { x: number; z: number },
     tier: WeaponTier,
     world: CombatWorld,
+    rhythmMul = 1,
   ): void {
     void world
     const def = CHARACTERS.mutsumi
     const magic = this.stats.magic
     const baseRange = skillRange(def.attack.baseRange, this.stats.intelligence)
-    const baseDamage = hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), magic)
+    const baseDamage = hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), magic) * rhythmMul
     const sizeMul = tierNum(tier, 'sizeMul', 1)
     const hitMul = tierNum(tier, 'hitRadiusMul', 1)
 

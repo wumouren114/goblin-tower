@@ -316,6 +316,7 @@ export class Game {
 
   startRun(character: CharacterId, difficulty: DifficultyId, styleId?: StyleId): void {
     this.clearHazards()
+    this.combat?.resetBeat(performance.now())
     this.cleanupFloor()
     // 重新爬塔/调试跳层时旧角色不能只从场景逻辑里移除，否则会留下幽灵立绘
     this.player?.dispose()
@@ -831,6 +832,11 @@ export class Game {
     p.z = clamped.z
 
     // v5：删除 Shift 冲刺（唯一位移由技能负责），玩家防御手段只有走位
+
+    // 节奏分支：把节拍相位推给 HUD（没有节拍环，玩家没法踩拍）
+    const beatPhase = this.combat?.beatPhase ?? null
+    if (beatPhase !== null) this.hud.updateBeat(beatPhase, this.combat?.beatJudge ?? null)
+
     // 持续伤害区域结算（封路原型）
     const hazardTick = this.hazards.update(dt, { x: p.x, z: p.z })
     if (hazardTick.damage > 0) {
