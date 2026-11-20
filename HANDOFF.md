@@ -1,6 +1,6 @@
 # HANDOFF · 残响高塔（交接给下一个执行者）
 
-> 最后更新：2026-11-20（基于 `origin/master` @ `306071d` 实况同步）  
+> 最后更新：2026-11-20（基于 `origin/master` @ `8a42044` 实况同步）  
 > 读完这份就能接手。**先看 §2 的「已锁定决策」，不要推翻它们**——那些是产品侧拍过板的。
 
 ---
@@ -13,7 +13,7 @@ Vite + TypeScript(strict) + three.js，3D 低多边形场景 + 程序化像素 b
 cd <repo>
 npm install
 npx tsc --noEmit               # 类型门槛
-npm run smoke                  # 冒烟门槛：11 套全绿（含 bounce-smoke）
+npm run smoke                  # 冒烟门槛：12 套全绿（含 bounce-smoke、hard-branch-smoke）
 npm run build                  # 产物 dist/
 node scripts/check-audio.mjs   # 音频清单与电平/循环校验（36/36：5 BGM + 31 SFX）
 
@@ -71,12 +71,12 @@ node scripts/preview-boss.mjs         # → shots/boss-phases.png（Boss 三态�
 
 ---
 
-## 3. 模块状态表（当前 `master` @ `306071d` 实况）
+## 3. 模块状态表（当前 `master` @ `8a42044` 实况）
 
 | 模块 | 关键文件 | 当前状态 | 冒烟 / 校验 |
 | --- | --- | --- | --- |
 | 潜能系统（9 分支 27 节点 100%） | `src/data/potentials.ts`、`src/systems/combat.ts`、`src/core/beatClock.ts` | ✅ 9 分支 27 节点 100% 接入战斗；九分支独立图标与主题色已上卡 | `potential-smoke` (16) + `beat-smoke` (16) |
-| 双分支 + 3 组跨枝反应 | `src/data/potentials.ts`、`src/systems/combat.ts`、`src/systems/characterFx.ts` | ✅ 双分支构筑与 3 组 `resonances` 跨枝反应及 6 组潜能独立特效已接入 | `potential-smoke` (16) + `preview-fx` |
+| 多分支 + 3 组跨枝反应 | `src/data/potentials.ts`、`src/systems/combat.ts`、`src/game.ts` | ✅ 普通/简单 2 分支位，困难开放第 3 分支位（`branch3`）且 3 组 `resonances` 可同时成立 | `hard-branch-smoke` (15) + `preview-fx` |
 | Q / F 通用动作 | `src/data/potentials.ts`、`src/systems/combat.ts`、`src/core/audio.ts` | ✅ 三角色 Q/F 技能文案、音效（`sfx_execute`/`sfx_block`/`sfx_push`/`sfx_recall`/`sfx_watergun`）与战斗逻辑已接通 | `combat-smoke` (77) + `check-audio` |
 | 局内键位引导条 | `src/ui/hud.ts`、`src/styles.css`、`src/game.ts` | ✅ 中下部胶囊键位条上线（未解锁灰显/解锁脉冲/冷却填充），已删底部旧静态提示栏 | `tsc` + `vite build` |
 | 九门与时空隧道 | `src/systems/tunnels.ts`、`src/game.ts`、`src/entities/roomNpc.ts` | ✅ 宝箱 / 技能卡 / 商人 / 祭坛 / 考验 / 小游戏 / 事件 / 战斗 / 休憩九门全通，含 3 种新 NPC 独立像素立绘 | `economy-smoke` (46) + `preview-npc` |
@@ -106,12 +106,10 @@ node scripts/preview-boss.mjs         # → shots/boss-phases.png（Boss 三态�
 
 ## 5. 已知问题与待办
 
-1. **小游戏交互未实测**：风车校准 / 星轨连线 / 齿轮啮合虽已接入游戏门与 `?minigame=` 调试入口，但键盘/鼠标交互手感与边界通关判定尚未做真机完整走查。
-2. **键位引导条冷却填充未实机验证**：中下部胶囊条已上线且接入每帧 `hud.setKeyGuide(items)`，但高频率战斗下 Q/F 冷却自下而上填充、就绪脉冲与解锁瞬间动画尚未在真机浏览器中逐帧验证。
-3. **困难难度 3 分支位未做**：当前潜能构筑支持双分支 + 跨枝反应，困难难度（15 层）开放第 3 个潜能分支槽位尚未实现。
-4. **事件 `battle` 效果与誓约部分 `boon` 未落地**：`src/game.ts:1202` 事件 `eff.kind === 'battle'` 目前仅播视觉提示未刷怪；考验门部分转正 `boon` 仍需补齐实际结算逻辑。
-5. **残留注释与旧系统退役**：`balance.json.backpack` 段、`inventory.ts` 孤立 `@deprecated` 注释及 `enemyArchetypes.ts`/`enemyBehavior.ts` 中的 `TODO_*` 常量详见 `docs/18-残留与未完成清单.md`；`awakenings.ts`、`weapons` 7 级、`TowerCache` 迁移顺序见 `docs/13-旧系统残留审计.md`。
-6. **打包体积提示**：`vite build` 主包略超 1200KB（内联音频与像素资源较多），后续可按需配置 `manualChunks` 拆分。
+1. **小游戏交互未实机验证**：风车校准 / 星轨连线 / 齿轮啮合已接入游戏门与 `?minigame=` 调试入口，但键盘/鼠标交互手感与边界通关判定尚未在真机浏览器完整走查。
+2. **键位引导条冷却填充未实机验证**：中下部胶囊条已上线并接入每帧 `hud.setKeyGuide(items)`，但高频率战斗下 Q/F 冷却自下而上填充、就绪脉冲与解锁瞬间动画尚未在真机逐帧验证。
+
+> 其余真实代码缺口（`enemyArchetypes`/`enemyBehavior` 4 类原型实机接线、事件 `battle` 刷怪、旧系统分步退役）统一记录于 `docs/19-残留待办.md` 与 `docs/13-旧系统残留审计.md`。
 
 ---
 

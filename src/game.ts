@@ -1050,10 +1050,6 @@ export class Game {
     this.hud.setInteractPrompt(info ? `${info.title} · ${info.hint}` : null)
   }
 
-  /**
-   * 临时调试入口：抽一个事件 + 一个隐藏真身，打开面板。
-   * 等事件房间接进隧道后，改由房间触发这里。
-   */
   /** 把 run.potential 同步给战斗系统（换分支/读档后都要调） */
   private syncPotential(): void {
     this.combat?.setPotential(
@@ -1157,7 +1153,7 @@ export class Game {
     )
   }
 
-  /** 事件效果结算：先落地金币/线索/伏笔/记忆，其余效果按"待接线"提示 */
+  /** 事件效果结算：统一落地金币/治疗/线索/伏笔/记忆/卡牌/增益减益/遭遇战提示与视觉反馈 */
   private applyEventEffects(effects: EventEffect[]): void {
     for (const eff of effects) {
       if (eff.kind === 'gold') {
@@ -2321,7 +2317,7 @@ export class Game {
     return table[stat] ?? '🎴'
   }
 
-  /** 清层后的固定顺序：3/6/9 层先觉醒，再清层奖励卡，最后隧道门 */
+  /** 清层后的固定顺序：潜能层先选潜能，随后进入时空隧道门 */
   private openPostClearFlow(): void {
     const layer = this.run.layer
     // 阶段末层不插觉醒/三选一，清完小怪直接进三扇首领门
@@ -3436,7 +3432,7 @@ export class Game {
     return true
   }
 
-  /** 奖励卡入口：背包满且无法自动合成时，按当前层商店价 50% 折算金币，避免奖励直接消失 */
+  /** 奖励卡入口：同类道具卡已满金无法再入包时，按当前层商店价 50% 折算金币，避免奖励直接消失 */
   private grantRewardItem(item: InventoryItem): boolean {
     if (this.grantItem(item, false)) return true
     const gold = salvageGold(item, this.run.layer)
