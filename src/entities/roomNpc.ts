@@ -128,8 +128,26 @@ const NPC_INFO: Record<TunnelRoom, { kind: RoomNpcKind; title: string; hint: str
   trial: { kind: 'oracle', title: '立约者', hint: '按 E 听他说完' },
 }
 
+const NPC_DIALOGUE: Partial<Record<TunnelRoom, readonly string[]>> = {
+  chest: [
+    '「又一位闯到密室前的旅人。箱中之物早已备好，但带走它的方式不止一种。」',
+    '「你可以直接收下这枚遗物，也可以让我按塔内行情替你折成金币。」',
+    '「若你敢押上一把，我还能替它重铸升档——成则更胜一筹，败则只剩些碎金。」',
+  ],
+  'skill-card': [
+    '「石碑听见了你的脚步。这道刻印本该直接落入你的行囊。」',
+    '「不过，塔里的力量总能换算：要稳稳带走刻印，还是换成等值的金币？」',
+    '「又或者，让我再刻深一笔——或许能淬出更高阶的纹路，也可能当场崩裂。」',
+  ],
+}
+
 export function roomNpcInfo(room: TunnelRoom): { kind: RoomNpcKind; title: string; hint: string } {
   return NPC_INFO[room] ?? NPC_INFO.rest
+}
+
+/** 奖励房等带开场对白的房间 NPC 台词（2~3 句，供进房提示与交互面板复用） */
+export function roomNpcDialogue(room: TunnelRoom): readonly string[] {
+  return NPC_DIALOGUE[room] ?? []
 }
 
 /** 48×64 立约者：摊开契约卷轴 + 单眼蒙布 + 衣摆拖铁链 */

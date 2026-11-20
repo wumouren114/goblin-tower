@@ -13,7 +13,13 @@ import {
   GOBLIN_SUMMONER,
 } from './data/gameConfig'
 import { GoblinKing, BOSS_TITLES } from './entities/boss'
-import { RoomCampfire, RoomNpc, RoomPortal } from './entities/roomNpc'
+import { RoomCampfire, RoomNpc, RoomPortal, roomNpcDialogue } from './entities/roomNpc'
+import {
+  buildRewardRoomEvent,
+  resolveRewardChoice,
+  type RewardOptionId,
+  type RewardRoomKind,
+} from './data/rewardRooms'
 import { PickupManager } from './entities/pickups'
 import { CameraRig } from './systems/cameraRig'
 import { Vfx } from './systems/vfx'
@@ -3077,7 +3083,11 @@ export class Game {
     audio.startBgm('shop')
     audio.setBgmIntensity(0)
     audio.duck(false)
-    this.hud.toast(`${offer.title} · ${npc.title}：${npc.hint}`, 'info')
+    const greeting = roomNpcDialogue(offer.room)[0]
+    this.hud.toast(
+      greeting ? `${npc.title}：${greeting}（${npc.hint}）` : `${offer.title} · ${npc.title}：${npc.hint}`,
+      'info',
+    )
     this.saveRun(AUTOSAVE_SLOT)
   }
 
@@ -3125,6 +3135,13 @@ export class Game {
     if (res.event) {
       room.resolved = true
       this.openEventById(res.event.id, () => this.completeRoomMap('你离开了那个旅人'))
+      return
+    }
+    if (room.offer.room === 'chest' || room.offer.room === 'skill-card') {
+      room.resolved = true
+      const baseCard =
+        res.card ?? makeCardItem(this.rng.pick([...ITEM_CARDS]).id, qualityFor(this.run.layer, this.rng).tier)
+      this.openRewardRoom(room.offer.room, baseCard, room.offer.title)
       return
     }
     if (res.gold && room.offer.room !== 'mob-wave' && room.offer.room !== 'elite-fight') {
@@ -3194,6 +3211,40 @@ export class Game {
       return
     }
     this.completeRoomMap(room.offer.title)
+  }
+
+  /** 奖励关（宝藏密室 / 技能圣所）：复用 EventPanel 展示 NPC 对话与三选一奖励，关闭后照旧开启出口裂隙 */
+  private openRewardRoom(kind: RewardRoomKind, card: InventoryItem, title: string): void {
+    const def = buildRewardRoomEvent(kind, card, this.run.difficulty, this.run.layer)
+    this.eventPanel.open(
+      def,
+      this.eventState,
+      { gold: this.run.gold, cards: this.inventory.count, role: null },
+      {
+        onPick: (option) => {
+          const picked = resolveRewardChoice(
+            option.id as RewardOptionId,
+            card,
+            this.run.difficulty,
+            this.run.layer,
+            this.rng,
+          )
+          if (picked.gold && picked.gold > 0) {
+            this.addGold(picked.gold)
+            this.eventFx(`+${picked.gold} 金币`, 0xffd166)
+          }
+          if (picked.card) {
+            if (this.grantRewardItem(picked.card)) {
+              this.eventFx(`${picked.card.icon} ${picked.card.name}`, 0x8fe3ff)
+            }
+          }
+          return option.outcomes.find((o) => o.id === picked.outcomeId) ?? option.outcomes[0] ?? null
+        },
+        onClose: () => {
+          this.completeRoomMap(title)
+        },
+      },
+    )
   }
 
   /** 战斗房清空、宝箱打开、祭坛结算后：在房间入口生成裂隙 */
