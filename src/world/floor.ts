@@ -355,6 +355,15 @@ export class TowerFloor implements WorldV3 {
     secondary: boolean
   }[] = []
   private airWallH = 4
+  private airAccum = 0
+  /** 主题专属程序化视觉元素（仅装饰，0 碰撞 / 0 点光） */
+  private sigSpinners: { obj: THREE.Object3D; axis: 'x' | 'y' | 'z'; speed: number }[] = []
+  private sigPulses: { mat: THREE.MeshBasicMaterial; base: number; amp: number; freq: number }[] = []
+  private sigDrifters: {
+    mesh: THREE.InstancedMesh
+    items: { x: number; y: number; z: number; vx: number; vy: number; vz: number; sx: number; sy: number; sz: number; yaw: number; pitch: number }[]
+    lim: number
+  } | null = null
 
   private dropRng = new Rng(0x1f123bb5)
   private built = false
@@ -451,13 +460,14 @@ export class TowerFloor implements WorldV3 {
     this.root.add(key.target)
     this.keyLight = key
 
-    // 冷色补光（不投影），拉开体积感
-    const fill = new THREE.DirectionalLight(mixHex(theme.fogColor, 0xbfe9ff, 0.82), 0.86)
-    fill.position.set(half * 0.7, wallH * 1.8, -half * 0.75)
+    // 阶段化色温补光（不投影）：一阶晴空青、二阶星夜靛、三阶铜锈青紫，拉开暖主光与冷暗部体积感
+    const fillTarget = theme.stage === 1 ? 0xbbeeff : theme.stage === 2 ? 0x9eb4ff : 0xa6d8d4
+    const fill = new THREE.DirectionalLight(mixHex(theme.fogColor, fillTarget, 0.78), 0.9)
+    fill.position.set(half * 0.72, wallH * 1.9, -half * 0.75)
     this.root.add(fill)
 
     /* ---------------- 地面 ---------------- */
-    tex.floor.repeat.set(floorSize / 4, floorSize / 4)
+    tex.floor.repeat.set(floorSize / 7.5, floorSize / 7.5)
     // 保持 TextureBook 的 16x 各向异性，斜视地面更稳，不再降回 8x
     tex.floor.anisotropy = 16
     const floorMat = new THREE.MeshStandardMaterial({
@@ -564,9 +574,11 @@ export class TowerFloor implements WorldV3 {
 
     const capMat = new THREE.MeshStandardMaterial({
       color: theme.wallTopColor,
-      roughness: 0.9,
-      metalness: 0.04,
+      roughness: 0.72,
+      metalness: 0.14,
       flatShading: true,
+      emissive: new THREE.Color(mixHex(theme.wallTopColor, theme.accentColor, 0.25)),
+      emissiveIntensity: 0.045,
     })
     const addCornice = (w: number, d: number, x: number, z: number, side: 'south' | 'north' | 'east' | 'west'): void => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.42, d), capMat)
@@ -584,24 +596,37 @@ export class TowerFloor implements WorldV3 {
 
     /* ---------------- 四角塔柱 ---------------- */
     const pillarMat = new THREE.MeshStandardMaterial({
-      color: mixHex(theme.wallColor, theme.wallTopColor, 0.22),
-      roughness: 0.95,
+      map: tex.wall,
+      color: mixHex(theme.wallColor, theme.wallTopColor, 0.28),
+      roughness: 0.92,
+      metalness: 0.06,
       flatShading: true,
     })
     const pillarCapMat = new THREE.MeshStandardMaterial({
-      color: mixHex(theme.wallTopColor, theme.accentColor, 0.18),
-      roughness: 0.85,
+      color: mixHex(theme.wallTopColor, theme.accentColor, 0.22),
+      roughness: 0.68,
+      metalness: 0.24,
       flatShading: true,
       emissive: theme.accentColor,
-      emissiveIntensity: 0.05,
+      emissiveIntensity: 0.08,
+    })
+    const pillarTrimMat = new THREE.MeshStandardMaterial({
+      color: mixHex(theme.wallTopColor, 0xffffff, 0.32),
+      roughness: 0.45,
+      metalness: 0.36,
+      flatShading: true,
+      emissive: new THREE.Color(mixHex(theme.accentColor, theme.wallTopColor, 0.5)),
+      emissiveIntensity: 0.12,
     })
     const shaftH = wallH + 1.0
     const shaftGeo = new THREE.BoxGeometry(1.75, shaftH, 1.75)
     const baseGeo = new THREE.BoxGeometry(2.35, 0.6, 2.35)
     const capGeo = new THREE.BoxGeometry(2.25, 0.42, 2.25)
+    const trimGeo = new THREE.BoxGeometry(1.94, 0.16, 1.94)
     const shaftMats: THREE.Matrix4[] = []
     const baseMats: THREE.Matrix4[] = []
     const capMats: THREE.Matrix4[] = []
+    const trimMats: THREE.Matrix4[] = []
     const one = new THREE.Vector3(1, 1, 1)
     const noRot = new THREE.Quaternion()
     for (const sx of [-1, 1]) {
@@ -616,6 +641,9 @@ export class TowerFloor implements WorldV3 {
         capMats.push(
           new THREE.Matrix4().compose(new THREE.Vector3(px, shaftH + 0.21, pz), noRot, one),
         )
+        // 柱身上下金属/石棱高光束环（完全在塔柱轮廓内，不改碰撞）
+        trimMats.push(new THREE.Matrix4().compose(new THREE.Vector3(px, shaftH * 0.52, pz), noRot, one))
+        trimMats.push(new THREE.Matrix4().compose(new THREE.Vector3(px, shaftH - 0.18, pz), noRot, one))
         // 塔柱在本层范围内的碰撞体
         this.propColliders.push({ x: px, z: pz, r: 1.35 })
       }
@@ -624,6 +652,7 @@ export class TowerFloor implements WorldV3 {
       this.instanced(shaftGeo, pillarMat, shaftMats, true),
       this.instanced(baseGeo, pillarMat, baseMats, true),
       this.instanced(capGeo, pillarCapMat, capMats, true),
+      this.instanced(trimGeo, pillarTrimMat, trimMats, false),
     ]
     for (const m of this.pillarMeshes) this.root.add(m)
 
@@ -656,8 +685,11 @@ export class TowerFloor implements WorldV3 {
     this.buildWallDebris(half, detailRng)
     this.buildLightPatches(half, detailRng, tex)
 
-    /* ---------------- 空气粒子（BillboardBatch 批处理，<= 60） ---------------- */
+    /* ---------------- 空气粒子（BillboardBatch 批处理，低频封顶 <= 48） ---------------- */
     this.buildMotes(half, wallH, tex)
+
+    /* ---------------- 9 套主题专属程序化视觉元素（0 碰撞 / 0 点光） ---------------- */
+    this.buildThemeSignature(half, wallH)
 
     /* ---------------- 房间布景（默认隐藏，进房间时才显示） ---------------- */
     this.buildRoomDecor()
@@ -1618,25 +1650,27 @@ export class TowerFloor implements WorldV3 {
     this.root.add(mesh)
   }
 
-  /* ---------------- 细节层 5：场景空气粒子（BillboardBatch 批处理，<= 60） ---------------- */
+  /* ---------------- 细节层 5：场景空气粒子（低频更新 + 硬封顶 <= 48，保可读性） ---------------- */
   private buildMotes(half: number, wallH: number, tex: TextureBook): void {
     const theme = this.theme
     if (!theme) return
     const detail = theme.detail
-    const count = Math.min(60, Math.max(12, detail.airCount))
+    const MAX_AIR_PARTICLES = 48
+    const count = Math.min(MAX_AIR_PARTICLES, Math.max(12, detail.airCount))
     this.airWallH = wallH
-    this.airBatch = new BillboardBatch(this.root, tex.airParticle, 60, { renderOrder: 4 })
+    this.airAccum = 0
+    this.airBatch = new BillboardBatch(this.root, tex.airParticle, MAX_AIR_PARTICLES, { renderOrder: 4 })
     this.airParticles = []
 
     const rng = new Rng(0x51ed2701 ^ hashSeed(theme.id) ^ half)
     for (let i = 0; i < count; i += 1) {
       const secondary = i % 3 === 0
       const x = rng.range(-half + 1.2, half - 1.2)
-      const y = rng.range(0.45, wallH + 0.9)
+      const y = rng.range(0.55, wallH + 0.95)
       const z = rng.range(-half + 1.2, half - 1.2)
-      const size = secondary ? rng.range(0.12, 0.2) : rng.range(0.22, 0.36)
+      const size = secondary ? rng.range(0.11, 0.18) : rng.range(0.2, 0.32)
       const color = secondary ? detail.airColors[1] : detail.airColors[0]
-      const alpha = secondary ? rng.range(0.45, 0.72) : rng.range(0.55, 0.85)
+      const alpha = secondary ? rng.range(0.35, 0.56) : rng.range(0.42, 0.68)
       const phase = rng.range(0, Math.PI * 2)
       this.airParticles.push({ x, y, z, size, color, alpha, phase, secondary })
       const slot = this.airBatch.acquire()
@@ -1645,6 +1679,303 @@ export class TowerFloor implements WorldV3 {
       }
     }
     this.airBatch.flush()
+  }
+
+  /* ---------------- 细节层 6：9 套主题各自专属程序化视觉元素（1~2 drawcall，0 碰撞/0 点光） ---------------- */
+  private buildThemeSignature(half: number, wallH: number): void {
+    const theme = this.theme
+    if (!theme) return
+    const rng = new Rng(0x27d4eb2f ^ hashSeed(theme.id) ^ half)
+    const id = theme.id
+    const rotX90 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
+
+    if (id === 'stage1-hall') {
+      // 云上花庭 · 晨光：斜射柔和晨光束 + 沿墙上缘晨露花蔓
+      const beamMats: THREE.Matrix4[] = []
+      const q = new THREE.Quaternion()
+      const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.28, 0.35, -0.22))
+      for (let i = 0; i < 6; i += 1) {
+        const ang = (i / 6) * Math.PI * 2 + 0.35
+        const r = half * rng.range(0.42, 0.72)
+        const h = wallH * 1.45
+        q.copy(tilt)
+        beamMats.push(new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(ang) * r, h * 0.5, Math.sin(ang) * r), q, new THREE.Vector3(1.1, h, 1.1)))
+      }
+      const beamMat = new THREE.MeshBasicMaterial({
+        color: 0xfff5cf,
+        transparent: true,
+        opacity: 0.11,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      })
+      const beams = this.instanced(new THREE.CylinderGeometry(0.45, 1.15, 1, 8, 1, true), beamMat, beamMats, false)
+      beams.name = 'SigMorningBeams'
+      beams.renderOrder = 3
+      this.root.add(beams)
+      this.sigPulses.push({ mat: beamMat, base: 0.11, amp: 0.03, freq: 1.1 })
+
+      // 墙檐花簇点缀
+      const blossomMats: THREE.Matrix4[] = []
+      const edge = half - 0.55
+      for (let i = 0; i < 16; i += 1) {
+        const side = i % 4
+        const t = ((Math.floor(i / 4) + 0.5) / 4 - 0.5) * (half * 1.55)
+        const x = side === 0 || side === 1 ? t : side === 2 ? edge : -edge
+        const z = side === 0 ? -edge : side === 1 ? edge : t
+        const s = rng.range(0.26, 0.42)
+        blossomMats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, wallH - 0.48, z), new THREE.Quaternion(), new THREE.Vector3(s, s * 0.7, s)))
+      }
+      const blossomMat = new THREE.MeshStandardMaterial({
+        color: 0xffadc4,
+        emissive: 0xff8fae,
+        emissiveIntensity: 0.22,
+        roughness: 0.7,
+        flatShading: true,
+      })
+      const blossoms = this.instanced(new THREE.DodecahedronGeometry(1, 0), blossomMat, blossomMats, false)
+      blossoms.name = 'SigMorningBlossoms'
+      this.root.add(blossoms)
+    } else if (id === 'stage1-candle') {
+      // 云上花庭 · 风起：高空横掠风纹带 + 飘浮金色蒲公英伞冠
+      const count = 14
+      const items: { x: number; y: number; z: number; vx: number; vy: number; vz: number; sx: number; sy: number; sz: number; yaw: number; pitch: number }[] = []
+      const mats: THREE.Matrix4[] = []
+      const q = new THREE.Quaternion()
+      for (let i = 0; i < count; i += 1) {
+        const x = rng.range(-half + 1.5, half - 1.5)
+        const y = rng.range(wallH * 0.45, wallH + 1.4)
+        const z = rng.range(-half + 1.5, half - 1.5)
+        const len = rng.range(1.6, 3.2)
+        const yaw = 0.32
+        items.push({ x, y, z, vx: 3.1, vy: 0, vz: 1.05, sx: len, sy: 0.08, sz: 0.24, yaw, pitch: 0 })
+        q.setFromEuler(new THREE.Euler(0, yaw, 0))
+        mats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(len, 0.08, 0.24)))
+      }
+      const windMat = new THREE.MeshBasicMaterial({
+        color: 0xfff0b8,
+        transparent: true,
+        opacity: 0.24,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      })
+      const windMesh = this.instanced(new THREE.BoxGeometry(1, 1, 1), windMat, mats, false)
+      windMesh.name = 'SigWindRibbons'
+      windMesh.renderOrder = 4
+      this.root.add(windMesh)
+      this.sigDrifters = { mesh: windMesh, items, lim: half - 0.8 }
+    } else if (id === 'stage1-courtyard') {
+      // 云上花庭 · 花落：贴地落樱花毯 + 慢转空中樱瓣环
+      const carpetMats: THREE.Matrix4[] = []
+      const q = new THREE.Quaternion()
+      const rotY = new THREE.Quaternion()
+      for (let i = 0; i < 36; i += 1) {
+        const ang = rng.range(0, Math.PI * 2)
+        const r = half * rng.range(0.22, 0.86)
+        const s = rng.range(0.18, 0.36)
+        rotY.setFromAxisAngle(UP, rng.range(0, Math.PI * 2))
+        q.copy(rotY).multiply(rotX90)
+        carpetMats.push(new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(ang) * r, 0.028, Math.sin(ang) * r), q, new THREE.Vector3(s, s * 0.65, 1)))
+      }
+      const petalMat = new THREE.MeshBasicMaterial({
+        color: 0xffa4c2,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false,
+      })
+      const carpet = this.instanced(new THREE.CircleGeometry(1, 5), petalMat, carpetMats, false)
+      carpet.name = 'SigPetalCarpet'
+      carpet.renderOrder = 2
+      this.root.add(carpet)
+
+      const ringGroup = new THREE.Group()
+      ringGroup.position.set(0, wallH * 0.72, 0)
+      const ringMats: THREE.Matrix4[] = []
+      for (let i = 0; i < 16; i += 1) {
+        const a = (i / 16) * Math.PI * 2
+        const r = half * 0.38
+        q.setFromEuler(new THREE.Euler(rng.range(-0.6, 0.6), a, rng.range(-0.5, 0.5)))
+        ringMats.push(new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(a) * r, Math.sin(i * 1.3) * 0.55, Math.sin(a) * r), q, new THREE.Vector3(0.24, 0.14, 0.04)))
+      }
+      const swirl = this.instanced(new THREE.BoxGeometry(1, 1, 1), petalMat, ringMats, false)
+      swirl.name = 'SigPetalSwirl'
+      ringGroup.add(swirl)
+      this.root.add(ringGroup)
+      this.sigSpinners.push({ obj: ringGroup, axis: 'y', speed: 0.28 })
+    } else if (id === 'stage2-forge') {
+      // 星砂观星台 · 暮色：悬空双层黄道星轨环 + 发光星点
+      const astroGroup = new THREE.Group()
+      astroGroup.position.set(0, wallH + 1.85, 0)
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: 0xffdc82,
+        transparent: true,
+        opacity: 0.36,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      })
+      const outer = new THREE.Mesh(new THREE.TorusGeometry(half * 0.44, 0.06, 6, 48), ringMat)
+      outer.rotation.x = Math.PI / 2 + 0.18
+      astroGroup.add(outer)
+      const inner = new THREE.Mesh(new THREE.TorusGeometry(half * 0.28, 0.045, 6, 36), ringMat)
+      inner.rotation.x = Math.PI / 2 - 0.24
+      inner.rotation.y = 0.4
+      astroGroup.add(inner)
+      this.root.add(astroGroup)
+      this.sigSpinners.push({ obj: astroGroup, axis: 'y', speed: 0.18 })
+      this.sigPulses.push({ mat: ringMat, base: 0.36, amp: 0.08, freq: 1.4 })
+    } else if (id === 'stage2-slag') {
+      // 星砂观星台 · 砂河：贴地青白发光星砂河带 + 沿河微光砂晶
+      const segMats: THREE.Matrix4[] = []
+      const q = new THREE.Quaternion()
+      const rotY = new THREE.Quaternion()
+      const segs = 12
+      for (let i = 0; i < segs; i += 1) {
+        const u = (i / (segs - 1)) * 2 - 1
+        const x = u * (half - 2.2)
+        const z = Math.sin(u * 2.1) * (half * 0.28)
+        const slope = Math.cos(u * 2.1) * 2.1 * (half * 0.28) / (half - 2.2)
+        rotY.setFromAxisAngle(UP, -Math.atan(slope))
+        q.copy(rotY).multiply(rotX90)
+        segMats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 0.026, z), q, new THREE.Vector3((half * 2) / segs * 1.25, 2.1, 1)))
+      }
+      const riverMat = new THREE.MeshBasicMaterial({
+        color: 0x9cf0ff,
+        transparent: true,
+        opacity: 0.18,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      })
+      const river = this.instanced(new THREE.PlaneGeometry(1, 1), riverMat, segMats, false)
+      river.name = 'SigStardustRiver'
+      river.renderOrder = 2
+      this.root.add(river)
+      this.sigPulses.push({ mat: riverMat, base: 0.18, amp: 0.045, freq: 1.5 })
+    } else if (id === 'stage2-ember') {
+      // 星砂观星台 · 流星：高空统一斜角划过的粉紫/银白流星拖尾光梭
+      const count = 10
+      const items: { x: number; y: number; z: number; vx: number; vy: number; vz: number; sx: number; sy: number; sz: number; yaw: number; pitch: number }[] = []
+      const mats: THREE.Matrix4[] = []
+      const q = new THREE.Quaternion()
+      for (let i = 0; i < count; i += 1) {
+        const x = rng.range(-half, half)
+        const y = rng.range(wallH + 1.1, wallH + 3.0)
+        const z = rng.range(-half, half)
+        const len = rng.range(2.2, 3.8)
+        items.push({ x, y, z, vx: -4.2, vy: -0.45, vz: 1.8, sx: len, sy: 0.09, sz: 0.09, yaw: -0.4, pitch: -0.14 })
+        q.setFromEuler(new THREE.Euler(-0.14, -0.4, 0))
+        mats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(len, 0.09, 0.09)))
+      }
+      const meteorMat = new THREE.MeshBasicMaterial({
+        color: 0xffc2e2,
+        transparent: true,
+        opacity: 0.46,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      })
+      const meteors = this.instanced(new THREE.BoxGeometry(1, 1, 1), meteorMat, mats, false)
+      meteors.name = 'SigMeteorStreaks'
+      meteors.renderOrder = 4
+      this.root.add(meteors)
+      this.sigDrifters = { mesh: meteors, items, lim: half + 1.5 }
+    } else if (id === 'stage3-frost') {
+      // 黄铜钟塔 · 齿轮厅：墙缘慢转黄铜齿轮组 + 贴地青绿齿轮雾环
+      const gearMat = new THREE.MeshStandardMaterial({
+        color: 0xd4ad6a,
+        roughness: 0.42,
+        metalness: 0.58,
+        emissive: 0x5c4218,
+        emissiveIntensity: 0.16,
+        flatShading: true,
+      })
+      const gearSpots: [number, number, number, number][] = [
+        [-half * 0.58, wallH * 0.65, -half + 0.18, 1.35],
+        [half * 0.58, wallH * 0.65, -half + 0.18, -1.15],
+      ]
+      for (const [gx, gy, gz, spd] of gearSpots) {
+        const g = new THREE.Group()
+        g.position.set(gx, gy, gz)
+        const rim = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.14, 6, 16), gearMat)
+        g.add(rim)
+        const spoke = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.18, 0.14), gearMat)
+        g.add(spoke)
+        const spoke2 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.2, 0.14), gearMat)
+        g.add(spoke2)
+        this.root.add(g)
+        this.sigSpinners.push({ obj: g, axis: 'z', speed: spd * 0.35 })
+      }
+      const mistMat = new THREE.MeshBasicMaterial({
+        color: 0x72e6c8,
+        transparent: true,
+        opacity: 0.14,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      })
+      const mist = new THREE.Mesh(new THREE.TorusGeometry(half * 0.68, 0.45, 6, 40), mistMat)
+      mist.rotation.x = Math.PI / 2
+      mist.position.y = 0.18
+      mist.name = 'SigGearMist'
+      this.root.add(mist)
+      this.sigPulses.push({ mat: mistMat, base: 0.14, amp: 0.04, freq: 1.2 })
+    } else if (id === 'stage3-iron') {
+      // 黄铜钟塔 · 熔金槽：外圈嵌地熔金沟槽带 + 热浪微光
+      const edge = half - 2.1
+      const len = edge * 2
+      const mats: THREE.Matrix4[] = []
+      const q0 = rotX90.clone()
+      const q90 = new THREE.Quaternion().setFromAxisAngle(UP, Math.PI / 2).multiply(rotX90)
+      mats.push(new THREE.Matrix4().compose(new THREE.Vector3(0, 0.027, edge), q0, new THREE.Vector3(len, 0.55, 1)))
+      mats.push(new THREE.Matrix4().compose(new THREE.Vector3(0, 0.027, -edge), q0, new THREE.Vector3(len, 0.55, 1)))
+      mats.push(new THREE.Matrix4().compose(new THREE.Vector3(edge, 0.027, 0), q90, new THREE.Vector3(len, 0.55, 1)))
+      mats.push(new THREE.Matrix4().compose(new THREE.Vector3(-edge, 0.027, 0), q90, new THREE.Vector3(len, 0.55, 1)))
+      const moltenMat = new THREE.MeshBasicMaterial({
+        color: 0xff8c2b,
+        transparent: true,
+        opacity: 0.34,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      })
+      const channels = this.instanced(new THREE.PlaneGeometry(1, 1), moltenMat, mats, false)
+      channels.name = 'SigMoltenChannels'
+      channels.renderOrder = 2
+      this.root.add(channels)
+      this.sigPulses.push({ mat: moltenMat, base: 0.34, amp: 0.09, freq: 1.9 })
+    } else if (id === 'stage3-throne') {
+      // 黄铜钟塔 · 塔心：悬空紫金钟面天穹环 + 12 刻度块 + 慢转指针
+      const dialGroup = new THREE.Group()
+      dialGroup.position.set(0, wallH + 2.0, 0)
+      const dialMat = new THREE.MeshBasicMaterial({
+        color: 0xffd066,
+        transparent: true,
+        opacity: 0.34,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        toneMapped: false,
+      })
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(half * 0.42, 0.075, 6, 48), dialMat)
+      ring.rotation.x = Math.PI / 2
+      dialGroup.add(ring)
+      const tickMats: THREE.Matrix4[] = []
+      const q = new THREE.Quaternion()
+      for (let i = 0; i < 12; i += 1) {
+        const a = (i / 12) * Math.PI * 2
+        const r = half * 0.42
+        q.setFromAxisAngle(UP, -a)
+        tickMats.push(new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r), q, new THREE.Vector3(0.55, 0.06, 0.14)))
+      }
+      const ticks = this.instanced(new THREE.BoxGeometry(1, 1, 1), dialMat, tickMats, false)
+      ticks.name = 'SigClockDialTicks'
+      dialGroup.add(ticks)
+      this.root.add(dialGroup)
+      this.sigSpinners.push({ obj: dialGroup, axis: 'y', speed: 0.14 })
+      this.sigPulses.push({ mat: dialMat, base: 0.34, amp: 0.08, freq: 1.3 })
+    }
   }
 
   /* ================================================================ */
@@ -2006,20 +2337,54 @@ export class TowerFloor implements WorldV3 {
       this.props.pulse.emissiveIntensity = 1.35
     }
 
-    // 场景空气粒子按天气/变体漂移（全走 BillboardBatch）
-    if (this.airBatch && this.airParticles.length > 0 && this.theme) {
+    // 主题专属程序化元素动画（低开销慢转 / 呼吸 / 漂移）
+    for (const sp of this.sigSpinners) {
+      sp.obj.rotation[sp.axis] += dt * sp.speed
+    }
+    for (const pl of this.sigPulses) {
+      pl.mat.opacity = pl.base + Math.sin(t * pl.freq) * pl.amp
+    }
+    if (this.sigDrifters) {
+      const { mesh, items, lim } = this.sigDrifters
+      const span = lim * 2
+      const m = new THREE.Matrix4()
+      const q = new THREE.Quaternion()
+      const e = new THREE.Euler()
+      for (let i = 0; i < items.length; i += 1) {
+        const it = items[i]
+        it.x += it.vx * dt
+        it.y += it.vy * dt
+        it.z += it.vz * dt
+        if (it.x > lim) it.x -= span
+        else if (it.x < -lim) it.x += span
+        if (it.z > lim) it.z -= span
+        else if (it.z < -lim) it.z += span
+        if (it.y < this.airWallH * 0.4) it.y = this.airWallH + 2.6
+        e.set(it.pitch, it.yaw, 0)
+        q.setFromEuler(e)
+        m.compose(new THREE.Vector3(it.x, it.y, it.z), q, new THREE.Vector3(it.sx, it.sy, it.sz))
+        mesh.setMatrixAt(i, m)
+      }
+      mesh.instanceMatrix.needsUpdate = true
+    }
+
+    // 场景空气粒子低频更新（~30Hz 刷新，封顶 <= 48，兼顾流畅与可读性）
+    this.airAccum += dt
+    if (this.airBatch && this.airParticles.length > 0 && this.theme && this.airAccum >= 1 / 30) {
+      const step = this.airAccum
+      this.airAccum = 0
       const drift = this.theme.detail.airDrift
       const lim = Math.max(2, this.halfSize - 1.1)
-      const minY = 0.35
+      const minY = 0.45
       const maxY = this.airWallH + 1.0
       const span = lim * 2
       const spanY = maxY - minY
       for (let i = 0; i < this.airParticles.length; i += 1) {
         const pt = this.airParticles[i]
         const speedMul = pt.secondary ? 1.35 : 1.0
-        pt.x += (drift.vx * speedMul + Math.sin(t * 0.9 + pt.phase) * drift.sway * 0.45) * dt
-        pt.y += (drift.vy * speedMul + Math.cos(t * 1.1 + pt.phase * 1.3) * 0.18) * dt
-        pt.z += (drift.vz * speedMul + Math.cos(t * 0.8 + pt.phase * 0.7) * drift.sway * 0.45) * dt
+        pt.x += (drift.vx * speedMul + Math.sin(t * 0.9 + pt.phase) * drift.sway * 0.45) * step
+        pt.y += (drift.vy * speedMul + Math.cos(t * 1.1 + pt.phase * 1.3) * 0.18) * step
+        pt.z += (drift.vz * speedMul + Math.cos(t * 0.8 + pt.phase * 0.7) * drift.sway * 0.45) * step
         if (pt.x > lim) pt.x -= span
         else if (pt.x < -lim) pt.x += span
         if (pt.z > lim) pt.z -= span
@@ -2232,6 +2597,10 @@ export class TowerFloor implements WorldV3 {
     this.dadoTrimBaseMatrices.length = 0
     this.lightPatchMat = null
     this.airParticles.length = 0
+    this.airAccum = 0
+    this.sigSpinners.length = 0
+    this.sigPulses.length = 0
+    this.sigDrifters = null
 
     this.airBatch?.dispose()
     this.airBatch = null
