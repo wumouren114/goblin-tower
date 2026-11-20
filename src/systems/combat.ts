@@ -428,6 +428,17 @@ export class Combat {
   }
 
   get resource(): CombatResource {
+    // 未选潜能时不展示旧流派资源名（如「独奏/节拍」），避免误导玩家以为机制已激活
+    if (!this.potentialBranch) {
+      return {
+        name: '基础',
+        value: Math.max(0, Math.min(this.resourceValue, this.resourceMax)),
+        max: this.resourceMax,
+        ready: this.resourceValue >= this.resourceMax,
+        styleName: '基础流派',
+        hint: '选择潜能后解锁流派资源',
+      }
+    }
     return {
       name: this.style.resourceName,
       value: Math.max(0, Math.min(this.resourceValue, this.resourceMax)),
