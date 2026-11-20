@@ -45,6 +45,10 @@ export interface Hittable {
   z: number
   radius: number
   alive: boolean
+  /** 当前血量比例 0..1（可选：实现后泡泡处决才可用） */
+  readonly hpRatio?: number
+  /** 精英/首领：不参与斩杀 */
+  readonly elite?: boolean
   /** 返回：这一下是否把它打死了 */
   hit(amount: number, kx: number, kz: number): boolean
 }
@@ -221,6 +225,8 @@ export class Combat {
   /** 剑意的「标记」：逐敌状态（Hittable 没有 id，用 WeakMap 分配稳定 key） */
   private readonly marks = new StatusField()
   private readonly targetIds = new WeakMap<Hittable, string>()
+  /** 超级泡泡·包裹处决：1.5s 后若仍低于 25% 血量则斩杀 */
+  private readonly executes: { target: Hittable; at: number }[] = []
   private targetIdSeq = 0
   /** 剑意·蓄势的每秒回能计时 */
   private jianyiRegenTimer = 1
@@ -1214,6 +1220,22 @@ export class Combat {
     }
 
     this.marks.update(step * 1000)
+    if (this.executes.length > 0) {
+      for (let i = this.executes.length - 1; i >= 0; i -= 1) {
+        const e = this.executes[i]
+        if (!e.target.alive) {
+          this.executes.splice(i, 1)
+          continue
+        }
+        if (this.combatTime < e.at) continue
+        this.executes.splice(i, 1)
+        if ((e.target.hpRatio ?? 1) < 0.25 && !e.target.elite) {
+          e.target.hit(1e9, 0, 0)
+          this.burstAt(e.target.x, e.target.z, 0x8ff6ff, 14)
+          this.hooks.onSfx('crit')
+        }
+      }
+    }
     if (this.potentialBranch === 'jianyi' && this.hasNode('murasame-jianyi-regen')) {
       this.jianyiRegenTimer -= step
       if (this.jianyiRegenTimer <= 0) {
@@ -1324,6 +1346,19 @@ export class Combat {
     if (ctx.slow && ctx.slow > 0) this.slowTarget(t, ctx.slow, 0.8)
     if (crit) this.hooks.onSfx('crit')
     this.hooks.onHit(t, amount, crit, killed)
+    // 超级泡泡·包裹处决：命中残血目标时有概率裹住，1.5s 后仍 <25% 直接斩杀
+    if (
+      this.potentialBranch === 'bubble' &&
+      ctx.source === 'player' &&
+      t.alive &&
+      !t.elite &&
+      this.hasNode('fish-bubble-execute') &&
+      (t.hpRatio ?? 1) < 0.25 &&
+      rng.chance(0.35)
+    ) {
+      this.executes.push({ target: t, at: this.combatTime + 1.5 })
+      this.burstAt(t.x, t.z, 0x8ff6ff, 6)
+    }
     // 剑意·根被动：普攻给目标挂标记（最多 3 层，4 秒）
     if (this.potentialBranch === 'jianyi' && ctx.source === 'player' && t.alive) {
       const key = this.keyOf(t)

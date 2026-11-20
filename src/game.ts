@@ -1216,7 +1216,7 @@ export class Game {
     const roll = this.rng.next()
     if (roll < 0.55) {
       const gold = 18 + layer * 5 + this.rng.int(0, 8)
-      this.run.gold += gold
+      this.addGold(gold)
       this.hud.toast(`塔藏箱：金币 +${gold}`, 'good')
       this.vfx.ring(info.x, info.z, { color: 0xffd166, radius: 2.4, life: 0.5, grow: 2.2 })
       this.vfx.burst(info.x, info.z, { color: 0xffd166, count: 22, speed: 4.2, life: 0.5, size: 0.28, y: 0.7 })
@@ -1964,7 +1964,7 @@ export class Game {
 
   private onCollect(kind: 'gold' | 'heart' | 'rice' | 'card', value: number): void {
     if (kind === 'gold') {
-      this.run.gold += value
+      this.addGold(value)
       this.hud.damageNumber(new THREE.Vector3(this.player?.x ?? 0, 2, this.player?.z ?? 0), value, 'gold')
       audio.coin()
     } else if (kind === 'heart') {
@@ -2033,7 +2033,7 @@ export class Game {
   private onLayerCleared(): void {
     const picked = this.collectRemainingPickups()
     const gold = clearGoldFor(this.run.difficulty, this.run.layer)
-    this.run.gold += gold
+    this.addGold(gold)
     const bossLayer = isBossLayer(this.run.difficulty, this.run.layer)
     const autoNote = picked.count > 0
       ? `（自动吸取 ${picked.count} 件${picked.gold > 0 ? `，+${picked.gold} 金币` : ''}）`
@@ -2064,7 +2064,7 @@ export class Game {
     this.vfx.levelUpBurst(boss.x, boss.z)
     this.vfx.ring(boss.x, boss.z, { color: accent, radius: 3, life: 1.2, grow: 4 })
     this.vfx.burst(boss.x, boss.z, { color: accent, count: 40, speed: 9, life: 0.9, size: 0.4 })
-    this.run.gold += Math.round(killGold(this.run.layer, 'boss'))
+    this.addGold(Math.round(killGold(this.run.layer, 'boss')))
     this.collectRemainingPickups()
     // Boss 也计入全局累计击杀；Boss 层的清层条件仍只看 Boss 死亡。
     this.run.kills += 1
@@ -2087,7 +2087,7 @@ export class Game {
     }
     if (this.run.layer >= layerCount(this.run.difficulty)) this.win()
     else {
-      this.run.gold += clearGoldFor(this.run.difficulty, this.run.layer)
+      this.addGold(clearGoldFor(this.run.difficulty, this.run.layer))
       this.openPostClearFlow()
     }
   }
@@ -2174,6 +2174,16 @@ export class Game {
     const list = this.run.awakeningLayers ?? []
     if (!list.includes(layer)) list.push(layer)
     this.run.awakeningLayers = list
+  }
+
+  /** 统一金币入口：潜能·帮手（小肥鱼协助拾取）金币 +15% */
+  private addGold(amount: number): void {
+    const boost =
+      this.run.potential?.branch === 'fish-clone' &&
+      (this.run.potential.nodes ?? []).includes('fish-clone-gold')
+        ? 1.15
+        : 1
+    this.addGold(Math.round(amount * boost))
   }
 
   private openPotential(): void {
@@ -2367,7 +2377,7 @@ export class Game {
       return
     }
     if (res.gold) {
-      this.run.gold += res.gold
+      this.addGold(res.gold)
       this.hud.toast(`+${res.gold} 金币`, 'good')
       this.vfx.burst(room.npc.x, room.npc.z, { color: 0xffd166, count: 18, speed: 4, life: 0.5, size: 0.3, y: 0.8 })
     }
@@ -2544,7 +2554,7 @@ export class Game {
       this.completeRoomMap('战斗房已清空')
       return
     }
-    this.run.gold += clearGoldFor(this.run.difficulty, this.run.layer)
+    this.addGold(clearGoldFor(this.run.difficulty, this.run.layer))
     this.hud.toast(picked.count > 0 ? `房间清空！自动吸取 ${picked.count} 件掉落` : '房间清空！', 'good')
     this.proceedToShop()
   }
@@ -2723,7 +2733,7 @@ export class Game {
   private grantRewardItem(item: InventoryItem): boolean {
     if (this.grantItem(item, false)) return true
     const gold = salvageGold(item, this.run.layer)
-    this.run.gold += gold
+    this.addGold(gold)
     this.hud.toast(`背包已满，「${item.name}」折算 +${gold} 金币`, 'good')
     if (this.inventoryOpen()) this.hud.updateInventory(this.inventory.items, this.run.gold)
     return false
@@ -2969,7 +2979,7 @@ export class Game {
     this.startRun(character, difficulty, styleId)
     for (let i = 0; i < 8; i += 1) {
       const gold = 400
-      this.run.gold += gold
+      this.addGold(gold)
       this.run.weaponLv = Math.min(MAX_WEAPON_LV, this.run.weaponLv + 1)
       this.combat?.setWeaponLv(this.run.weaponLv)
       if (i < 5) {

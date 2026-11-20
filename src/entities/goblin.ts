@@ -40,6 +40,11 @@ export class Goblin {
   alive = true
   elite: boolean
 
+  /** 血量比例：供泡泡处决判定 */
+  get hpRatio(): number {
+    return this.maxHp > 0 ? Math.max(0, this.hp / this.maxHp) : 0
+  }
+
   private readonly scene: THREE.Scene
   private readonly anim: SpriteAnim
   private readonly sprite: THREE.Mesh
