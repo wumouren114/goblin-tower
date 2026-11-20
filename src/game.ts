@@ -2374,7 +2374,7 @@ export class Game {
           room: 'skill-card',
           title: `${branch.name}（第 ${owned.size + 1} 分支）`,
           desc: `${branch.identity}｜代价：${branch.cost}`,
-          icon: '✦',
+          icon: (branch as { icon?: string }).icon ?? '✦',
           payload: { potential: { branch: branch.id } },
         })
       }
@@ -2390,7 +2390,7 @@ export class Game {
           room: 'skill-card',
           title: `${node.name}（${branch.name}）`,
           desc: node.effect,
-          icon: '◇',
+          icon: (branch as { icon?: string }).icon ?? '◇',
           payload: { potential: { branch: branch.id, nodeId: node.id } },
         })
       }
