@@ -2833,13 +2833,18 @@ export class Game {
     const mods = this.combat?.modifiers ?? NEUTRAL_MODS
     const c = this.cards
     const styleHpMul = this.run.style === 'murasame-blood' ? 0.9 : 1
-    const maxHp = Math.round((def.base.hp + (c.hp ?? 0)) * allStat * styleHpMul)
+    // 超级泡泡·巨化：生命 +20%、伤害 +15%、移速 -15%（体型放大见 player.setGiant）
+    const giant =
+      this.run.potential?.branch === 'fish-bubble' &&
+      (this.run.potential.nodes ?? []).includes('fish-bubble-giant')
+    const maxHp = Math.round((def.base.hp + (c.hp ?? 0)) * allStat * styleHpMul * (giant ? 1.2 : 1))
+    p.scaleMul = giant ? 1.18 : 1
     const stats: PlayerStats = {
       ...p.stats,
       maxHp,
-      moveSpeed: (def.base.moveSpeed + (c.moveSpeed ?? 0)) * mods.moveSpeedMul,
-      damage: (tier.damage ?? 10) * allStat,
-      magic: (def.base.magic + (c.magic ?? 0)) * allStat * mods.magicMul,
+      moveSpeed: (def.base.moveSpeed + (c.moveSpeed ?? 0)) * mods.moveSpeedMul * (giant ? 0.85 : 1),
+      damage: (tier.damage ?? 10) * allStat * (giant ? 1.15 : 1),
+      magic: (def.base.magic + (c.magic ?? 0)) * allStat * mods.magicMul * (giant ? 1.15 : 1),
       stamina: (def.base.stamina + (c.stamina ?? 0)) * allStat * mods.staminaMul,
       intelligence: (def.base.intelligence + (c.intelligence ?? 0)) * allStat * mods.intelligenceMul,
       // 瞬闪 / 双重人格 根被动：技能所需充能 -20%

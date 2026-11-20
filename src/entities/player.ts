@@ -49,6 +49,8 @@ export class Player {
   facing: Facing = 'down'
   dashCooldownLeft = 0
   dashTimeLeft = 0
+  /** 体型倍率（潜能·巨化） */
+  scaleMul = 1
 
   private readonly scene: THREE.Scene
   private anim: SpriteAnim
@@ -411,7 +413,7 @@ export class Player {
     this.sprite.position.y = bounce * (dash ? 0.07 : 0.045)
     this.sprite.rotation.z = moving ? wave * (dash ? 0.10 : 0.045) : 0
     const squash = moving ? 1 - bounce * 0.03 : 1
-    this.sprite.scale.set(1 + (1 - squash) * 0.7, squash, 1)
+    this.sprite.scale.set((1 + (1 - squash) * 0.7) * this.scaleMul, squash * this.scaleMul, 1)
 
     // 轮廓复用一个放大版精灵，帧/呼吸/倾斜与本体完全同步
     setSpriteFrame(this.outline, this.anim, this.facing, frame)
