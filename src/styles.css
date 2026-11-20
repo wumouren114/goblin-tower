@@ -720,7 +720,7 @@ body.is-modal-open .floor-banner {
   height: 46px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 18px;
   padding: 0 24px;
   font-size: 11.5px;
@@ -732,25 +732,6 @@ body.is-modal-open .floor-banner {
     rgba(4, 8, 7, 0.92) 100%
   );
   border-top: 1px solid rgba(232, 178, 90, 0.1);
-}
-
-.key-hints {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.key-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-}
-
-.key-hint kbd {
-  height: 18px;
-  font-size: 9.5px;
 }
 
 .objective {
@@ -2342,9 +2323,6 @@ body.is-modal-open .floor-banner {
     padding: 9px 12px 10px;
   }
 
-  .hud-bottom .key-hints .key-hint:nth-child(n + 4) {
-    display: none;
-  }
 
   .boss-bar {
     width: 54vw;

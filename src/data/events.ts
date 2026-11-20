@@ -113,6 +113,9 @@ export const ARC_IDS = [
   'child-follows',
   'duelist-remembers',
   'fake-peddler-marked',
+  'bell-silenced',
+  'stargazer-chart',
+  'mirror-name',
 ] as const
 
 export const EVENTS: readonly EventDef[] = [
@@ -828,6 +831,465 @@ export const EVENTS: readonly EventDef[] = [
             effects: [],
             epilogue: '石门合拢的瞬间，碑前的新花轻轻颤了一下；若往后再见相似的墓碑，上面的刻痕或许会比今日更深。',
             worldview: '你可以选择不看过去，但塔始终记得你走过的每一层台阶。',
+          },
+        ],
+      },
+    ],
+  },
+
+  {
+    id: 'brass-bell',
+    title: '第三声钟的守楼人',
+    kind: 'choice',
+    flow: 'two-step',
+    scene:
+      '穹顶悬着一口生满铜绿的裂纹大钟，铁链随冷风轻轻吱呀。空气里有陈旧机油和冷铜的气味，钟舌仍在细微地颤，仿佛刚才才落下第二声余震。',
+    npc: {
+      name: '守钟的老匠',
+      identity: '独自坐在钟楼阴影里的校时人',
+      voice: '沙哑缓慢，每说半句便抬眼看一次钟舌，像在掐算最后的余拍',
+    },
+    roles: ['honest', 'avatar'],
+    clues: [
+      '钟下积灰里留着两道新近的震纹',
+      '老匠袖口沾着与教堂石台相同的冷灰',
+    ],
+    intro:
+      '老匠手里捏着半截木楔，却迟迟没有塞进钟沿。他望向你和少女，问你们要不要趁第三声钟还没落下，替他按住这口失准的黄铜钟。',
+    options: [
+      {
+        id: 'wedge',
+        label: '上前卡住钟舌',
+        hint: '若你记着墙上刻字或酒馆里的传闻，趁第三声响起前止住钟摆或许能保住什么。',
+        outcomes: [
+          {
+            id: 'bell-silenced',
+            role: 'honest',
+            text: '木楔卡进裂纹的刹那，闷重的震动顺着铁链戛然而止。老匠长长吐出一口气，把一枚磨得温润的铜符塞进你掌心，说自己终于能歇一会儿了。',
+            effects: [
+              { kind: 'arc', id: 'bell-silenced' },
+              { kind: 'buff', stat: 'all', value: 0.06, layers: 99 },
+              { kind: 'memory', id: 'third-bell' },
+            ],
+            epilogue: '钟楼彻底静了下来。他没有再看塔顶，只在石阶边合上了眼。',
+            worldview: '黄铜钟塔原本用来替整座旧城报时，被塔吞下后，第三声钟便成了抹去攀塔者姓名的记号。',
+          },
+          {
+            id: 'bell-trap',
+            role: 'avatar',
+            text: '木楔刚递到钟沿，老匠的袖袍猛地裂开，冷灰与齿轮倾泻而出，第三声闷响还是在耳畔炸开了。当时以为落进了钟楼的陷阱，斩碎那具空壳后，余震反倒替你震散了心头的滞意。',
+            effects: [
+              { kind: 'battle', count: 1 },
+              { kind: 'clue', id: 'bell-echo' },
+            ],
+            epilogue: '铁链垂落下来，裂纹大钟再没发出声响；只是你隐约觉得，刚才那一声似乎带走了某个极熟悉的名字。',
+            worldview: '塔从不亲自敲钟，它只借守楼人的手，确认谁在听到第三声后还会继续往上走。',
+          },
+        ],
+      },
+      {
+        id: 'expose',
+        label: '点破塔在收集攀塔者',
+        hint: '教堂里的那句真相或许能叫停这场仪式——前提是站在面前的东西还肯听。',
+        requires: ['tower-collects'],
+        outcomes: [
+          {
+            id: 'bell-expose-honest',
+            role: 'honest',
+            text: '老匠握着木楔的手顿住了。沉默良久，他把木楔自己楔进钟缝，又从怀里取出一张封着火漆的旧卡片递给你，低声道：既然已经看穿了，就别停在这一层。',
+            effects: [
+              { kind: 'card', tier: 'purple' },
+              { kind: 'memory', id: 'third-bell' },
+            ],
+            epilogue: '他目送你们走上回旋石梯，直到身影被铜雾遮住也没再松手。',
+            worldview: '知道高塔真相的守塔人并不多，肯放攀塔者过关的更少。',
+          },
+          {
+            id: 'bell-expose-avatar',
+            role: 'avatar',
+            text: '你刚说出教堂里的那句话，老匠便无声地退回阴影，像一段被提前拆穿的戏码。石台边留下几枚冷硬的金币，钟舌也自行停了下来。',
+            effects: [
+              { kind: 'gold', value: 80 },
+              { kind: 'buff', stat: 'all', value: 0.08, layers: 99 },
+            ],
+            epilogue: '空荡的钟楼里只剩风声穿过裂缝，仿佛这里从未站过任何人。',
+            worldview: '当过客不再按塔写好的脚本接话，回声便会自行退潮。',
+          },
+        ],
+      },
+      {
+        id: 'listen-third',
+        label: '原地听完第三声钟',
+        hint: '不插手钟摆，硬吃下第三声回震，或许能从钟声里听出高处的动静。',
+        outcomes: [
+          {
+            id: 'bell-ring',
+            text: '低沉的铜鸣横扫石室，耳膜嗡嗡作响，眼前一度发白。余音散去时，周身魔力却被震得格外清明，连远处恶龙的吐息似乎都近了一分。',
+            effects: [
+              { kind: 'buff', stat: 'magic', value: 0.14, layers: 2 },
+              { kind: 'debuff', stat: 'vision', value: 0.15, layers: 2 },
+            ],
+            epilogue: '老匠没有再看你，只默默收起木楔，像刚记下一笔无关紧要的账。',
+            worldview: '第三声钟带走的从来不是性命，而是你以为自己绝不会忘的那点过往。',
+          },
+        ],
+      },
+      {
+        id: 'leave',
+        label: '趁钟未响离开',
+        hint: '既不替人卡钟，也不留下来挨这一下。',
+        outcomes: [
+          {
+            id: 'bell-leave',
+            text: '你拉住少女绕过钟影，赶在铁链再次摆动前推开了上层的铁门。',
+            effects: [],
+            epilogue: '铁门合拢后，隐约有一声闷响隔着石壁传来，已经追不上你们的脚步。',
+            worldview: '有些回声只困住停步的人，走得够快，钟声便落不到肩上。',
+          },
+        ],
+      },
+    ],
+  },
+
+  {
+    id: 'stargazer-desk',
+    title: '星砂残图',
+    kind: 'info',
+    flow: 'narrative',
+    scene:
+      '半塌的观星露台边立着一张铜边案几，破损的沙漏正把细碎星砂漏成一道微亮的浅河。案面摊着半卷被撕去顶端的星图，折页里夹着一朵早已干透的白花。',
+    clues: [
+      '星图缺掉的那一角正是塔顶的位置',
+      '夹在纸页里的干花与云上花庭如出一辙',
+    ],
+    intro:
+      '这里早已没人看守。星图边缘留着细密的批注，字迹越往高处越凌乱，最后一行只写着：「若花还在，说明她曾陪你走到这里」。',
+    options: [
+      {
+        id: 'trace-chart',
+        label: '照着星砂补全星图',
+        hint: '顺着沙漏漏出的光点描出缺角，能看清前路几分走势，只是星砂极容易迷眼。',
+        outcomes: [
+          {
+            id: 'chart-clear',
+            text: '你用指尖蘸着微凉星砂补完最后几条弧线，纸面微微发亮，几道潜藏的星轨在脑海里一闪而过，出手的落点骤然清晰起来。',
+            effects: [
+              { kind: 'memory', id: 'star-fall' },
+              { kind: 'buff', stat: 'crit', value: 0.08, layers: 3 },
+              { kind: 'arc', id: 'stargazer-chart' },
+            ],
+            epilogue: '风一吹，补上去的星砂便散回露台；星图仍缺着顶角，但那点光亮留在了眼里。',
+            worldview: '星砂观星台坠入高塔前，曾试图测算塔顶恶龙的轨道，却在最后一步失去了全部坐标。',
+          },
+          {
+            id: 'chart-dizzy',
+            text: '星砂的反光比预想更刺眼，盯着纸面太久让你脚步发沉。当时以为白耗了心神，合卷时却记住了纸背画着的一处旧标记。',
+            effects: [
+              { kind: 'debuff', stat: 'moveSpeed', value: 0.1, layers: 1 },
+              { kind: 'arc', id: 'stargazer-chart' },
+            ],
+            epilogue: '眩晕很快就会退去；案上的干花被你重新夹回了原处。',
+            worldview: '观星者留下的笔记总带着冷意，因为他们抬头看到的从来不是星空，而是塔穹。',
+          },
+        ],
+      },
+      {
+        id: 'collect-sand',
+        label: '收起铜漏里剩下的星砂',
+        hint: '不碰星图，只带走还能换钱、也能稳住气息的星砂。',
+        outcomes: [
+          {
+            id: 'sand-gain',
+            text: '你把铜漏底座里积着的一撮星砂装进袋口，微凉的光尘贴着掌心散开，身上的疲惫也轻了一截。',
+            effects: [
+              { kind: 'gold', value: 75 },
+              { kind: 'heal', ratio: 0.2 },
+            ],
+            epilogue: '空了的沙漏终于停下声响，露台重归寂静。',
+            worldview: '在塔内商路上，星砂比旧世金币更值钱，因为它还保留着一点未碎的时间。',
+          },
+        ],
+      },
+      {
+        id: 'press-memory',
+        label: '把一段残忆压在干花下',
+        hint: '若你身上带着拾来的记忆碎片，或许能与这朵旧花对上回声。',
+        requires: ['memory:any'],
+        outcomes: [
+          {
+            id: 'flower-echo',
+            text: '你刚把指尖按在干花旁，纸页间竟浮出一枚温热的卡牌，少女低头看了看那朵干花，轻声说这味道很像我们出发前的清晨。',
+            effects: [
+              { kind: 'card', tier: 'purple' },
+              { kind: 'heal', ratio: 0.4 },
+            ],
+            epilogue: '风把干花吹落一瓣，恰巧落在你的肩头。',
+            worldview: '不同大层的世界回声偶会彼此叠印：云上花庭的花，曾被某位攀塔者一路带到过星砂台。',
+          },
+        ],
+      },
+      {
+        id: 'leave',
+        label: '原样留在案上',
+        hint: '不打扰前人的遗物，只记住这间安静的露台。',
+        outcomes: [
+          {
+            id: 'chart-leave',
+            text: '你替被风掀起的星图压好边角，带着少女转身走进下一道石廊。',
+            effects: [],
+            epilogue: '星砂仍在沙漏里细细地漏着，像在等下一位走过这里的失忆者。',
+            worldview: '塔里留得最久的往往不是兵器，而是无人认领的半页笔记。',
+          },
+        ],
+      },
+    ],
+  },
+
+  {
+    id: 'broken-mirror',
+    title: '倒影里的同行者',
+    kind: 'choice',
+    flow: 'chain',
+    scene:
+      '一面高过人头的旧水银镜斜靠在石柱旁，镜沿爬着蛛网般的细裂。镜面清清楚楚映出你身旁的少女，却映出你自己披着陌生旧甲、手里握着半截断剑。',
+    npc: {
+      name: '镜中的持剑人',
+      identity: '站在水银裂纹背后的另一个你',
+      voice: '低沉平稳，声音隔着玻璃泛着回音，每个尾音都比你的口型慢半拍',
+    },
+    roles: ['real', 'illusion', 'fraud'],
+    clues: [
+      '镜中少女的影子和现实严丝合缝，唯独你的倒影慢了半拍',
+      '镜框底下堆着几枚磨平的旧铜币',
+    ],
+    intro:
+      '镜里那个披着旧甲的你缓缓抬起手，隔着裂纹朝你招了招，说可以把你忘在低层的那点本事先借回来，只要你肯把掌心贴上镜面。',
+    options: [
+      {
+        id: 'reach',
+        label: '伸手贴上镜面',
+        hint: '倒影里既可能封着你上一趟攀塔的余温，也可能藏着借皮囊设局的东西。',
+        outcomes: [
+          {
+            id: 'mirror-real',
+            role: 'real',
+            text: '掌心贴上微凉的水银，裂纹瞬间亮起一道浅金。一段熟悉得近乎本能的发力感顺着腕骨涌回体内，镜中的旧甲人朝你微微颔首，随即散作薄雾。',
+            effects: [
+              { kind: 'buff', stat: 'all', value: 0.07, layers: 99 },
+              { kind: 'memory', id: 'mirror-vow' },
+            ],
+            epilogue: '水银镜彻底暗了下去，只剩一道普通的反光，映出你们此刻的样子。',
+            worldview: '塔每一次剥去勇者的记忆，都会把多余的倒影丢进边角回廊，久而久之便积成了一面面旧镜。',
+          },
+          {
+            id: 'mirror-illusion',
+            role: 'illusion',
+            text: '指尖刚触到玻璃，寒意便顺着手臂直窜肩头，镜里的人影连同裂纹一起扭曲消散。当时以为白白挨了一记冷气、耗了力气，退开半步却看清镜框后藏着一条回廊暗缝。',
+            effects: [
+              { kind: 'debuff', stat: 'stamina', value: 0.1, layers: 2 },
+              { kind: 'clue', id: 'mirror-seam' },
+            ],
+            epilogue: '肩头的寒意过两层就会散去；下次再见会说话的镜子，未必还会轻易伸手。',
+            worldview: '世界回声最擅长拿你自己的模样说话，因为人在失忆时，最难拒绝一张熟悉的脸。',
+          },
+          {
+            id: 'mirror-fraud',
+            role: 'fraud',
+            text: '水银面骤然碎裂，一只披着旧甲的仿影踏出镜框直取咽喉。当时以为上了恶当，将它斩碎后，碎镜堆里却滚出一小袋沾灰的金币。',
+            effects: [
+              { kind: 'battle', count: 1 },
+              { kind: 'gold', value: 70 },
+            ],
+            epilogue: '镜框空了，地上只剩满地反光的碎银片。',
+            worldview: '塔里的掠食者学会了守在镜后，专等想找回过去的人主动走近。',
+          },
+        ],
+      },
+      {
+        id: 'spot-lag',
+        label: '点破影子慢了半拍',
+        hint: '若你见过货郎那类滞后的伪影，一眼就能拆穿这面镜子的把戏。',
+        requires: ['fake-peddler'],
+        outcomes: [
+          {
+            id: 'mirror-exposed',
+            text: '你没有伸手，只拿剑脊轻敲了一下镜沿滞后的阴影。镜中人动作一僵，水银面哗啦褪色，从空框夹层里滑出一张紫卡与一小撮金币。',
+            effects: [
+              { kind: 'card', tier: 'purple' },
+              { kind: 'gold', value: 45 },
+            ],
+            epilogue: '少女轻笑了一声，说你在塔里吃过的亏到底没白费。',
+            worldview: '塔内所有粗劣的伪装都有同一个破绽：它们模仿得了眉眼，却跟不上活人的拍子。',
+          },
+        ],
+      },
+      {
+        id: 'pay-toll',
+        label: '往镜框前掷一枚钱（30 金）',
+        hint: '按旧俗投币问镜，不近身接触，只看镜面愿不愿回礼。',
+        costGold: 30,
+        outcomes: [
+          {
+            id: 'mirror-toll-real',
+            role: 'real',
+            text: '金币叮当滚进镜影里，镜面漾开一圈温水般的微光，替你抚平了肩伤，连指尖的魔力也跟着轻快起来。',
+            effects: [
+              { kind: 'heal', ratio: 0.5 },
+              { kind: 'buff', stat: 'magic', value: 0.12, layers: 2 },
+            ],
+            epilogue: '镜中的旧甲人朝你举剑致意，随后隐入水银深处。',
+            worldview: '按旧规矩行事，偶尔能让失控的回声短暂停在善意那一面。',
+          },
+          {
+            id: 'mirror-toll-illusion',
+            role: 'illusion',
+            text: '硬币撞上镜面弹了回来，竟带出底座下前人留下的两倍旧币，镜中人却已不知去向。',
+            effects: [{ kind: 'gold', value: 60 }],
+            epilogue: '这趟买卖倒没吃亏，只是镜子再没亮起过。',
+            worldview: '许多攀塔者曾在镜前许愿，留下的钱币最后都成了后来者的盘缠。',
+          },
+          {
+            id: 'mirror-toll-fraud',
+            role: 'fraud',
+            text: '钱币落进暗影便没了声息，镜面闪过一道刺眼白光，晃得你握剑的手微微发涩。当时以为白赔了三十枚金币，镜中却在熄灭前吐出半个你曾用过的姓氏。',
+            effects: [
+              { kind: 'debuff', stat: 'crit', value: 0.1, layers: 2 },
+              { kind: 'arc', id: 'mirror-name' },
+            ],
+            epilogue: '那半个姓氏很快又变得模糊，或许高处还会有人念起它，也可能就此沉底。',
+            worldview: '在塔里，连骗局偶尔也会漏出一丝真货，只要你肯付得起学费。',
+          },
+        ],
+      },
+      {
+        id: 'turn-away',
+        label: '转身离开',
+        hint: '镜子里的自己终究是过去，没必要停下来对视。',
+        outcomes: [
+          {
+            id: 'mirror-leave',
+            text: '你移开视线，带着少女绕过石柱。镜里那道抬起的手臂缓缓垂落，没有发出任何声音。',
+            effects: [],
+            epilogue: '走出很远，回廊里只剩你们两人的脚步声。',
+            worldview: '比起找回从前的自己，先把眼前这一层走完往往更要紧。',
+          },
+        ],
+      },
+    ],
+  },
+
+  {
+    id: 'night-campfire',
+    title: '熄灰前的旅人',
+    kind: 'choice',
+    flow: 'two-step',
+    scene:
+      '避风的石室角落燃着一小堆将熄的暗红炭火，吊在铁架上的小壶正咕嘟冒着微苦草药香。一名披着破斗篷的旅人低头擦拭缺角盾牌，盾沿系着一条褪色的星砂纹章布条。',
+    npc: {
+      name: '守火的旅人',
+      identity: '在火堆旁暂歇的重装攀塔者',
+      voice: '低沉寡言，添柴时动作极稳，视线却始终留一分在石门外的暗影上',
+    },
+    roles: ['genuine', 'fallen', 'bait'],
+    clues: [
+      '盾沿布条上的纹章与石梁下骑士的手甲同源',
+      '炭火明明快熄了，石室里却丝毫不冷',
+    ],
+    intro:
+      '他听见脚步声并未拔剑，只是往火堆里拨进两根干柴，朝你们抬了抬下巴，说这壶草药还够分两碗，若赶路不急，可以在炭灰冷透前歇上一会儿。',
+    options: [
+      {
+        id: 'share-fire',
+        label: '在火边歇一口气',
+        hint: '炭火能暖身，但石室里异常的暖意也可能是别的东西在模仿营地。',
+        outcomes: [
+          {
+            id: 'fire-genuine',
+            role: 'genuine',
+            text: '草药入口微苦，暖意很快散进四肢百骸。他替你们守了半刻门口，临别前提醒你高处的黄铜回廊最耗气血。',
+            effects: [
+              { kind: 'heal', ratio: 0.45 },
+              { kind: 'buff', stat: 'hp', value: 0.06, layers: 99 },
+            ],
+            epilogue: '他把最后一捧灰踩灭，背起缺角盾牌往另一条岔道走了。',
+            worldview: '星砂旧国的骑士团早已散在塔里，偶有幸存者仍守着替同行守夜的老规矩。',
+          },
+          {
+            id: 'fire-fallen',
+            role: 'fallen',
+            text: '喝完药后他指着你身旁的少女，低声说自己从前也有过那样并肩的同伴，只是走到第九层便散了。你忽然觉得胸口一紧，一段模糊的誓言在脑海里闪了半瞬。',
+            effects: [
+              { kind: 'memory', id: 'campfire-oath' },
+              { kind: 'heal', ratio: 0.3 },
+            ],
+            epilogue: '炭火彻底暗成灰白，他没有起身，只挥了挥手让你们先走。',
+            worldview: '不是所有停步的人都输给了怪物；许多人是在记起失去的东西后，自己熄了火。',
+          },
+          {
+            id: 'fire-bait',
+            role: 'bait',
+            text: '刚坐下身，火堆里的暗红炭块竟化作几道火星扑面而来，破斗篷下钻出潜伏的怪物。当时以为贪这一口暖气惹来伏击，清完敌人后倒从行囊里摸出不少路费。',
+            effects: [
+              { kind: 'battle', count: 2 },
+              { kind: 'gold', value: 55 },
+            ],
+            epilogue: '那条褪色的纹章布条被你收进了袖口，石室里重新冷了下来。',
+            worldview: '温暖在塔里太过稀缺，所以连一点假火光，也足够钓住疲惫的攀塔者。',
+          },
+        ],
+      },
+      {
+        id: 'trade-supplies',
+        label: '花 40 金换一包草药与干粮',
+        hint: '不坐下久留，一手交钱一手拿补给，把变数压到最小。',
+        costGold: 40,
+        outcomes: [
+          {
+            id: 'fire-trade-genuine',
+            role: 'genuine',
+            text: '他点过金币，爽快地把整包配好的止血草与风干肉递过来，份量比想象中更足，连赶路的脚步都稳快了不少。',
+            effects: [
+              { kind: 'heal', ratio: 0.7 },
+              { kind: 'buff', stat: 'moveSpeed', value: 0.1, layers: 2 },
+            ],
+            epilogue: '公平交易两不相欠，他在火光里朝你点点头。',
+            worldview: '越往高层走，一口干净的干粮越比华丽的饰品更能保命。',
+          },
+          {
+            id: 'fire-trade-fallen',
+            role: 'fallen',
+            text: '他收下金币后迟疑了一瞬，除了干粮，还把一张旧蓝卡连同半枚缺口徽记一并塞进布袋，说自己留着也没用了。',
+            effects: [
+              { kind: 'card', tier: 'blue' },
+              { kind: 'arc', id: 'fallen-hero-token' },
+            ],
+            epilogue: '这枚旧徽记与货郎包袱里的那块几乎同源，或许在更深处还能派上用场。',
+            worldview: '前人退场时留下的东西，总会被塔推到下一位还在往上走的人手里。',
+          },
+          {
+            id: 'fire-trade-bait',
+            role: 'bait',
+            text: '布袋入手轻得发飘，打开全是冷灰，抬头时旅人已连同火堆退进暗壁，四周巡逻的动静随之急促起来。当时以为白赔了四十金，倒也借着冷灰认清了这层伪装营地的气味。',
+            effects: [
+              { kind: 'debuff', stat: 'enemySpeed', value: 0.12, layers: 2 },
+              { kind: 'clue', id: 'campfire-ash' },
+            ],
+            epilogue: '你抖落掌心的冷灰，握紧武器继续上行。',
+            worldview: '在塔里，看似最平常的一堆营火，有时也只是墙缝吐出来的诱饵。',
+          },
+        ],
+      },
+      {
+        id: 'leave',
+        label: '趁火未熄继续赶路',
+        hint: '不歇也不买，趁气势未断直接上行。',
+        outcomes: [
+          {
+            id: 'fire-leave',
+            text: '你朝他微微颔首便转身离开。身后传来木柴轻轻爆开的一声脆响，很快被石门隔断。',
+            effects: [],
+            epilogue: '等你们走远，那堆火大概也会安静地熄成冷灰。',
+            worldview: '塔里最稳妥的步调，就是不等任何人为你留火。',
           },
         ],
       },

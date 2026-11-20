@@ -54,6 +54,8 @@ const DOC_SFX_RANGES = {
   recall: [0.22, 0.38],
   watergun: [0.85, 1.15],
   push: [0.15, 0.26],
+  boss_phase: [0.48, 0.72],
+  boss_enrage: [0.32, 0.48],
 }
 
 const REQUIRED_SFX = Object.keys(DOC_SFX_RANGES)

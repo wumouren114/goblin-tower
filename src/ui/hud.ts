@@ -459,13 +459,6 @@ const UI_TEMPLATE = /* html */ `
     </div>
 
     <div class="hud-bottom">
-      <div class="key-hints">
-        <span class="key-hint"><kbd>WASD/方向键</kbd>移动</span>
-        <span class="key-hint"><kbd>左键</kbd>点击普攻</span>
-        <span class="key-hint"><kbd>右键</kbd>技能</span>
-        <span class="key-hint"><kbd>E</kbd>互动</span>
-        <button class="key-hint js-hud-pause" type="button"><kbd>P</kbd>暂停</button>
-      </div>
       <div class="objective js-objective">清空本层敌人</div>
     </div>
 
@@ -1497,8 +1490,6 @@ class HudImpl implements HudV3 {
     this.killsEl = this.q('.js-kills')
     this.killsStatEl = this.q('.js-kills-stat')
     this.muteChipEl = this.q('.js-mute')
-    const hudPauseBtn = this.q('.js-hud-pause')
-    if (hudPauseBtn) hudPauseBtn.addEventListener('click', () => this.handlers.onPauseToggle())
     this.hpBlockEl = this.q('.js-hp-block')
     this.hpFillEl = this.q('.js-hp-fill')
     this.hpTextEl = this.q('.js-hp-text')
