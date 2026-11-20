@@ -876,6 +876,35 @@ export class Game {
 
     // v5：删除 Shift 冲刺（唯一位移由技能负责），玩家防御手段只有走位
 
+    // 键位引导条：解锁状态与冷却
+    if (this.hud.setKeyGuide) {
+      const accent = this.run.character === 'murasame' ? '#ff7a8a' : this.run.character === 'mutsumi' ? '#c9a8ff' : '#8ff6ff'
+      const nodes = this.run.potential?.nodes.length ?? 0
+      const now = performance.now()
+      const cdOf = (until: number, cd: number): number | undefined =>
+        now >= until ? 1 : Math.max(0, 1 - (until - now) / (cd * 1000))
+      this.hud.setKeyGuide([
+        { key: 'WASD', label: '移动', unlocked: true, accent },
+        { key: '左键', label: '普攻', unlocked: true, accent },
+        { key: '右键', label: '技能', unlocked: true, accent },
+        {
+          key: 'Q',
+          label: this.run.character === 'murasame' ? '处决' : this.run.character === 'mutsumi' ? '推敌' : '回收',
+          unlocked: this.run.potential !== undefined,
+          cooldown: cdOf(this.qSkillCdUntil, 12),
+          accent,
+        },
+        {
+          key: 'F',
+          label: this.run.character === 'murasame' ? '格挡' : this.run.character === 'mutsumi' ? '强拍' : '扫射',
+          unlocked: nodes >= 2,
+          cooldown: cdOf(this.fSkillCdUntil, 20),
+          accent,
+        },
+        { key: 'E', label: '互动', unlocked: true, accent },
+      ])
+    }
+
     // 节奏分支：把节拍相位推给 HUD（没有节拍环，玩家没法踩拍）
     const beatPhase = this.combat?.beatPhase ?? null
     if (beatPhase !== null) {

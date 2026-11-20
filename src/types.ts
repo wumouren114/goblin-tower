@@ -445,6 +445,8 @@ export interface HudV3 {
   updateBeat(phase: number, judge: 'perfect' | 'good' | 'miss' | null): void
   /** 节奏分支连击数（0 表示隐藏） */
   updateCombo(count: number): void
+  /** 局内键位引导条（中下部）：未解锁灰显，解锁后按角色主题色 */
+  setKeyGuide?(items: readonly { key: string; label: string; unlocked: boolean; cooldown?: number; accent?: string }[]): void
   destroy(): void
 }
 
