@@ -575,7 +575,8 @@ export class Combat {
       : attackInterval(this.stats.stamina, def.attack.minInterval) *
         this.styleAttackIntervalMul() *
         (this.potentialBranch === 'bubble' ? 1.15 : 1) *
-        (this.combatTime < this.rapidUntil ? 0.55 : 1)
+        (this.combatTime < this.rapidUntil ? 0.55 : 1) *
+        (this.potentialBranch === 'bubble' && this.hasNode('fish-bubble-giant') ? 1.1 : 1)
     this.cooldownLeft = Math.max(0.01, interval)
     const forced = this.combatTime < this.forcePerfectUntil
     const judge = rhythm
