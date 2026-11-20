@@ -990,9 +990,16 @@ export class Combat {
     //       群体 = 数量 3→5；环绕节点额外 3 只碰撞体
     const isClone = this.potentialBranch === 'clone'
     const isSwarm = this.potentialBranch === 'swarm'
+    // 旧风格加成：潜能分支接管后不再叠加（潜能取代风格）
+    const legacy = this.potentialBranch === null
+    const tactics = this.al('fish-school-tactics')
+    const styleHpMul = legacy ? ((this.style.id === 'fish-school' ? 0.85 : 1) * (this.style.id === 'fish-whale' ? 1.3 : 1)) : 1
+    const styleDamageMul = legacy && this.style.id === 'fish-whale' ? 1.2 : 1
+    const styleIntervalMul = legacy && this.style.id === 'fish-school' ? 1 - [0, 0.05, 0.1, 0.15][tactics] : 1
     let count = Math.max(1, Math.floor(tierNum(tier, 'minionCount', p.count ?? 3)))
     if (this.style.id === 'fish-school') count += 1
     if (this.style.id === 'fish-burst' || this.style.id === 'fish-whale') count -= 1
+    if (legacy && this.style.id === 'fish-school' && tactics >= 3) count += 1
     if (isSwarm) count += 2
     count = Math.max(1, count)
 
@@ -1010,9 +1017,9 @@ export class Combat {
       specs.push({
         x: px + Math.cos(ang) * 1.15,
         z: pz + Math.sin(ang) * 1.15,
-        hp: Math.max(1, this.stats.maxHp * hpRatio),
-        damage: baseDamage * damageMul,
-        interval: p.minionInterval ?? 0.6,
+        hp: Math.max(1, this.stats.maxHp * hpRatio * styleHpMul),
+        damage: baseDamage * damageMul * styleDamageMul,
+        interval: (p.minionInterval ?? 0.6) * styleIntervalMul,
         speed: p.minionSpeed ?? 5.2,
         followRange: 5,
         range: p.minionRange ?? 7,
@@ -1020,8 +1027,10 @@ export class Combat {
         bubbleSpeed: 9,
         bubbleRange: p.minionRange ?? 7,
         bubbleHitRadius: 0.3,
-        scale,
+        scale: legacy && this.style.id === 'fish-whale' ? scale * 1.18 : scale,
         bubbleScale,
+        taunt: tierNum(tier, 'minionTaunt', 0) > 0,
+        slow: tierNum(tier, 'minionSlow', 0) > 0 ? tierNum(tier, 'minionSlow', 0) : undefined,
         focus,
         ...opts,
       })
