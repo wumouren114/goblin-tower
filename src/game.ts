@@ -354,6 +354,7 @@ export class Game {
     })
     this.combat.setCharacter(character)
     this.combat.setBuild(style.id, this.run.awakenings)
+    this.syncPotential()
     this.combat.setWeaponLv(1)
     this.rig.reset()
     this.hud.hideTitle()
@@ -402,6 +403,7 @@ export class Game {
     })
     this.combat.setCharacter(state.character)
     this.combat.setBuild(this.run.style, this.run.awakenings)
+    this.syncPotential()
     this.combat.setWeaponLv(state.weaponLv)
     this.rig.reset()
     this.hud.hideTitle()
@@ -735,6 +737,7 @@ export class Game {
     if (this.combat) {
       this.combat.setCharacter(this.run.character)
       this.combat.setBuild(this.run.style, this.run.awakenings)
+    this.syncPotential()
       this.combat.setWeaponLv(this.run.weaponLv)
     }
     this.player.setHp(Math.max(1, Math.min(this.player.stats.maxHp, snap.hp || this.player.stats.maxHp)))
@@ -942,6 +945,18 @@ export class Game {
    * 临时调试入口：抽一个事件 + 一个隐藏真身，打开面板。
    * 等事件房间接进隧道后，改由房间触发这里。
    */
+  /** 把 run.potential 同步给战斗系统（换分支/读档后都要调） */
+  private syncPotential(): void {
+    this.combat?.setPotential(this.run.potential?.branch, this.run.potential?.nodes ?? [])
+  }
+
+  /** 调试：直接设定潜能（?potential=liushang&pnodes=murasame-liushang-rate,...） */
+  debugSetPotential(branch: string, nodes: string[]): void {
+    this.run.potential = { branch, nodes }
+    this.syncPotential()
+    this.hud.toast(`潜能：${branch}${nodes.length ? ' + ' + nodes.length + ' 节点' : ''}`, 'good')
+  }
+
   /** 调试：在玩家前方刷一只封路者（?blocker=1） */
   debugSpawnBlocker(): void {
     if (!this.player) return
@@ -2752,7 +2767,11 @@ export class Game {
       magic: (def.base.magic + (c.magic ?? 0)) * allStat * mods.magicMul,
       stamina: (def.base.stamina + (c.stamina ?? 0)) * allStat * mods.staminaMul,
       intelligence: (def.base.intelligence + (c.intelligence ?? 0)) * allStat * mods.intelligenceMul,
-      chargeMax: Math.max(30, (def.base.chargeMax + (c.chargeMax ?? 0)) * allStat),
+      // 瞬闪根被动：技能所需充能 -20%
+      chargeMax: Math.max(
+        30,
+        (def.base.chargeMax + (c.chargeMax ?? 0)) * allStat * (this.run.potential?.branch === 'shunshan' ? 0.8 : 1),
+      ),
       chargeGain: c.chargeGain ?? 0,
       armor: 0,
       armorRate: Math.min(0.6, c.armor ?? 0),

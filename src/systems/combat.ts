@@ -177,6 +177,9 @@ export class Combat {
 
   /* ── v4.6 角色觉醒 ── */
   private style: StyleDef = defaultStyle('mutsumi')
+  /** 潜能分支与已点节点（一级，不升级）；目前接了丛雨三条 */
+  private potentialBranch: 'liushang' | 'shunshan' | 'jianyi' | null = null
+  private potentialNodes: ReadonlySet<string> = new Set()
   private awakenings: Partial<Record<AwakeningId, number>> = {}
   private resourceValue = 0
   private activeWorld: CombatWorld | null = null
@@ -234,6 +237,33 @@ export class Combat {
   }
 
   /** v4.6：开局/读档/重试时设置风格与觉醒，并清空短循环资源 */
+  /** 设置潜能：分支 + 已点节点。换分支会清掉旧流血，避免残留 */
+  setPotential(branch: string | null | undefined, nodes: readonly string[]): void {
+    this.potentialBranch =
+      branch === 'liushang' || branch === 'shunshan' || branch === 'jianyi' ? branch : null
+    this.potentialNodes = new Set(nodes)
+    this.bleeds.clear()
+  }
+
+  private hasNode(id: string): boolean {
+    return this.potentialNodes.has(id)
+  }
+
+  /**
+   * 流殇：普攻附加流血。
+   * 现有流血模型是「每 0.5s 一跳、按 dps 结算」，所以：
+   * - 强度节点直接提每跳百分比
+   * - 速率节点（0.4s 一跳）折算成 dps ×1.25
+   * - 持续节点延长总时长
+   */
+  private applyLiushangBleed(target: Hittable, amount: number): void {
+    if (this.potentialBranch !== 'liushang' || !target.alive) return
+    const pct = this.hasNode('murasame-liushang-power') ? 0.1 : 0.08
+    const rateMul = this.hasNode('murasame-liushang-rate') ? 1.25 : 1
+    const duration = this.hasNode('murasame-liushang-long') ? 4 : 3
+    this.applyBleed(target, amount * pct * 2 * rateMul, duration)
+  }
+
   setBuild(styleId: StyleId | string | undefined, awakenings: Partial<Record<AwakeningId, number>> | undefined): void {
     this.style = styleForCharacter(this.charId, styleId)
     this.awakenings = { ...(awakenings ?? {}) }
@@ -542,6 +572,7 @@ export class Combat {
     let leeched = 0
     for (const t of targets) {
       const killed = t.hit(amount, dir.x * 2.2, dir.z * 2.2)
+      this.applyLiushangBleed(t, amount)
       if (gather > 0) pullToward(t, px, pz, gather)
       this.hooks.onHit(t, amount, crit, killed)
       if (lifesteal > 0) leeched += amount * lifesteal
