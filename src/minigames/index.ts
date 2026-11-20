@@ -9,18 +9,22 @@
 import { gearsMiniGame } from './gears'
 import type { MiniGame, MiniGameContext, MiniGameResult } from './shared'
 import { starlinesMiniGame } from './starlines'
+import { towerDropMiniGame } from './towerDrop'
 import { windmillMiniGame } from './windmill'
 
 export type { MiniGame, MiniGameContext, MiniGameResult }
 
-export const MINIGAMES: Record<'windmill' | 'starlines' | 'gears', MiniGame> = {
+export const MINIGAMES: Record<'windmill' | 'starlines' | 'gears' | 'tower-drop', MiniGame> = {
   windmill: windmillMiniGame,
   starlines: starlinesMiniGame,
   gears: gearsMiniGame,
+  'tower-drop': towerDropMiniGame,
 }
 
 /** 按所在层数返回对应世界回声阶段的小游戏 */
 export function minigameForLayer(layer: number): MiniGame {
+  // 全地图通用位：偶数层固定轮到「落点校准」，其余层仍按阶段分派原有玩法
+  if (layer % 2 === 0) return MINIGAMES['tower-drop']
   if (layer <= 5) return MINIGAMES.windmill
   if (layer <= 10) return MINIGAMES.starlines
   return MINIGAMES.gears
