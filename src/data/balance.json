@@ -52,12 +52,39 @@
   "warmup": {
     "note": "前几层给玩家发育时间：小怪更脆、伤害更低、刷新更慢、同屏更少；困难模式只保第 1 层",
     "easyNormal": [
-      { "hpMul": 0.7, "damageMul": 0.5, "spawnMul": 1.2, "maxAliveMul": 0.6 },
-      { "hpMul": 0.8, "damageMul": 0.65, "spawnMul": 1.12, "maxAliveMul": 0.72 },
-      { "hpMul": 0.9, "damageMul": 0.8, "spawnMul": 1.05, "maxAliveMul": 0.85 },
-      { "hpMul": 0.95, "damageMul": 0.9, "spawnMul": 1.0, "maxAliveMul": 0.95 }
+      {
+        "hpMul": 0.7,
+        "damageMul": 0.5,
+        "spawnMul": 1.2,
+        "maxAliveMul": 0.6
+      },
+      {
+        "hpMul": 0.8,
+        "damageMul": 0.65,
+        "spawnMul": 1.12,
+        "maxAliveMul": 0.72
+      },
+      {
+        "hpMul": 0.9,
+        "damageMul": 0.8,
+        "spawnMul": 1.05,
+        "maxAliveMul": 0.85
+      },
+      {
+        "hpMul": 0.95,
+        "damageMul": 0.9,
+        "spawnMul": 1.0,
+        "maxAliveMul": 0.95
+      }
     ],
-    "hard": [{ "hpMul": 0.88, "damageMul": 0.72, "spawnMul": 1.1, "maxAliveMul": 0.85 }]
+    "hard": [
+      {
+        "hpMul": 0.88,
+        "damageMul": 0.72,
+        "spawnMul": 1.1,
+        "maxAliveMul": 0.85
+      }
+    ]
   },
   "layerCurve": {
     "mobHpBase": 24,
@@ -129,15 +156,51 @@
       "layerGrowth": 0.1,
       "valueGrowth": 0.08,
       "stats": [
-        { "stat": "magic", "name": "魔力特训", "value": 8 },
-        { "stat": "stamina", "name": "耐力特训", "value": 7 },
-        { "stat": "intelligence", "name": "智力特训", "value": 5 },
-        { "stat": "hp", "name": "体魄特训", "value": 10 },
-        { "stat": "moveSpeed", "name": "疾行特训", "value": 0.08 },
-        { "stat": "armor", "name": "铁壁特训", "value": 0.015 },
-        { "stat": "dodge", "name": "闪避特训", "value": 0.008 },
-        { "stat": "chargeGain", "name": "回能特训", "value": 0.05 },
-        { "stat": "crit", "name": "锐眼特训", "value": 0.015 }
+        {
+          "stat": "magic",
+          "name": "魔力特训",
+          "value": 8
+        },
+        {
+          "stat": "stamina",
+          "name": "耐力特训",
+          "value": 7
+        },
+        {
+          "stat": "intelligence",
+          "name": "智力特训",
+          "value": 5
+        },
+        {
+          "stat": "hp",
+          "name": "体魄特训",
+          "value": 10
+        },
+        {
+          "stat": "moveSpeed",
+          "name": "疾行特训",
+          "value": 0.08
+        },
+        {
+          "stat": "armor",
+          "name": "铁壁特训",
+          "value": 0.015
+        },
+        {
+          "stat": "dodge",
+          "name": "闪避特训",
+          "value": 0.008
+        },
+        {
+          "stat": "chargeGain",
+          "name": "回能特训",
+          "value": 0.05
+        },
+        {
+          "stat": "crit",
+          "name": "锐眼特训",
+          "value": 0.015
+        }
       ]
     },
     "consumables": {
@@ -179,90 +242,153 @@
       "name": "魔力药剂",
       "stat": "magic",
       "value": 18,
+      "tiers": [
+        18,
+        36,
+        66
+      ],
+      "format": "percent",
       "basePrice": 55,
-      "maxStacks": 17,
-      "desc": "魔力 +18（伤害 +18% 基准）"
+      "maxStacks": 3,
+      "desc": "伤害 +18%"
     },
     {
       "id": "stamina",
       "name": "耐力药剂",
       "stat": "stamina",
       "value": 16,
+      "tiers": [
+        16,
+        32,
+        58
+      ],
+      "format": "flat",
       "basePrice": 50,
-      "maxStacks": 17,
-      "desc": "耐力 +16（攻速 +16%）"
+      "maxStacks": 3,
+      "desc": "攻速 +16"
     },
     {
       "id": "intelligence",
       "name": "智力药剂",
       "stat": "intelligence",
       "value": 12,
+      "tiers": [
+        12,
+        24,
+        44
+      ],
+      "format": "percent",
       "basePrice": 40,
-      "maxStacks": 14,
-      "desc": "智力 +12（范围 +12%）"
+      "maxStacks": 3,
+      "desc": "范围 +12%"
     },
     {
       "id": "hp",
       "name": "生命结晶",
       "stat": "hp",
       "value": 25,
+      "tiers": [
+        25,
+        50,
+        90
+      ],
+      "format": "flat",
       "basePrice": 45,
-      "maxStacks": 17,
-      "desc": "生命上限 +25 并立即回复"
+      "maxStacks": 3,
+      "desc": "生命上限 +25"
     },
     {
       "id": "moveSpeed",
       "name": "疾风之靴",
       "stat": "moveSpeed",
       "value": 0.25,
+      "tiers": [
+        0.25,
+        0.5,
+        0.9
+      ],
+      "format": "flat",
       "basePrice": 40,
-      "maxStacks": 14,
+      "maxStacks": 3,
       "desc": "移速 +0.25"
-    },
-    {
-      "id": "chargeMax",
-      "name": "充能核心",
-      "stat": "chargeMax",
-      "value": -8,
-      "basePrice": 50,
-      "maxStacks": 11,
-      "desc": "技能所需充能 -8"
     },
     {
       "id": "armor",
       "name": "铁鳞甲片",
       "stat": "armor",
       "value": 0.05,
+      "tiers": [
+        5,
+        10,
+        18
+      ],
+      "format": "percent",
+      "cap": 35,
       "basePrice": 55,
-      "maxStacks": 7,
-      "desc": "受到的伤害 -5%（上限 35%）"
+      "maxStacks": 3,
+      "desc": "受到伤害 −5%"
     },
     {
       "id": "dodge",
       "name": "疾影护符",
       "stat": "dodge",
       "value": 0.06,
+      "tiers": [
+        6,
+        12,
+        22
+      ],
+      "format": "percent",
+      "cap": 40,
       "basePrice": 60,
-      "maxStacks": 4,
-      "desc": "闪避率 +6%（上限 24%）"
+      "maxStacks": 3,
+      "desc": "闪避率 +6%"
     },
     {
       "id": "chargeGain",
       "name": "猎手徽记",
       "stat": "chargeGain",
       "value": 0.08,
+      "tiers": [
+        8,
+        16,
+        30
+      ],
+      "format": "percent",
       "basePrice": 45,
-      "maxStacks": 8,
+      "maxStacks": 3,
       "desc": "击杀获得充能 +8%"
     },
     {
-      "id": "critRate",
+      "id": "crit",
       "name": "锐利符石",
       "stat": "crit",
       "value": 0.04,
+      "tiers": [
+        4,
+        8,
+        15
+      ],
+      "format": "percent",
+      "cap": 60,
       "basePrice": 60,
-      "maxStacks": 6,
-      "desc": "暴击率 +4%（上限 60%）"
+      "maxStacks": 3,
+      "desc": "暴击率 +4%"
+    },
+    {
+      "id": "hpRegen",
+      "name": "生命之源",
+      "stat": "hpRegen",
+      "value": 0.025,
+      "tiers": [
+        2.5,
+        5,
+        9
+      ],
+      "format": "percent",
+      "basePrice": 50,
+      "maxStacks": 3,
+      "desc": "每 5 秒回复 2.5% 最大生命"
     }
   ],
   "buffCards_extra_note": "暴击率卡",
