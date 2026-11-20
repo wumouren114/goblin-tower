@@ -1155,28 +1155,58 @@ export class Game {
   private applyEventEffects(effects: EventEffect[]): void {
     for (const eff of effects) {
       if (eff.kind === 'gold') {
-        this.run.gold = Math.max(0, this.run.gold + eff.value)
+        // 负数是"花钱"，不触发金币加成；正数走 addGold 统一入口
+        if (eff.value >= 0) this.addGold(eff.value)
+        else this.run.gold = Math.max(0, this.run.gold + eff.value)
+        this.eventFx(`${eff.value >= 0 ? '获得' : '失去'} ${Math.abs(eff.value)} 金币`, eff.value >= 0 ? 0xffd166 : 0xff7a7a)
       } else if (eff.kind === 'heal') {
-        if (this.player && eff.ratio >= 0) this.player.heal(this.player.stats.maxHp * eff.ratio)
-        else if (eff.ratio < 0) this.hud.toast('失去了一部分生命（待接线）', 'bad')
+        const p = this.player
+        const amount = p ? Math.round(p.stats.maxHp * Math.abs(eff.ratio)) : 0
+        if (eff.ratio >= 0 && p) {
+          p.heal(p.stats.maxHp * eff.ratio)
+          this.run.hp = p.hp
+        } else if (eff.ratio < 0 && p) {
+          p.takeDamage(p.stats.maxHp * Math.abs(eff.ratio))
+          this.run.hp = p.hp
+        }
+        this.eventFx(`${eff.ratio >= 0 ? '恢复' : '失去'} ${amount} 生命`, eff.ratio >= 0 ? 0x8fffc8 : 0xff7a7a)
       } else if (eff.kind === 'clue') {
         this.eventState.addClue(eff.id)
-        this.hud.toast(`线索：${eff.id}`, 'good')
+        this.eventFx(`线索 +1：${eff.id}`, 0x9fd8ff)
       } else if (eff.kind === 'arc') {
         this.eventState.addArc(eff.id, this.run.layer)
-        this.hud.toast('你记住了这件事', 'info')
+        this.eventFx('你记住了这件事', 0xc9a8ff)
       } else if (eff.kind === 'memory') {
         this.eventState.addMemory(eff.id)
-        this.hud.toast('记忆碎片 +1', 'good')
+        this.eventFx('记忆碎片 +1', 0xffd479)
       } else if (eff.kind === 'card') {
-        const label = eff.tier === 'gold' ? '金' : eff.tier === 'purple' ? '紫' : '蓝'
-        this.hud.toast(`获得${label}卡（待接线）`, 'good')
+        const tier: 1 | 2 | 3 = eff.tier === 'gold' ? 3 : eff.tier === 'purple' ? 2 : 1
+        const def = this.rng.pick([...ITEM_CARDS])
+        const item = makeCardItem(def.id, tier)
+        if (this.grantRewardItem(item)) this.eventFx(`获得${item.name}`, 0x8fe3ff)
       } else if (eff.kind === 'buff' || eff.kind === 'debuff') {
-        this.hud.toast(`${eff.stat} ${eff.kind === 'buff' ? '+' : '-'}（待接线）`, eff.kind === 'buff' ? 'good' : 'bad')
+        const good = eff.kind === 'buff'
+        const stat = eff.stat as keyof typeof this.run.cards
+        if (stat in this.run.cards) {
+          const cur = this.run.cards[stat] ?? 0
+          this.run.cards[stat] = Math.max(0, Math.min(5, cur + (good ? 1 : -1)))
+          this.syncCards()
+        }
+        this.eventFx(`${good ? '获得' : '失去'}：${String(eff.stat)}`, good ? 0x8fffc8 : 0xff7a7a)
       } else if (eff.kind === 'battle') {
-        this.hud.toast(`遭遇战 ×${eff.count}（待接线）`, 'bad')
+        this.eventFx(`遭遇战 ×${eff.count}`, 0xff8a3d)
       }
     }
+  }
+
+  /** 事件结算的统一视觉反馈：飘字 + 粒子 + 光环，得/失颜色分明 */
+  private eventFx(text: string, color: number): void {
+    const p = this.player
+    if (!p) return
+    this.hud.floatText(new THREE.Vector3(p.x, 2.1, p.z), text, color === 0xff7a7a ? 'crit' : 'gold')
+    this.hud.toast(text, color === 0xff7a7a ? 'bad' : 'good')
+    this.vfx.burst(p.x, p.z, { color, count: 14, speed: 4, life: 0.5, size: 0.3, y: 1.2 })
+    this.vfx.ring(p.x, p.z, { color, radius: 1.8, life: 0.4, grow: 2 })
   }
 
   /** 在指定位置铺一块持续伤害区域（封路原型施放） */
