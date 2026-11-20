@@ -710,7 +710,12 @@ export class Game {
     }
     // 场景互动统一用 Enter（祭坛 / 商人 / 可交互物件）。只在局内有效，
     // 避免和隧道三选一的确认键冲突。E 留作战斗键（处决 / 推开 / 回收）。
-    if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('Enter')) {
+    // 互动：E（左手，推荐）或 Enter（兼容）；场景统一用这一个键
+    if (
+      this.phase === 'playing' &&
+      !this.inventoryOpen() &&
+      (this.input.justPressed('KeyE') || this.input.justPressed('Enter'))
+    ) {
       this.tryTowerInteract()
     }
 
@@ -2721,7 +2726,7 @@ export class Game {
     return offers
   }
 
-  /** 选完路线后真正进入房间地图：玩家可以走动，找到 NPC 按 Enter 开启房间内容 */
+  /** 选完路线后真正进入房间地图：玩家可以走动，找到 NPC 按 E 开启房间内容 */
   private enterRoomMap(offer: TunnelOffer): void {
     this.currentDoor = offer
     const p = this.player

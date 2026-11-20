@@ -670,7 +670,7 @@ export class TowerFloor implements WorldV3 {
   /**
    * 可交互物的强调色：
    * 熔火主题的红色 accent 和地砖/裂缝太接近，祭坛与塔藏箱改用金色，
-   * 让“可以按 Enter 交互的东西”从背景里跳出来；其他主题保持主题 accent。
+   * 让“可以按 E 交互的东西”从背景里跳出来；其他主题保持主题 accent。
    */
   private interactAccent(): number {
     const theme = this.theme
@@ -795,7 +795,7 @@ export class TowerFloor implements WorldV3 {
     this.altarLight.position.set(0, this.crystalBaseY + 0.3, 0)
     this.root.add(this.altarLight)
 
-    // 塔心信标交互半径：站在台阶外沿也能按 Enter
+    // 塔心信标交互半径：站在台阶外沿也能按 E
     this.altarInteractR = stepR + 1.95
 
     // 祭坛单体碰撞（低矮但不可穿行）
