@@ -739,10 +739,6 @@
       ]
     }
   },
-  "backpack": {
-    "slots": 18,
-    "note": "P0-a 已取消格数上限与二合一合成；此段待随 maxSlots 空壳一并清理"
-  },
   "save": {
     "slots": 3,
     "storageKey": "goblin-tower-save-v3",

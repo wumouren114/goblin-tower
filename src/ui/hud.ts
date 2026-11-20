@@ -1156,8 +1156,7 @@ class HudImpl implements HudV3 {
     this.refreshHud()
   }
 
-  showInventory(items: InventoryItem[], gold: number, maxSlots: number): void {
-    void maxSlots
+  showInventory(items: InventoryItem[], gold: number): void {
     this.invSelected = null
     this.invItems = items.slice()
     this.ensureInvCells(Math.max(this.invMinCells, this.invItems.length))

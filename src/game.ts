@@ -3374,7 +3374,7 @@ export class Game {
   }
 
   openInventory(): void {
-    this.hud.showInventory(this.inventory.items, this.run.gold, this.inventory.maxSlots)
+    this.hud.showInventory(this.inventory.items, this.run.gold)
   }
 
   closeInventory(): void {

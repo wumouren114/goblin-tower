@@ -30,13 +30,6 @@ export class Inventory {
     return false
   }
 
-  /**
-   * @deprecated P0-a 已取消背包格数上限；仅保留只读属性兼容未改动的 game.ts，待 B 线清理后移除。
-   */
-  get maxSlots(): number {
-    return Number.POSITIVE_INFINITY
-  }
-
   /** 五维汇总：只累计「已进背包」的增益卡（消耗品与未并入 CardStat 的 hpRegen 不进此表） */
   get cards(): Record<CardStat, number> {
     const acc = emptyCards()

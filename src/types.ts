@@ -420,7 +420,7 @@ export interface HudV3 {
   updateShop(offers: ShopOffer[], gold: number, refreshCost: number): void
   hideShop(): void
   isInventoryOpen?(): boolean
-  showInventory(items: InventoryItem[], gold: number, maxSlots: number): void
+  showInventory(items: InventoryItem[], gold: number): void
   updateInventory(items: InventoryItem[], gold: number): void
   hideInventory(): void
   showPause(slots: SaveSlotMeta[]): void
