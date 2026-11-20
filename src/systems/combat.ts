@@ -84,6 +84,8 @@ export function normalizeBranch(id: string | null | undefined): PotentialBranchI
 /** game.ts 提供给战斗系统的世界操作 */
 export interface CombatWorld {
   enemies: Hittable[]
+  /** 非敌人障碍（交响·折射的反射面），可选 */
+  obstacles?: readonly { x: number; z: number; r: number }[]
   halfSize: number
   clamp(x: number, z: number): { x: number; z: number }
   heal(n: number): void
@@ -662,6 +664,7 @@ export class Combat {
         canCrit: true,
         chord,
         color: chordColor,
+        wallBounce: !chord && this.potentialBranch === 'symphony' && this.hasNode('mutsumi-symphony-bounce') ? 1 : 0,
       })
       if (!chord) this.gainResource(1)
       return
@@ -695,6 +698,7 @@ export class Combat {
         canCrit: true,
         chord,
         color: chordColor,
+        wallBounce: !chord && this.potentialBranch === 'symphony' && this.hasNode('mutsumi-symphony-bounce') ? 1 : 0,
       })
     }
     // 交响·根被动：额外一发（60% 伤害）；回声节点让这一发再 +20%
@@ -713,6 +717,7 @@ export class Combat {
         speed,
         damage: damage * 0.6 * echoMul,
         echo: true,
+        wallBounce: this.hasNode('mutsumi-symphony-bounce') ? 1 : 0,
         range: baseRange * rangeMul,
         hitRadius: 0.26 * hitMul,
         scale: sizeMul * 0.8,
@@ -1183,7 +1188,7 @@ export class Combat {
     }
     this.updateRice(px, pz, world)
 
-    this.projectiles.update(step, world.enemies, world.halfSize)
+    this.projectiles.update(step, world.enemies, world.halfSize, world.obstacles ?? [])
     this.minions.update(step, px, pz, world)
     this.updateBuildEffects(step, world)
     this.characterFx.update(step, px, pz, {
@@ -1417,28 +1422,6 @@ export class Combat {
         this.cloneEnergy = 0
         this.cloneFreeCast = true
         this.hooks.onSfx('summon')
-      }
-    }
-    // 交响·折射：额外那发命中后分裂成两发小泡（不引入障碍碰撞）
-    if (ctx.echo && this.potentialBranch === 'symphony' && this.hasNode('mutsumi-symphony-bounce') && t.alive) {
-      const ang = 0.5
-      const cos = Math.cos(ang)
-      const sin = Math.sin(ang)
-      for (const sign of [1, -1]) {
-        this.projectiles.spawn({
-          kind: 'cucumber',
-          x: t.x,
-          z: t.z,
-          y: 0.7,
-          dirX: (ctx.dirX * cos - ctx.dirZ * sin) * sign,
-          dirZ: (ctx.dirX * sin + ctx.dirZ * cos) * sign,
-          speed: 10,
-          damage: amount * 0.4,
-          range: 4,
-          hitRadius: 0.26,
-          scale: 0.7,
-          canCrit: false,
-        })
       }
     }
     // 剑意·根被动：普攻给目标挂标记（最多 3 层，4 秒）

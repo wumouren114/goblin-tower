@@ -37,6 +37,8 @@ export interface ProjectileSpec {
   big?: boolean
   /** 交响：额外那发（用于「折射」节点分裂判定） */
   echo?: boolean
+  /** 交响·折射：碰非敌人障碍可折返次数 */
+  wallBounce?: number
 }
 
 export interface ProjectileHitContext {
@@ -93,6 +95,7 @@ interface Projectile {
   chord: boolean
   big: boolean
   echo?: boolean
+  wallBounce: number
   color: number
   spin: number
   spinSpeed: number
@@ -167,6 +170,7 @@ export class ProjectileSystem {
       source: spec.source ?? 'player',
       chord: spec.chord ?? false,
       big: spec.big ?? false,
+      wallBounce: spec.wallBounce ?? 0,
       color,
       spin: spec.spin ?? 0,
       spinSpeed: spec.spin ?? 0,
@@ -175,7 +179,12 @@ export class ProjectileSystem {
     })
   }
 
-  update(dt: number, enemies: Hittable[], halfSize: number): void {
+  update(
+    dt: number,
+    enemies: Hittable[],
+    halfSize: number,
+    obstacles: readonly { x: number; z: number; r: number }[] = [],
+  ): void {
     for (let i = this.items.length - 1; i >= 0; i--) {
       const p = this.items[i]
       if (!p.alive) {
@@ -190,6 +199,26 @@ export class ProjectileSystem {
         p.z += p.dirZ * stepLen
         p.traveled += stepLen
         if (this.hitSomething(p, enemies)) break
+        // 交响·折射：撞非敌人障碍时按法线反射
+        if (p.wallBounce > 0) {
+          for (const ob of obstacles) {
+            const dx = p.x - ob.x
+            const dz = p.z - ob.z
+            const dist = Math.hypot(dx, dz)
+            if (dist > ob.r + 0.25 || dist < 1e-4) continue
+            const nx = dx / dist
+            const nz = dz / dist
+            const dot = p.dirX * nx + p.dirZ * nz
+            if (dot >= 0) continue
+            p.dirX -= 2 * dot * nx
+            p.dirZ -= 2 * dot * nz
+            p.x = ob.x + nx * (ob.r + 0.3)
+            p.z = ob.z + nz * (ob.r + 0.3)
+            p.wallBounce -= 1
+            this.hooks.burst(p.x, p.z, p.color, 5, { kind: p.kind, source: p.source, chord: p.chord, big: p.big })
+            break
+          }
+        }
         if (p.traveled >= p.range || Math.abs(p.x) > halfSize + 2 || Math.abs(p.z) > halfSize + 2) {
           p.alive = false
         }

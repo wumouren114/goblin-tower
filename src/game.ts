@@ -3493,6 +3493,7 @@ export class Game {
         }
       },
       enemies,
+      obstacles: this.floor?.propColliders ?? [],
       halfSize: this.floor?.halfSize ?? 20,
       clamp: (x, z) => this.floor?.clampToArena(x, z, 0.4) ?? { x, z },
       heal: (n) => this.player?.heal(n),
