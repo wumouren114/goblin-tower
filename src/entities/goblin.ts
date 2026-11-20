@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { Circle, EnemyDef, Facing } from '../types'
 import { rotateInput } from '../core/math'
-import { goblinSprite } from '../art/sprites'
+import { archetypeSprite, goblinSprite } from '../art/sprites'
 import {
   createShadowMesh,
   createSpriteMesh,
@@ -90,7 +90,8 @@ export class Goblin {
             : def.model === 'goblin-bomber'
               ? 'bomber'
               : 'small'
-    this.anim = goblinSprite(kind)
+    // P1 原型：封路者用独立图集（五类原型之一），其余仍走哥布林图集
+    this.anim = def.model === 'arch-blocker' ? archetypeSprite('blocker') : goblinSprite(kind)
     this.group = new THREE.Group()
     this.group.position.set(x, 0, z)
     scene.add(this.group)

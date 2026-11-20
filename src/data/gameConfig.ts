@@ -196,6 +196,20 @@ export const GOBLIN_CASTER: EnemyDef = {
   model: 'caster',
 }
 
+/** 封路者（P1 原型）：血量厚、移动慢，周期性在玩家脚下铺持续伤害区域 */
+export const GOBLIN_BLOCKER: EnemyDef = {
+  id: 'goblin-blocker',
+  name: '封路者',
+  hp: 64,
+  speed: 1.9,
+  damage: 5,
+  radius: 0.58,
+  xp: 3,
+  goldChance: 0.8,
+  scale: 1.18,
+  model: 'arch-blocker',
+}
+
 /** v4.8 长矛手：中距离锁定一条直线突刺，逼迫玩家横向走位 */
 export const GOBLIN_SPEAR: EnemyDef = {
   id: 'goblin-spear',

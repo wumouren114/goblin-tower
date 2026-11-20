@@ -111,6 +111,7 @@ async function boot(): Promise<void> {
     if (warmup > 0) game.debugAdvance(warmup)
     if (params.get('pickbonus') === '1') game.debugPickFirstBonus()
     if (params.get('hazard') === '1') game.debugSpawnHazard()
+    if (params.get('blocker') === '1') game.debugSpawnBlocker()
     if (params.get('shop') === '1') game.debugOpenShop()
     if (params.get('exchange') === '1') {
       game.debugOpenShop()

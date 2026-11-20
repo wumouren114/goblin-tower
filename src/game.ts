@@ -9,6 +9,7 @@ import {
   GOBLIN_CASTER,
   GOBLIN_SPEAR,
   GOBLIN_BOMBER,
+  GOBLIN_BLOCKER,
 } from './data/gameConfig'
 import { GoblinKing, BOSS_TITLES } from './entities/boss'
 import { RoomCampfire, RoomNpc, RoomPortal } from './entities/roomNpc'
@@ -949,6 +950,12 @@ export class Game {
    * 临时调试入口：抽一个事件 + 一个隐藏真身，打开面板。
    * 等事件房间接进隧道后，改由房间触发这里。
    */
+  /** 调试：在玩家前方刷一只封路者（?blocker=1） */
+  debugSpawnBlocker(): void {
+    if (!this.player) return
+    this.spawnGoblin('blocker', this.player.x + 3, this.player.z - 3)
+  }
+
   /** 调试：在玩家脚下铺一块区域（?hazard=1） */
   debugSpawnHazard(): void {
     if (!this.player) return
@@ -1243,12 +1250,13 @@ export class Game {
     const casterChance = layer >= 2 ? Math.min(0.16, 0.07 + (layer - 2) * 0.015) : 0
     const spearChance = layer >= 2 ? Math.min(0.2, 0.08 + (layer - 2) * 0.02) : 0
     const bomberChance = layer >= 3 ? Math.min(0.16, 0.05 + (layer - 3) * 0.018) : 0
+    const blockerChance = layer >= 4 ? Math.min(0.14, 0.04 + (layer - 4) * 0.02) : 0
     const r = this.rng.next()
     if (r < eliteChance) kind = 'elite'
     else if (r < eliteChance + casterChance) kind = 'caster'
     else if (r < eliteChance + casterChance + spearChance) kind = 'spear'
-    else if (r < eliteChance + casterChance + spearChance + bomberChance) kind = 'bomber'
-    else if (r < eliteChance + casterChance + spearChance + bomberChance + bruteChance) kind = 'brute'
+    else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance) kind = 'blocker'
+    else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance + bruteChance) kind = 'brute'
     if (this.layerSpawned + 1 >= this.layerTotal && layer >= 3) kind = 'elite'
     const point = this.randomSpawnPoint()
     this.spawnGoblin(kind, point.x, point.z)
@@ -1274,7 +1282,9 @@ export class Game {
               ? GOBLIN_SPEAR
               : kind === 'bomber'
                 ? GOBLIN_BOMBER
-                : GOBLIN_ELITE
+                : kind === 'blocker'
+                  ? GOBLIN_BLOCKER
+                  : GOBLIN_ELITE
     const hpMul = mobHpFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.hp
     const dmgMul = mobDamageFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.damage
     const g = new Goblin(
@@ -1448,14 +1458,14 @@ export class Game {
       let targetX = p.x
       let targetZ = p.z
 
-      if (kind === 'caster' || kind === 'bomber') {
+      if (kind === 'caster' || kind === 'bomber' || kind === 'blocker') {
         // 术士：保持 6~10m 距离，站定读条后向玩家丢紫球；每第 3 发为三连射
         // 爆破手：保持 5~8m 距离，抛掷有落点预警的炸弹
         const dx = g.x - p.x
         const dz = g.z - p.z
         const d = Math.hypot(dx, dz) || 1
-        const keepMin = kind === 'bomber' ? 5 : 6
-        const keepMax = kind === 'bomber' ? 8 : 10
+        const keepMin = kind === 'bomber' ? 5 : kind === 'blocker' ? 4 : 6
+        const keepMax = kind === 'bomber' ? 8 : kind === 'blocker' ? 7 : 10
         let tx = g.x
         let tz = g.z
         if (d < keepMin) {
@@ -1473,6 +1483,15 @@ export class Game {
             this.casterCd.set(g, 3.0 + this.rng.next() * 0.8)
             this.hud.floatText(new THREE.Vector3(g.x, 1.5, g.z), '炸弹来袭！', 'crit')
             this.vfx.ring(g.x, g.z, { color: 0xff7a2f, radius: 0.8, life: 0.35, grow: 1.6 })
+          } else {
+            this.casterCd.set(g, cd)
+          }
+        } else if (kind === 'blocker') {
+          if (cd <= 0 && d < 9) {
+            // 封路：在玩家当前位置铺一块持续伤害区域（前摇 1s 给走位时间）
+            this.spawnHazard({ x: p.x, z: p.z, radius: 2.8, dps: 10, life: 6, armDelay: 1 })
+            this.casterCd.set(g, 4.2 + this.rng.next() * 1.2)
+            this.hud.floatText(new THREE.Vector3(g.x, 1.5, g.z), '封路！', 'crit')
           } else {
             this.casterCd.set(g, cd)
           }
