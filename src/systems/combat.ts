@@ -230,6 +230,9 @@ export class Combat {
   private targetIdSeq = 0
   /** 剑意·蓄势的每秒回能计时 */
   private jianyiRegenTimer = 1
+  /** 分身·共鸣回路：小肥鱼击杀攒的能量（满 30 换一次免费技能） */
+  private cloneEnergy = 0
+  private cloneFreeCast = false
   private awakenings: Partial<Record<AwakeningId, number>> = {}
   private resourceValue = 0
   private activeWorld: CombatWorld | null = null
@@ -682,6 +685,7 @@ export class Combat {
         dirZ: dir.x * sin + dir.z * cos,
         speed,
         damage: damage * 0.6 * echoMul,
+        echo: true,
         range: baseRange * rangeMul,
         hitRadius: 0.26 * hitMul,
         scale: sizeMul * 0.8,
@@ -829,19 +833,28 @@ export class Combat {
     const rawCost = this.skillCost(tier, def.skill.chargeCost)
     // 兜底：任何专武档位的消耗都不能超过当前充能上限，否则会出现「满了却放不出」
     const cost = Math.min(this.meter.max, Math.max(20, rawCost))
-    if (this.charge < cost) return false
+    // 分身·共鸣回路：攒满后下一次技能不耗充能
+    const free = this.cloneFreeCast
+    if (!free && this.charge < cost) return false
     const dir = dashDir ?? this.dirFromAim(px, pz, aimX, aimZ)
+    const spend = (): boolean => {
+      if (free) {
+        this.cloneFreeCast = false
+        return true
+      }
+      return this.meter.spend(cost)
+    }
     if (this.charId === 'mutsumi') {
-      if (!this.meter.spend(cost)) return false
+      if (!spend()) return false
       this.startTransform(px, pz, tier, world)
       return true
     }
     if (this.charId === 'murasame') {
-      if (!this.meter.spend(cost)) return false
+      if (!spend()) return false
       this.skillDash(px, pz, dir, tier, world)
       return true
     }
-    if (!this.meter.spend(cost)) return false
+    if (!spend()) return false
     this.skillSummon(px, pz, tier, world)
     return true
   }
@@ -1123,7 +1136,9 @@ export class Combat {
       } else {
         this.pulseLeft -= step
         while (this.pulseLeft <= 0) {
-          this.pulseLeft += Math.max(0.2, CHARACTERS.mutsumi.skill.params.pulseInterval ?? 0.5)
+          const pulseBase = CHARACTERS.mutsumi.skill.params.pulseInterval ?? 0.5
+          const pulseMul = this.hasNode('mutsumi-symphony-pulse') ? 0.8 : 1
+          this.pulseLeft += Math.max(0.2, pulseBase * pulseMul)
           this.pulse(px, pz, world)
         }
       }
@@ -1367,6 +1382,37 @@ export class Combat {
     ) {
       this.executes.push({ target: t, at: this.combatTime + 1.5 })
       this.burstAt(t.x, t.z, 0x8ff6ff, 6)
+    }
+    // 分身·共鸣回路：小肥鱼击杀攒 10 能量，满 30 换一次免费技能
+    if (killed && ctx.source === 'minion' && this.potentialBranch === 'clone' && this.hasNode('fish-clone-energy')) {
+      this.cloneEnergy += 10
+      if (this.cloneEnergy >= 30) {
+        this.cloneEnergy = 0
+        this.cloneFreeCast = true
+        this.hooks.onSfx('summon')
+      }
+    }
+    // 交响·折射：额外那发命中后分裂成两发小泡（不引入障碍碰撞）
+    if (ctx.echo && this.potentialBranch === 'symphony' && this.hasNode('mutsumi-symphony-bounce') && t.alive) {
+      const ang = 0.5
+      const cos = Math.cos(ang)
+      const sin = Math.sin(ang)
+      for (const sign of [1, -1]) {
+        this.projectiles.spawn({
+          kind: 'cucumber',
+          x: t.x,
+          z: t.z,
+          y: 0.7,
+          dirX: (ctx.dirX * cos - ctx.dirZ * sin) * sign,
+          dirZ: (ctx.dirX * sin + ctx.dirZ * cos) * sign,
+          speed: 10,
+          damage: amount * 0.4,
+          range: 4,
+          hitRadius: 0.26,
+          scale: 0.7,
+          canCrit: false,
+        })
+      }
     }
     // 剑意·根被动：普攻给目标挂标记（最多 3 层，4 秒）
     if (this.potentialBranch === 'jianyi' && ctx.source === 'player' && t.alive) {

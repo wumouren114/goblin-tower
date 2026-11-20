@@ -35,6 +35,8 @@ export interface ProjectileSpec {
   chord?: boolean
   /** v4.6：肥鱼的大泡泡 */
   big?: boolean
+  /** 交响：额外那发（用于「折射」节点分裂判定） */
+  echo?: boolean
 }
 
 export interface ProjectileHitContext {
@@ -46,6 +48,7 @@ export interface ProjectileHitContext {
   source: 'player' | 'minion'
   chord?: boolean
   big?: boolean
+  echo?: boolean
 }
 
 export interface ProjectileBurstContext {
@@ -89,6 +92,7 @@ interface Projectile {
   source: 'player' | 'minion'
   chord: boolean
   big: boolean
+  echo?: boolean
   color: number
   spin: number
   spinSpeed: number
@@ -232,6 +236,7 @@ export class ProjectileSystem {
         source: p.source,
         chord: p.chord,
         big: p.big,
+        echo: p.echo,
       })
       this.hooks.burst(t.x, t.z, p.color, p.kind === 'wave' ? 14 : 7, {
         kind: p.kind,
