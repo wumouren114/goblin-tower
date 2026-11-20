@@ -15,6 +15,7 @@ import { ProjectileSystem, type ProjectileBurstContext, type ProjectileHitContex
 import { MinionSystem, type Minion, type MinionSpec } from './minions'
 import { CharacterFx } from './characterFx'
 import { getBillboardYaw } from '../art/sprites'
+import { fxBloodTick, fxMarkStack } from './characterFx'
 import { createProjectileMesh, disposeProjectileArt } from '../art/projectiles'
 import { disposeMinionArt } from '../art/minions'
 import { pickConeTargets, pickLineTargets, gatherTo, pullToward } from './attack'
@@ -1304,6 +1305,7 @@ export class Combat {
         const markMul = this.hasResonance('res-liushang-jianyi') && this.marks.has('mark', this.keyOf(t)) ? 1.4 : 1
         const tick = bleed.dps * 0.5 * markMul
         const killed = t.hit(tick, 0, 0)
+        if (Math.floor(this.combatTime * 2) % 2 === 0) fxBloodTick(this.scene, t.x, t.z)
         this.hooks.onHit(t, tick, false, killed)
         if (killed) {
           this.bleeds.delete(t)
@@ -1466,7 +1468,10 @@ export class Combat {
       const key = this.keyOf(t)
       const before = this.marks.stacks('mark', key)
       this.marks.apply('mark', key, 4000, { maxStacks: 3 })
-      if (this.marks.stacks('mark', key) > before) this.burstAt(t.x, t.z, 0xff8a3a, 3)
+      if (this.marks.stacks('mark', key) > before) {
+        this.burstAt(t.x, t.z, 0xff8a3a, 3)
+        fxMarkStack(this.scene, t.x, t.z, this.marks.stacks('mark', key))
+      }
     }
     // 超级泡泡·根被动：命中附带 2.5m 爆炸（50% 伤害）
     if (this.hasBranch('bubble') && ctx.source === 'player' && t.alive && this.activeWorld) {

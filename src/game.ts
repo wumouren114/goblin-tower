@@ -29,6 +29,7 @@ import { pickScene, STAGE_NAMES } from './data/stages'
 import { EVENTS, eventOf, type EventEffect } from './data/events'
 import { POTENTIALS } from './data/potentials'
 import { MINIGAMES, minigameForLayer } from './minigames'
+import { fxBlockShield, fxRecallWater, fxStrongBeat, fxResonanceBadge } from './systems/characterFx'
 import { TRIALS, type TrialDef } from './data/trials'
 import { ALTAR, MYSTERY_OUTCOMES } from './data/altar'
 import { EventState } from './systems/eventState'
@@ -2323,6 +2324,11 @@ export class Game {
       }
     }
     if (active.length > 0) {
+      if (this.scene && this.player) {
+        for (const id of active) {
+          this.scene.add(fxResonanceBadge(this.scene, this.run.character, id))
+        }
+      }
       pot.resonances = [...(pot.resonances ?? []), ...active]
       this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
       audio.levelUp()
@@ -2582,6 +2588,7 @@ export class Game {
       return
     }
     const gold = n * 15
+    if (this.scene) fxRecallWater(this.scene, p.x, p.z, n)
     this.addGold(gold)
     finish(10)
     audio.play('recall', { volume: 0.7 })
@@ -2595,6 +2602,7 @@ export class Game {
     if (performance.now() < this.fSkillCdUntil) return
     if (this.run.character === 'murasame') {
       this.blockUntil = performance.now() + 800
+      if (this.scene) fxBlockShield(this.scene, p.x, p.z, this.rig.yaw)
       this.fSkillCdUntil = performance.now() + 8000
       this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '格挡！', 'crit')
       audio.play('block', { volume: 0.7 })
@@ -2602,6 +2610,7 @@ export class Game {
     }
     if (this.run.character === 'mutsumi') {
       this.combat.setForcePerfectWindow(500)
+      if (this.scene) fxStrongBeat(this.scene, p.x, p.z)
       this.fSkillCdUntil = performance.now() + 8000
       this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '强拍窗口', 'crit')
       return
