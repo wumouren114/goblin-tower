@@ -133,11 +133,11 @@ check('大肥鱼：小鲸子 0.4 / 分身 1.0 写进数据', () => {
   ok(branchOf('fish', 'fish-bubble').nodes[2].effect.includes('移速'), '巨化只降移速')
 })
 
-check('睦：节奏分支踩拍增益、miss 不惩罚', () => {
+check('睦：节奏分支锁拍增益、miss 减半并眩晕', () => {
   const branch = branchOf('mutsumi', 'mutsumi-rhythm')
-  ok(branch.root.includes('perfect'), branch.root)
-  ok(branch.root.includes('不踩不亏'), branch.root)
-  ok(branch.cost.includes('无'), branch.cost)
+  ok(branch.root.includes('攻速加成无效'), branch.root)
+  ok(branch.cost.includes('连击减半'), branch.cost)
+  ok(branch.cost.includes('0.3'), branch.cost)
 })
 
 /* ── 道具卡 ────────────────────────────────────────────── */

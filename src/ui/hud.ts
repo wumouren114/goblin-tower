@@ -1342,9 +1342,11 @@ class HudImpl implements HudV3 {
 
   private beatEl: HTMLDivElement | null = null
   private beatFlash = 0
+  private lastBeatPhase = 0
 
   /** 节奏分支的节拍环：越接近拍点越小越亮 */
   updateBeat(phase: number, judge: 'perfect' | 'good' | 'miss' | null): void {
+    this.lastBeatPhase = phase
     if (!this.beatEl) {
       const el = document.createElement('div')
       el.style.cssText = [
@@ -1374,7 +1376,7 @@ class HudImpl implements HudV3 {
 
   private comboEl: HTMLDivElement | null = null
 
-  /** 节奏分支的连击数：显示在节拍环下方，20/40/60 换色 */
+  /** 节奏分支连击数：显示 ×N，随连击放大并按当前 BPM 脉冲，60 以上封顶不再增大/变色 */
   updateCombo(count: number): void {
     if (!this.comboEl) {
       const el = document.createElement('div')
@@ -1383,11 +1385,12 @@ class HudImpl implements HudV3 {
         'left:50%',
         'bottom:70px',
         'transform:translateX(-50%)',
-        'font:700 18px/1 system-ui,sans-serif',
-        'letter-spacing:.06em',
+        'transform-origin:center bottom',
+        'font:800 18px/1 system-ui,sans-serif',
+        'letter-spacing:.04em',
         'pointer-events:none',
         'z-index:61',
-        'text-shadow:0 2px 6px rgba(0,0,0,.7)',
+        'text-shadow:0 2px 6px rgba(0,0,0,.75)',
         'opacity:0',
       ].join(';')
       document.body.appendChild(el)
@@ -1397,8 +1400,15 @@ class HudImpl implements HudV3 {
       this.comboEl.style.opacity = '0'
       return
     }
-    this.comboEl.textContent = `${count} COMBO`
+    const capped = Math.min(60, count)
+    const tierRatio = capped / 60
+    const near = Math.max(0, 1 - Math.min(this.lastBeatPhase, 1 - this.lastBeatPhase) * 2)
+    const pulse = near * near * (0.06 + tierRatio * 0.12)
+    const scale = 1 + tierRatio * 0.55 + pulse
+    const lift = -(near * near * (1.5 + tierRatio * 2))
+    this.comboEl.textContent = `×${count}`
     this.comboEl.style.opacity = '1'
+    this.comboEl.style.transform = `translateX(-50%) translateY(${lift.toFixed(2)}px) scale(${scale.toFixed(3)})`
     this.comboEl.style.color = count >= 60 ? '#ffd479' : count >= 40 ? '#ff9fd0' : count >= 20 ? '#9fd8ff' : '#cfd8ee'
   }
 

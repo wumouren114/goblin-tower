@@ -27,12 +27,41 @@ export interface BeatClockConfig {
   offsetMs: number
 }
 
+export const BPM_MIN = 90
+export const BPM_MAX = 150
+export const BPM_DEFAULT = 120
+
 export const DEFAULT_BEAT_CLOCK: BeatClockConfig = {
-  bpm: 134,
+  bpm: BPM_DEFAULT,
   subdivision: 2,
-  perfectMs: 35,
-  goodMs: 60,
+  perfectMs: 50,
+  goodMs: 100,
   offsetMs: 0,
+}
+
+let activeDefaultBpm = BPM_DEFAULT
+
+/** 归一化 BPM 至 90~150；非有限数或 <=0 回退默认 120 */
+export function normalizeBpm(raw: number): number {
+  if (!Number.isFinite(raw) || raw <= 0) return BPM_DEFAULT
+  return Math.max(BPM_MIN, Math.min(BPM_MAX, raw))
+}
+
+/** 解析 URL ?bpm= 参数：90~150 合法，其余（含非数字/超界）一律回退 120 */
+export function parseBpmParam(raw: string | null | undefined): number {
+  if (raw == null || raw.trim() === '') return BPM_DEFAULT
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < BPM_MIN || n > BPM_MAX) return BPM_DEFAULT
+  return Math.round(n)
+}
+
+/** 设置全局默认 BPM（供 ?bpm= 调试入口在开局前生效） */
+export function setDefaultBpm(bpm: number): void {
+  activeDefaultBpm = normalizeBpm(bpm)
+}
+
+export function getDefaultBpm(): number {
+  return activeDefaultBpm
 }
 
 export interface BeatPosition {
@@ -53,8 +82,8 @@ export class BeatClock {
   private originMs = 0
 
   constructor(config: Partial<BeatClockConfig> = {}) {
-    const merged = { ...DEFAULT_BEAT_CLOCK, ...config }
-    this.bpm = Math.max(1, merged.bpm)
+    const merged = { ...DEFAULT_BEAT_CLOCK, bpm: activeDefaultBpm, ...config }
+    this.bpm = normalizeBpm(merged.bpm)
     this.subdivision = Math.max(1, Math.round(merged.subdivision))
     this.perfectMs = Math.max(0, merged.perfectMs)
     this.goodMs = Math.max(this.perfectMs, merged.goodMs)
@@ -87,7 +116,7 @@ export class BeatClock {
   }
 
   setBpm(bpm: number): void {
-    this.bpm = Math.max(1, bpm)
+    this.bpm = normalizeBpm(bpm)
   }
 
   setOffsetMs(offsetMs: number): void {
