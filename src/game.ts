@@ -10,6 +10,7 @@ import {
   GOBLIN_SPEAR,
   GOBLIN_BOMBER,
   GOBLIN_BLOCKER,
+  GOBLIN_SUMMONER,
 } from './data/gameConfig'
 import { GoblinKing, BOSS_TITLES } from './entities/boss'
 import { RoomCampfire, RoomNpc, RoomPortal } from './entities/roomNpc'
@@ -215,6 +216,7 @@ export class Game {
   private casterCd = new Map<Goblin, number>()
   /** 术士开火次数：每第 3 发改为三连射 */
   private casterVolleys = new Map<Goblin, number>()
+  private summonerSpawns = new Map<Goblin, number>()
   /** 敌方弹幕（紫球） */
   private enemyShots: { mesh: THREE.Mesh; x: number; z: number; vx: number; vz: number; life: number; damage: number }[] = []
   private bulletAnim: SpriteAnim | null = null
@@ -1334,12 +1336,14 @@ export class Game {
     const spearChance = layer >= 2 ? Math.min(0.2, 0.08 + (layer - 2) * 0.02) : 0
     const bomberChance = layer >= 3 ? Math.min(0.16, 0.05 + (layer - 3) * 0.018) : 0
     const blockerChance = layer >= 4 ? Math.min(0.14, 0.04 + (layer - 4) * 0.02) : 0
+    const summonerChance = layer >= 5 ? Math.min(0.12, 0.04 + (layer - 5) * 0.02) : 0
     const r = this.rng.next()
     if (r < eliteChance) kind = 'elite'
     else if (r < eliteChance + casterChance) kind = 'caster'
     else if (r < eliteChance + casterChance + spearChance) kind = 'spear'
     else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance) kind = 'blocker'
-    else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance + bruteChance) kind = 'brute'
+    else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance + summonerChance) kind = 'summoner'
+    else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance + summonerChance + bruteChance) kind = 'brute'
     if (this.layerSpawned + 1 >= this.layerTotal && layer >= 3) kind = 'elite'
     const point = this.randomSpawnPoint()
     this.spawnGoblin(kind, point.x, point.z)
@@ -1367,7 +1371,9 @@ export class Game {
                 ? GOBLIN_BOMBER
                 : kind === 'blocker'
                   ? GOBLIN_BLOCKER
-                  : GOBLIN_ELITE
+                  : kind === 'summoner'
+                    ? GOBLIN_SUMMONER
+                    : GOBLIN_ELITE
     const hpMul = mobHpFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.hp
     const dmgMul = mobDamageFor(this.run.difficulty, this.run.layer) / GOBLIN_SMALL.damage
     const g = new Goblin(
@@ -1545,6 +1551,31 @@ export class Game {
       let targetX = p.x
       let targetZ = p.z
 
+      if (kind === 'summoner') {
+        const dx = g.x - p.x
+        const dz = g.z - p.z
+        const d = Math.hypot(dx, dz) || 1
+        let tx = g.x
+        let tz = g.z
+        if (d < 8) {
+          tx = p.x + (dx / d) * 11
+          tz = p.z + (dz / d) * 11
+        }
+        g.update(dt, tx, tz, colliders, bounds)
+        const cd = (this.casterCd.get(g) ?? 0) - dt
+        const summoned = this.summonerSpawns.get(g) ?? 0
+        if (cd <= 0 && summoned < 3 && d < 13 && this.goblins.length < 40) {
+          this.summonerSpawns.set(g, summoned + 1)
+          this.casterCd.set(g, 6.5 + this.rng.next() * 1.5)
+          const ang = this.rng.next() * Math.PI * 2
+          this.spawnGoblin('small', g.x + Math.cos(ang) * 1.4, g.z + Math.sin(ang) * 1.4)
+          this.hud.floatText(new THREE.Vector3(g.x, 1.5, g.z), '召唤！', 'crit')
+          this.vfx.ring(g.x, g.z, { color: 0xe8c4ff, radius: 1.4, life: 0.4, grow: 1.8 })
+        } else {
+          this.casterCd.set(g, cd)
+        }
+        continue
+      }
       if (kind === 'caster' || kind === 'bomber' || kind === 'blocker') {
         // 术士：保持 6~10m 距离，站定读条后向玩家丢紫球；每第 3 发为三连射
         // 爆破手：保持 5~8m 距离，抛掷有落点预警的炸弹

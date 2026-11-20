@@ -100,7 +100,12 @@ export class Goblin {
               ? 'bomber'
               : 'small'
     // P1 原型：封路者用独立图集（五类原型之一），其余仍走哥布林图集
-    this.anim = def.model === 'arch-blocker' ? archetypeSprite('blocker') : goblinSprite(kind)
+    this.anim =
+      def.model === 'arch-blocker'
+        ? archetypeSprite('blocker')
+        : def.model === 'arch-summoner'
+          ? archetypeSprite('summoner')
+          : goblinSprite(kind)
     this.group = new THREE.Group()
     this.group.position.set(x, 0, z)
     scene.add(this.group)

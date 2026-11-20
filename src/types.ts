@@ -5,7 +5,7 @@ export type DifficultyId = 'easy' | 'normal' | 'hard'
 export type GamePhase = 'title' | 'select' | 'playing' | 'tunnel' | 'shop' | 'dead' | 'victory'
 export type Facing = 'down' | 'up' | 'left' | 'right'
 /** 普通怪种类；v4.8 新增长矛手与爆破手 */
-export type EnemyKind = 'small' | 'brute' | 'elite' | 'caster' | 'spear' | 'bomber' | 'blocker'
+export type EnemyKind = 'small' | 'brute' | 'elite' | 'caster' | 'spear' | 'bomber' | 'blocker' | 'summoner'
 /** Boss 变体：王 / 督军 / 巫王 */
 export type BossKind = 'king' | 'warlord' | 'witch'
 /** 时空隧道房间里的引路人外观 */
@@ -349,7 +349,7 @@ export interface EnemyDef {
   xp: number
   goldChance: number
   scale: number
-  model: 'goblin' | 'goblin-big' | 'king' | 'caster' | 'goblin-spear' | 'goblin-bomber' | 'arch-blocker'
+  model: 'goblin' | 'goblin-big' | 'king' | 'caster' | 'goblin-spear' | 'goblin-bomber' | 'arch-blocker' | 'arch-summoner'
 }
 
 /** 角色风格资源（节拍 / 剑意 / 泡泡） */

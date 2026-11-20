@@ -210,6 +210,20 @@ export const GOBLIN_BLOCKER: EnemyDef = {
   model: 'arch-blocker',
 }
 
+/** 召唤者（P1 原型）：躲在后排，周期性召出小怪 */
+export const GOBLIN_SUMMONER: EnemyDef = {
+  id: 'goblin-summoner',
+  name: '召唤者',
+  hp: 46,
+  speed: 2.0,
+  damage: 4,
+  radius: 0.5,
+  xp: 3,
+  goldChance: 0.8,
+  scale: 1.1,
+  model: 'arch-summoner',
+}
+
 /** v4.8 长矛手：中距离锁定一条直线突刺，逼迫玩家横向走位 */
 export const GOBLIN_SPEAR: EnemyDef = {
   id: 'goblin-spear',
