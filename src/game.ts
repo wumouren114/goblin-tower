@@ -918,7 +918,7 @@ export class Game {
         {
           key: 'Q',
           label: this.run.character === 'murasame' ? '处决' : this.run.character === 'mutsumi' ? '推敌' : '回收',
-          unlocked: this.run.potential !== undefined,
+          unlocked: nodes >= 2,
           cooldown: cdOf(this.qSkillCdUntil, 12),
           accent,
         },
@@ -2287,8 +2287,8 @@ export class Game {
       }
       audio.startBgm('shop')
       audio.setBgmIntensity(0)
-      // 大层 Boss 战结束固定给一次潜能（最终层已通关，不再给）
-      this.openPotential()
+      // Boss 战结束不再额外弹潜能：正常收尾房间，由出口裂隙继续
+      this.completeRoomMap(`${title}已被击败`)
       return
     }
     if (this.run.layer >= layerCount(this.run.difficulty)) this.win()
