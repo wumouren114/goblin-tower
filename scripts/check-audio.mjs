@@ -43,6 +43,7 @@ const DOC_SFX_RANGES = {
   buy: [0.08, 0.12],
   tunnel: [0.4, 0.7],
   caster_shot: [0.1, 0.15],
+  beat_tick: [0.04, 0.08],
 }
 
 const REQUIRED_SFX = Object.keys(DOC_SFX_RANGES)
