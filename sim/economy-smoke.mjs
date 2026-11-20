@@ -839,7 +839,7 @@ check('商店随机可复现（同 seed 同货架）', () => {
   const potential = a.find((offer) => offer.kind === 'potential')
   eq(potential.price, 120 + 40 * 6, '潜能节点价格 = 120 + 40×层')
   const hi = shop.generateOffers(10, 'fish', 999, new Rng(777), 4, 6)
-  eq(hi.find((offer) => offer.kind === 'weapon')?.weaponLevel, 7, 'Lv6 货架应能出 Lv7 专武升级')
+  eq(hi.find((offer) => offer.kind === 'potential')?.price, 120 + 40 * 10, '高阶货架潜能节点价格随层提升')
   const cards = a.filter((offer) => offer.kind === 'buff-card')
   ok(cards.length >= 2, '至少 2 张增益卡')
   ok(shop.refreshOffers(6, 'fish', new Rng(1), 2).length === 4, 'refreshOffers 出 4 件')
