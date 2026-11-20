@@ -5,7 +5,7 @@
   "channels": 1,
   "bitsPerSample": 16,
   "targetPeakDb": -1,
-  "totalBytes": 6839996,
+  "totalBytes": 6842686,
   "files": [
     {
       "file": "bgm_title.wav",
@@ -27,13 +27,13 @@
       "file": "bgm_battle.wav",
       "kind": "bgm",
       "bytes": 1895708,
-      "sha256": "16c8f5f4d8eff9998ea0fabf3d1f22b6a391f0942a992b0067ea45d237f11514",
+      "sha256": "f3a82769a63604d4051afccf09e6365c751e14cdd15eb64a1bf8d8bae3daabc9",
       "samples": 947832,
       "sampleRate": 22050,
       "channels": 1,
       "bitsPerSample": 16,
       "durationS": 42.9856,
-      "peakDb": -1.96,
+      "peakDb": -2.19,
       "rmsDb": -17.5,
       "bpm": 134,
       "bars": 24,
@@ -391,6 +391,23 @@
       "durationRangeS": [
         0.1,
         0.15
+      ]
+    },
+    {
+      "file": "sfx_beat_tick.wav",
+      "kind": "sfx",
+      "bytes": 2690,
+      "sha256": "825876185cd9e8e709d72e7c6138e38f203be419e65b7356d2c51db783066bef",
+      "samples": 1323,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.06,
+      "peakDb": -15,
+      "rmsDb": -30.73,
+      "durationRangeS": [
+        0.04,
+        0.08
       ]
     }
   ]

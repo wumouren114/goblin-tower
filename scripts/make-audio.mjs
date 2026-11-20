@@ -612,10 +612,10 @@ function renderBattle() {
     else arpLine(t, b, c.tones, { vol: 0.032, rate: 2 })
     padChord(t, b, c.tones, { vol: 0.04 })
     const pat = {
-      kick: b % 4 === 3 ? [0, 6, 8, 11, 14, 15] : inB ? [0, 3, 6, 8, 11, 14] : [0, 6, 8, 14],
+      kick: b % 4 === 3 ? [6, 11, 14, 15] : inB ? [3, 6, 11, 14] : [6, 14],
       snare: [4, 12],
       ghost: b % 2 === 1 ? [7, 15] : [],
-      hat: [0, 2, 4, 6, 8, 10, 12, 14],
+      hat: [],
       open: [14],
       crash: b === 0 || b === 8 || b === 16 ? [0] : [],
     }
@@ -623,12 +623,38 @@ function renderBattle() {
       pat.tomHi = [13, 15]
       pat.tomLo = [12, 14]
     }
-    drumBar(t, b, pat, inB ? 1.05 : 0.95)
+    drumBar(t, b, pat, inB ? 0.82 : 0.74)
   }
-  melody(t, lead, { type: 'square', duty: 0.5, vol: 0.155, double: true })
+  melody(t, lead, { type: 'square', duty: 0.5, vol: 0.165, double: true })
   // 主音第二层：锯齿轻微加厚
-  melody(t, lead.map((v) => (v > 0 ? v : 0)), { type: 'saw', vol: 0.045, detune: 6 })
+  melody(t, lead.map((v) => (v > 0 ? v : 0)), { type: 'saw', vol: 0.048, detune: 6 })
   delay(t.buf, 0.196, 0.18, 0.16, true)
+
+  // 节奏玩法专用「节拍层」（置于延迟之后，确保拍点利落、无回声拖尾）：
+  // - 四分音符（步 0/4/8/12）：60→40Hz 正弦下滑 kick，~120ms 短包络
+  // - 八分音符（步 0/2/4/6/8/10/12/14）：高通白噪声 hi-hat，~40ms 极短包络，比 kick 低 6dB
+  const beatKickVol = 0.54
+  const beatHatVol = beatKickVol * dbToGain(-6)
+  for (let b = 0; b < 24; b += 1) {
+    for (const s of [0, 4, 8, 12]) {
+      tone(t.buf, true, t.at(b, s), 0.12, 60, {
+        type: 'sine',
+        vol: beatKickVol,
+        a: 0.002,
+        pdecay: 0.042,
+        slideTo: 40,
+      })
+    }
+    for (const s of [0, 2, 4, 6, 8, 10, 12, 14]) {
+      noiseVoice(t.buf, true, t.at(b, s), 0.04, {
+        vol: beatHatVol,
+        a: 0.0005,
+        hp: 6500,
+        lp: 10500,
+        decay: 0.012,
+      })
+    }
+  }
   return t
 }
 
@@ -1009,6 +1035,16 @@ const SFX_SPECS = {
       tone(b, false, 0, 0.1, 350, { type: 'tri', vol: 0.1, a: 0.001, pdecay: 0.04, slideTo: 120 })
     },
   },
+  sfx_beat_tick: {
+    peakDb: -15,
+    durationS: 0.06,
+    render: (b) => {
+      // 60ms 短促木质节拍器点击（低音量，不压战斗音效）
+      tone(b, false, 0, 0.055, 1180, { type: 'tri', vol: 0.42, a: 0.0005, pdecay: 0.014, slideTo: 920 })
+      tone(b, false, 0, 0.032, 2480, { type: 'sine', vol: 0.22, a: 0.0005, pdecay: 0.008 })
+      noiseVoice(b, false, 0, 0.012, { vol: 0.16, hp: 1800, lp: 6500, decay: 0.0035 })
+    },
+  },
 }
 
 /** 文档 08 里的时长要求（秒），make 时自检、check 时也会再验一遍 */
@@ -1031,6 +1067,7 @@ const SFX_DURATION_RANGE = {
   sfx_buy: [0.08, 0.12],
   sfx_tunnel: [0.4, 0.7],
   sfx_caster_shot: [0.1, 0.15],
+  sfx_beat_tick: [0.04, 0.08],
 }
 
 function renderSfx(name, spec) {
