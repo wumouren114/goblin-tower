@@ -238,6 +238,13 @@ export class Combat {
   private jianyiRegenTimer = 1
   /** 通用 F 键：强拍窗口（睦）/ 扫射窗口（鱼） */
   private forcePerfectUntil = 0
+  /** 誓约兑现：技能伤害 / 攻速加成 */
+  private trialSkillDamage = 0
+  private trialAttackSpeed = 0
+  setTrialBoons(boons: { skillDamage?: number; attackSpeed?: number } | undefined): void {
+    this.trialSkillDamage = boons?.skillDamage ?? 0
+    this.trialAttackSpeed = boons?.attackSpeed ?? 0
+  }
   private rapidUntil = 0
   /** 分身·共鸣回路：小肥鱼击杀攒的能量（满 30 换一次免费技能） */
   private cloneEnergy = 0
@@ -600,6 +607,7 @@ export class Combat {
         this.styleAttackIntervalMul() *
         (this.hasBranch('bubble') ? 1.15 : 1) *
         (this.combatTime < this.rapidUntil ? 0.55 : 1) *
+        (1 - Math.min(0.3, this.trialAttackSpeed)) *
         (this.hasBranch('bubble') && this.hasNode('fish-bubble-giant') ? 1.1 : 1)
     this.cooldownLeft = Math.max(0.01, interval)
     const forced = this.combatTime < this.forcePerfectUntil
