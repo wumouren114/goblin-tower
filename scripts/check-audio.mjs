@@ -49,6 +49,11 @@ const DOC_SFX_RANGES = {
   enemy_bomber_fuse: [0.38, 0.62],
   potential_pick: [0.22, 0.38],
   mark_settle: [0.18, 0.32],
+  execute: [0.22, 0.38],
+  block: [0.18, 0.32],
+  recall: [0.22, 0.38],
+  watergun: [0.85, 1.15],
+  push: [0.15, 0.26],
 }
 
 const REQUIRED_SFX = Object.keys(DOC_SFX_RANGES)
