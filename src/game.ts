@@ -1924,7 +1924,7 @@ export class Game {
     const p = this.player
     if (!p || !p.alive) return
     const stats = p.stats
-    if (Math.random() < Math.min(0.3, stats.dodge)) {
+    if (Math.random() < Math.min(0.3, stats.dodge + (this.run.trialBoons?.dodge ?? 0))) {
       this.hud.floatText(new THREE.Vector3(p.x, 1.8, p.z), '闪避', 'dodge')
       this.vfx.ring(p.x, p.z, { color: 0x8fd8ff, radius: 0.9, life: 0.3, grow: 1.6 })
       return
@@ -2217,7 +2217,9 @@ export class Game {
       (this.run.potential?.branch === 'fish-clone' &&
       (this.run.potential.nodes ?? []).includes('fish-clone-gold')
         ? 1.15
-        : 1) * this.trialMul('goldGain')
+        : 1) *
+      this.trialMul('goldGain') *
+      (1 + (this.run.trialBoons?.goldGain ?? 0))
     this.run.gold += Math.round(amount * boost)
   }
 
@@ -2550,6 +2552,13 @@ export class Game {
     if (done) {
       this.hud.toast(`誓约达成：${def.boon.text}`, 'good')
       this.run.trial = undefined
+      if (def.boon.stat in { goldGain: 1, dodge: 1, hpMax: 1, attack: 1 }) {
+        const boons = { ...(this.run.trialBoons ?? {}) }
+        const key = def.boon.stat as 'goldGain' | 'dodge' | 'hpMax' | 'attack'
+        boons[key] = (boons[key] ?? 0) + def.boon.value
+        this.run.trialBoons = boons
+        this.recalcStats()
+      }
       this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
     } else if (cur.layersLeft <= 0) {
       this.hud.toast(`「${def.name}」未能兑现，约束已解除`, 'bad')
@@ -3251,7 +3260,8 @@ export class Game {
       (this.run.potential.nodes ?? []).includes('fish-bubble-giant')
     const boons = this.run.boons ?? {}
     const boonAll = 1 + (boons.all ?? 0)
-    const capMul = 1 - Math.min(0.7, this.run.hpCapPenalty ?? 0)
+    const capMul =
+      (1 - Math.min(0.7, this.run.hpCapPenalty ?? 0)) * (1 + (this.run.trialBoons?.hpMax ?? 0))
     const maxHp = Math.round((def.base.hp + (c.hp ?? 0)) * allStat * styleHpMul * (giant ? 1.2 : 1) * capMul * boonAll)
     p.scaleMul = giant ? 1.18 : 1
     const stats: PlayerStats = {
@@ -3264,6 +3274,7 @@ export class Game {
         allStat *
         (giant ? 1.15 : 1) *
         this.trialMul('attack') *
+        (1 + (this.run.trialBoons?.attack ?? 0)) *
         boonAll *
         (1 + (boons.attack ?? 0)),
       magic: (def.base.magic + (c.magic ?? 0)) * allStat * mods.magicMul * (giant ? 1.15 : 1),

@@ -213,6 +213,8 @@ export interface RunState {
   training?: Partial<Record<CardStat, number>>
   /** 已购买训练次数：用于跨商店累计涨价 */
   trainingBuys?: number
+  /** 誓约兑现：已转正的正面加成（按 stat 累加） */
+  trialBoons?: Partial<Record<'goldGain' | 'dodge' | 'hpMax' | 'attack', number>>
   /** 祭坛献祭：永久生命上限扣减（按 base maxHp 的百分比，0~0.7），不可逆 */
   hpCapPenalty?: number
   /** 祭坛/誓约换来的永久属性加成（全属性/攻击/魔力，百分比小数） */
