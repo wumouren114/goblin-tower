@@ -2,10 +2,12 @@ import * as THREE from 'three'
 import type { BossKind, CharacterId, Facing } from '../types'
 import { PixelCanvas, type AtlasData } from './pixels'
 import {
+  buildArchetypeAtlas,
   buildCharacterAtlas,
   buildEnemyBulletAtlas,
   buildGoblinAtlas,
   buildKingAtlas,
+  type ArchetypeKind,
   type GoblinKind,
 } from './characters'
 import {
@@ -139,6 +141,17 @@ export function goblinSprite(kind: GoblinKind): SpriteAnim {
   let anim = spriteCache.get(key)
   if (!anim) {
     anim = atlasToAnim(buildGoblinAtlas(kind))
+    spriteCache.set(key, anim)
+  }
+  return anim
+}
+
+/** 敌人威胁原型（P1）：五类，程序化图集，与 goblinSprite 同规格可互换 */
+export function archetypeSprite(kind: ArchetypeKind): SpriteAnim {
+  const key = `arch-${kind}`
+  let anim = spriteCache.get(key)
+  if (!anim) {
+    anim = atlasToAnim(buildArchetypeAtlas(kind))
     spriteCache.set(key, anim)
   }
   return anim

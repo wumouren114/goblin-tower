@@ -3578,3 +3578,154 @@ export function buildKingAtlas(kind: BossKind = 'king'): AtlasData {
   const scale = kind === 'warlord' ? { worldW: 2.08, worldH: 2.38 } : kind === 'witch' ? { worldW: 1.86, worldH: 2.16 } : { worldW: 1.9, worldH: 2.2 }
   return { canvas, cols: FRAME_COLS, rows: FRAME_ROWS, cellW, cellH, ...scale }
 }
+
+/**
+ * 敌人威胁原型外观（P1）—— 5 类，纯程序化像素，28×32 / 4 向 × 4 帧。
+ * 与哥布林共用体型骨架，靠「轮廓 + 道具 + 主色」区分，不依赖外部素材。
+ * 只提供图集；行为与接线由 systems/enemyBehavior.ts 与 game.ts 负责。
+ */
+export type ArchetypeKind = 'ranged' | 'blocker' | 'charger' | 'summoner' | 'bomber'
+
+interface ArchPalette {
+  outline: number
+  skin: number
+  skinDark: number
+  cloth: number
+  clothDark: number
+  accent: number
+  eye: number
+}
+
+const ARCH_PALETTE: Record<ArchetypeKind, ArchPalette> = {
+  ranged: { outline: 0x120c1c, skin: 0x6f8f4a, skinDark: 0x47602e, cloth: 0x4a3b7a, clothDark: 0x2f2552, accent: 0xb47bff, eye: 0xe6d4ff },
+  blocker: { outline: 0x0d1420, skin: 0x7fa844, skinDark: 0x50722b, cloth: 0x33476b, clothDark: 0x22304a, accent: 0x8fd8ff, eye: 0xd6f4ff },
+  charger: { outline: 0x1a0e0a, skin: 0x9a5a3a, skinDark: 0x6a3a24, cloth: 0x7a3b2a, clothDark: 0x4f2418, accent: 0xff6a4a, eye: 0xffd23f },
+  summoner: { outline: 0x08161a, skin: 0x6a7a8a, skinDark: 0x445160, cloth: 0x2f4a55, clothDark: 0x1c3138, accent: 0x64e0c0, eye: 0xc8fff0 },
+  bomber: { outline: 0x0f1a08, skin: 0x7fa844, skinDark: 0x50722b, cloth: 0x4a5a2f, clothDark: 0x2e3a1c, accent: 0xa8f060, eye: 0xeaffb0 },
+}
+
+const ARCH_WOOD = 0x8a5a2e
+const ARCH_WOOD_DARK = 0x53341a
+const ARCH_WHITE = 0xe8e0c4
+
+type ArchDir = 'down' | 'up' | 'side'
+
+function drawArch(cell: PixelCanvas, kind: ArchetypeKind, dir: ArchDir, pose: GoblinPose): void {
+  const p = ARCH_PALETTE[kind]
+  const bob = pose.bob
+  const side = dir === 'side'
+  const wide = kind === 'blocker' || kind === 'bomber'
+  const cx = 14
+  const float = kind === 'summoner' ? 3 : 0
+  const bodyY = 20 - bob - float
+  const headY = 10 - bob - float
+  const faceX = cx + (side ? 1 : 0) + (kind === 'charger' && side ? 1 : 0)
+
+  // 腿：召唤者浮空不画腿
+  if (kind !== 'summoner') {
+    const liftA = pose.legPhase === 1 ? 1 : 0
+    const liftB = pose.legPhase === 2 ? 1 : 0
+    cell.fillRect(cx - 5, 22 + liftA, 3, 7 - liftA, p.skinDark)
+    cell.fillRect(cx + 2, 22 + liftB, 3, 7 - liftB, p.skinDark)
+  }
+
+  // 躯干 + 腹部
+  cell.ellipse(cx, bodyY, wide ? 8 : 6, wide ? 8 : 7, p.cloth)
+  cell.ellipse(cx, bodyY + 1, wide ? 5 : 3, wide ? 5 : 4, p.skin)
+
+  // 手臂：浮空法师与圆滚滚的自爆体不画手臂，拉开剪影
+  if (kind !== 'summoner' && kind !== 'bomber') {
+    cell.fillRect(cx - 8, bodyY - 3, 2, 6, p.skinDark)
+    if (!side) cell.fillRect(cx + 6, bodyY - 3, 2, 6, p.skinDark)
+  }
+  // 封路者：宽护肩，体型一眼更壮
+  if (kind === 'blocker') {
+    cell.ellipse(cx - 8, bodyY - 5, 3, 3, p.clothDark)
+    cell.ellipse(cx + 8, bodyY - 5, 3, 3, p.clothDark)
+  }
+
+  // 头 + 耳
+  cell.circle(faceX, headY, 5, p.skin)
+  cell.triangle(cx - 7, headY - 1, cx - 4, headY + 1, cx - 6, headY + 3, p.skinDark)
+  if (!side) cell.triangle(cx + 7, headY - 1, cx + 4, headY + 1, cx + 6, headY + 3, p.skinDark)
+
+  // 各原型的标志物
+  if (kind === 'ranged') {
+    // 兜帽 + 法杖 + 顶端法球
+    cell.ellipse(cx, headY - 2, 6, 4, p.clothDark)
+    cell.fillRect(cx - 5, headY - 1, 10, 3, p.clothDark)
+    cell.vLine(cx + 7, headY - 5, 28, ARCH_WOOD_DARK)
+    cell.circle(cx + 7, headY - 6, 2, p.accent)
+    cell.set(cx + 7, headY - 6, ARCH_WHITE)
+  } else if (kind === 'blocker') {
+    // 法典 + 脚下法阵（封路意象：它负责铺持续伤害区域）
+    cell.fillRect(cx - 4, bodyY - 3, 8, 9, p.clothDark)
+    cell.hLine(cx - 2, cx + 2, bodyY + 1, p.accent)
+    cell.hLine(cx - 2, cx + 2, bodyY + 4, p.accent)
+    cell.set(cx - 7, 29, p.accent)
+    cell.set(cx, 30, p.accent)
+    cell.set(cx + 7, 29, p.accent)
+  } else if (kind === 'charger') {
+    // 双角 + 红围巾 + 前倾
+    cell.triangle(cx - 8, headY - 7, cx - 2, headY - 3, cx - 5, headY, p.accent)
+    cell.triangle(cx + 8, headY - 7, cx + 2, headY - 3, cx + 5, headY, p.accent)
+    cell.hLine(cx - 5, cx + 5, headY + 4, p.accent)
+    cell.fillRect(faceX - 3, headY + 5, 7, 3, p.clothDark)
+  } else if (kind === 'summoner') {
+    // 斗篷 + 浮空微光 + 环绕符文
+    cell.triangle(cx, bodyY - 8, cx - 11, 31, cx + 11, 31, p.clothDark)
+    cell.set(cx - 6, 30, p.accent)
+    cell.set(cx + 6, 30, p.accent)
+    const orbit = pose.legPhase === 0 ? -1 : pose.legPhase === 1 ? 0 : 1
+    cell.set(cx - 8 + orbit, headY - 3, p.accent)
+    cell.set(cx + 8 + orbit, headY + 1, p.accent)
+  } else {
+    // 自爆：圆身 + 发光核心 + 引线
+    cell.ellipse(cx, bodyY + 1, 10, 9, p.cloth)
+    cell.circle(cx, bodyY + 2, 4, p.accent)
+    cell.circle(cx, bodyY + 2, 2, ARCH_WHITE)
+    cell.line(cx, headY - 3, cx + 3, headY - 7, ARCH_WOOD_DARK)
+    cell.set(cx + 3, headY - 8, p.accent)
+  }
+
+  // 眼睛（朝上时后脑勺不画眼）
+  if (dir !== 'up') {
+    cell.set(faceX - 2, headY, p.eye)
+    cell.set(faceX + 2, headY, p.eye)
+    cell.set(faceX - 2, headY + 1, p.outline)
+    cell.set(faceX + 2, headY + 1, p.outline)
+  }
+}
+
+/** 五类原型的角色图集（与 buildGoblinAtlas 同规格，便于直接替换 sprite） */
+export function buildArchetypeAtlas(kind: ArchetypeKind): AtlasData {
+  const cellW = 28
+  const cellH = 32
+  const canvas = new PixelCanvas(cellW * FRAME_COLS, cellH * FRAME_ROWS)
+  const dirs: FacingRow[] = ['down', 'up', 'left', 'right']
+  for (let row = 0; row < FRAME_ROWS; row++) {
+    const dir = dirs[row]
+    for (let frame = 0; frame < FRAME_COLS; frame++) {
+      const pose = goblinPose(frame)
+      let cell = new PixelCanvas(cellW, cellH)
+      if (dir === 'up') drawArch(cell, kind, 'up', pose)
+      else if (dir === 'down') drawArch(cell, kind, 'down', pose)
+      else {
+        drawArch(cell, kind, 'side', pose)
+        if (dir === 'left') cell = cell.mirrored()
+      }
+      cell.outline(ARCH_PALETTE[kind].outline)
+      canvas.blit(cell, frame * cellW, row * cellH)
+    }
+  }
+  const bulky = kind === 'blocker' || kind === 'bomber'
+  return {
+    canvas,
+    cols: FRAME_COLS,
+    rows: FRAME_ROWS,
+    cellW,
+    cellH,
+    worldW: bulky ? 1.05 : 0.9,
+    worldH: bulky ? 1.15 : 1.05,
+  }
+}
