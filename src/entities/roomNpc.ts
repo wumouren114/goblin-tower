@@ -69,6 +69,51 @@ const PALETTES: Record<RoomNpcKind, NpcPalette> = {
   },
 }
 
+export type NpcVisualKind = RoomNpcKind | 'trial' | 'altar' | 'minigame'
+
+const VISUAL_PALETTES: Record<NpcVisualKind, NpcPalette> = {
+  ...PALETTES,
+  // 立约者：暗炭灰长袍 + 羊皮卷 + 铁链 + 暗琥珀独眼
+  trial: {
+    robe: 0x2d303c,
+    robeDark: 0x171922,
+    robeHi: 0x4a5063,
+    trim: 0xd9cbb0,
+    glow: 0xff8c52,
+    face: 0x13141c,
+    eye: 0xffb36b,
+    metal: 0x9aa3b5,
+    skin: 0xb8a898,
+    skinHi: 0xe6d8c8,
+  },
+  // 祭坛化身：半人半碑，玄武岩灰紫 + 胸口绯紫发光凹槽
+  altar: {
+    robe: 0x454052,
+    robeDark: 0x221e2b,
+    robeHi: 0x6b647d,
+    trim: 0xc98eff,
+    glow: 0xff6ec7,
+    face: 0x161221,
+    eye: 0xffb8e6,
+    metal: 0x8f88a3,
+    skin: 0x79738c,
+    skinHi: 0xa9a2bd,
+  },
+  // 塔的执秤人：瘦高青铜灰袍 + 黄铜旧天平
+  minigame: {
+    robe: 0x27454c,
+    robeDark: 0x13262b,
+    robeHi: 0x426f78,
+    trim: 0xe8bc5e,
+    glow: 0xffe494,
+    face: 0x101c20,
+    eye: 0xf4f8e8,
+    metal: 0xd4a44a,
+    skin: 0xc2cfc9,
+    skinHi: 0xe4eee9,
+  },
+}
+
 const NPC_INFO: Record<TunnelRoom, { kind: RoomNpcKind; title: string; hint: string }> = {
   event: { kind: 'guide', title: '陌生的旅人', hint: '按 Enter 交谈' },
   chest: { kind: 'guide', title: '宝藏守卫', hint: '按 Enter 领取密室宝藏' },
@@ -87,8 +132,236 @@ export function roomNpcInfo(room: TunnelRoom): { kind: RoomNpcKind; title: strin
   return NPC_INFO[room] ?? NPC_INFO.rest
 }
 
+/** 48×64 立约者：摊开契约卷轴 + 单眼蒙布 + 衣摆拖铁链 */
+function drawTrialNpc(): PixelCanvas {
+  const p = VISUAL_PALETTES.trial
+  const cell = new PixelCanvas(48, 64)
+
+  // 长袍下摆（偏沉重，右下留出锁链轨迹）
+  const robeSpans: [number, number, number][] = [
+    [32, 16, 18],
+    [35, 14, 22],
+    [38, 12, 26],
+    [41, 11, 28],
+    [44, 10, 30],
+    [47, 9, 32],
+    [50, 9, 31],
+    [53, 11, 28],
+    [56, 13, 24],
+  ]
+  for (const [y, x, w] of robeSpans) cell.fillRect(x, y, w, 3, p.robe)
+  cell.vLine(21, 34, 57, p.robeDark)
+  cell.vLine(28, 35, 57, p.robeDark)
+  cell.hLine(10, 38, 52, p.robeHi)
+  cell.hLine(11, 37, 54, p.trim)
+
+  // 躯干与高领披肩
+  cell.fillRect(15, 22, 20, 12, p.robeHi)
+  cell.fillRect(16, 23, 18, 10, p.robe)
+  cell.hLine(15, 34, 22, p.robeDark)
+  cell.hLine(17, 32, 31, p.trim)
+  cell.fillRect(24, 30, 3, 4, p.trim)
+  cell.set(25, 31, p.glow)
+
+  // 头部与兜帽（露出半张苍白脸，左眼斜蒙白色布条，右眼微亮）
+  cell.ellipse(25, 14, 10, 10, p.robeDark)
+  cell.ellipse(25, 13, 9, 9, p.robe)
+  cell.hLine(18, 32, 5, p.robeHi)
+  cell.ellipse(25, 15, 6, 7, p.skin)
+  cell.ellipse(25, 16, 6, 5, p.face)
+  // 单眼蒙布（斜贯左眼到太阳穴，末梢飘出两条布带）
+  cell.line(18, 11, 26, 17, 0xede4d3)
+  cell.line(18, 12, 25, 18, 0xc9beaa)
+  cell.line(19, 10, 26, 16, 0xfff8eb)
+  cell.line(16, 12, 13, 15, 0xd9cbb0)
+  cell.line(16, 13, 14, 17, 0xb8aa92)
+  // 未蒙住的右眼：一点冷琥珀光
+  cell.fillRect(28, 14, 2, 2, p.eye)
+  cell.set(29, 14, p.glow)
+
+  // 右手提链 / 左手捧摊开的契约卷轴
+  cell.fillRect(34, 24, 4, 12, p.robeDark)
+  cell.fillRect(35, 35, 3, 3, p.skin)
+
+  // 摊开的契约卷轴（左侧显著剪影，宽 16×22）
+  const parchment = 0xefe2c6
+  const parchDark = 0xc5b28e
+  const ink = 0x3b2c22
+  const wax = 0xd94545
+  cell.fillRect(5, 22, 16, 20, parchDark)
+  cell.fillRect(6, 23, 14, 18, parchment)
+  // 上下卷轴木杆
+  cell.fillRect(4, 21, 18, 2, 0x6e4a2e)
+  cell.fillRect(4, 41, 18, 2, 0x6e4a2e)
+  cell.set(4, 21, p.trim)
+  cell.set(21, 21, p.trim)
+  cell.set(4, 41, p.trim)
+  cell.set(21, 41, p.trim)
+  // 契约条款墨线与火漆印
+  cell.hLine(8, 18, 26, ink)
+  cell.hLine(8, 17, 29, ink)
+  cell.hLine(8, 18, 32, ink)
+  cell.hLine(8, 14, 35, ink)
+  cell.ellipse(16, 37, 2, 2, wax)
+  cell.set(16, 36, 0xff9a7a)
+  // 扶卷之手
+  cell.fillRect(19, 30, 3, 3, p.skinHi)
+
+  // 衣摆拖出的锁链（多节铁环从腰侧垂落拖地）
+  const links: [number, number][] = [
+    [36, 38], [38, 42], [40, 46], [41, 50], [39, 54], [42, 57], [45, 59],
+    [13, 56], [10, 58], [7, 59],
+  ]
+  for (const [lx, ly] of links) {
+    cell.ellipse(lx, ly, 2, 2, p.robeDark)
+    cell.set(lx - 1, ly, p.metal)
+    cell.set(lx + 1, ly, p.metal)
+    cell.set(lx, ly - 1, 0xdbe2f0)
+    cell.set(lx, ly + 1, p.metal)
+  }
+
+  cell.outline(0x090a10)
+  return cell
+}
+
+/** 48×64 祭坛化身：半人半碑 + 胸口发光凹槽（放卡/放血之位） */
+function drawAltarNpc(): PixelCanvas {
+  const p = VISUAL_PALETTES.altar
+  const cell = new PixelCanvas(48, 64)
+
+  // 下半身与躯干：雕凿石碑基座（上窄下宽的棱角石柱）
+  cell.fillRect(12, 24, 24, 34, p.robe)
+  cell.fillRect(10, 46, 28, 13, p.robe)
+  cell.fillRect(8, 56, 32, 4, p.robeDark)
+  // 石碑倒角高光与裂纹
+  cell.vLine(12, 24, 55, p.robeHi)
+  cell.vLine(13, 25, 55, p.robeHi)
+  cell.vLine(35, 24, 55, p.robeDark)
+  cell.vLine(34, 25, 55, p.robeDark)
+  cell.hLine(10, 37, 46, p.robeHi)
+  cell.line(14, 48, 18, 52, p.robeDark)
+  cell.line(33, 30, 30, 34, p.robeDark)
+
+  // 石化双肩与垂落石袖（半人半碑的过渡）
+  cell.fillRect(8, 22, 6, 16, p.robeDark)
+  cell.fillRect(34, 22, 6, 16, p.robeDark)
+  cell.fillRect(9, 23, 4, 13, p.robeHi)
+  cell.fillRect(35, 23, 4, 13, p.robeHi)
+  cell.fillRect(8, 37, 4, 3, p.skinHi)
+  cell.fillRect(36, 37, 4, 3, p.skinHi)
+
+  // 头部：半覆兜帽的静默石像面孔
+  cell.ellipse(24, 14, 11, 11, p.robeDark)
+  cell.ellipse(24, 13, 10, 10, p.robe)
+  cell.hLine(16, 32, 4, p.robeHi)
+  cell.ellipse(24, 15, 6, 7, p.face)
+  cell.fillRect(20, 14, 2, 2, p.eye)
+  cell.fillRect(26, 14, 2, 2, p.eye)
+  // 额心碑纹
+  cell.vLine(24, 7, 11, p.trim)
+  cell.set(24, 8, p.glow)
+
+  // 胸口发光凹槽（放卡 / 放血的醒目核心）
+  cell.fillRect(18, 25, 12, 16, p.robeDark)
+  cell.hLine(18, 29, 25, p.trim)
+  cell.hLine(18, 29, 40, p.trim)
+  cell.vLine(18, 25, 40, p.trim)
+  cell.vLine(29, 25, 40, p.trim)
+  // 凹槽内发光层（外紫粉 + 内白热核心）
+  cell.fillRect(20, 27, 8, 12, 0x9b2d8a)
+  cell.fillRect(21, 28, 6, 10, p.glow)
+  cell.fillRect(22, 30, 4, 6, 0xffd6f4)
+  cell.fillRect(23, 31, 2, 4, 0xffffff)
+
+  // 石碑底座符文光点
+  cell.hLine(15, 32, 49, p.trim)
+  cell.set(16, 52, p.glow)
+  cell.set(24, 52, p.glow)
+  cell.set(32, 52, p.glow)
+  cell.set(6, 28, p.glow)
+  cell.set(42, 28, p.glow)
+
+  cell.outline(0x090a10)
+  return cell
+}
+
+/** 48×64 塔的执秤人：瘦高剪影 + 提着老式天平（秤盘一高一低） */
+function drawMinigameNpc(): PixelCanvas {
+  const p = VISUAL_PALETTES.minigame
+  const cell = new PixelCanvas(48, 64)
+
+  // 瘦高窄袍（左偏以给右侧天平留出完整展示空间）
+  const robeSpans: [number, number, number][] = [
+    [22, 13, 12],
+    [26, 12, 14],
+    [30, 11, 16],
+    [35, 10, 18],
+    [40, 9, 20],
+    [46, 9, 20],
+    [52, 8, 22],
+    [57, 9, 20],
+  ]
+  for (const [y, x, w] of robeSpans) cell.fillRect(x, y, w, 5, p.robe)
+  cell.vLine(15, 24, 59, p.robeHi)
+  cell.vLine(22, 25, 59, p.robeDark)
+  cell.hLine(9, 28, 56, p.trim)
+  cell.vLine(18, 22, 56, p.trim)
+
+  // 瘦高尖帽与白面具
+  cell.triangle(19, 2, 11, 16, 27, 16, p.robeDark)
+  cell.triangle(19, 3, 12, 15, 26, 15, p.robe)
+  cell.line(19, 3, 19, 14, p.trim)
+  cell.ellipse(19, 17, 5, 5, p.skinHi)
+  cell.fillRect(16, 16, 2, 2, p.face)
+  cell.fillRect(20, 16, 2, 2, p.face)
+  cell.set(17, 16, p.glow)
+  cell.set(21, 16, p.glow)
+
+  // 抬起的执秤右臂
+  cell.line(24, 25, 34, 22, p.robeHi)
+  cell.line(24, 26, 34, 23, p.robeDark)
+  cell.fillRect(33, 20, 3, 3, p.skin)
+
+  // 老式黄铜天平：中心立柱 + 倾斜横梁（左低右高）
+  const brass = p.trim
+  const brassDark = 0x8f6626
+  const brassHi = p.glow
+  // 提环与支点
+  cell.vLine(35, 13, 21, brass)
+  cell.set(35, 12, brassHi)
+  // 倾斜秤杆：左端 (26, 20) 低，右端 (44, 12) 高
+  cell.line(26, 20, 44, 12, brassDark)
+  cell.line(26, 19, 44, 11, brass)
+  cell.set(35, 15, brassHi)
+
+  // 左秤盘（较低，y=33）
+  cell.line(26, 20, 23, 32, p.metal)
+  cell.line(26, 20, 29, 32, p.metal)
+  cell.fillRect(22, 32, 9, 2, brass)
+  cell.hLine(23, 29, 34, brassDark)
+  cell.hLine(23, 29, 32, brassHi)
+  // 左盘里的砝码/金粒
+  cell.fillRect(25, 30, 3, 2, brassHi)
+
+  // 右秤盘（较高，y=24）
+  cell.line(44, 12, 41, 23, p.metal)
+  cell.line(44, 12, 47, 23, p.metal)
+  cell.fillRect(40, 23, 8, 2, brass)
+  cell.hLine(41, 46, 25, brassDark)
+  cell.hLine(41, 46, 23, brassHi)
+  // 右盘上方漂浮的一点星光
+  cell.set(44, 20, 0xffffff)
+  cell.set(44, 21, brassHi)
+
+  cell.outline(0x090a10)
+  return cell
+}
+
 /** 48×64 手绘像素引路人：兜帽、法杖、房间专属小道具 */
-function drawNpcCell(kind: RoomNpcKind): PixelCanvas {
+export function drawNpcCell(kind: NpcVisualKind): PixelCanvas {
+  if (kind === 'trial') return drawTrialNpc()
+  if (kind === 'altar') return drawAltarNpc()
+  if (kind === 'minigame') return drawMinigameNpc()
   const p = PALETTES[kind]
   const cell = new PixelCanvas(48, 64)
 
@@ -324,7 +597,9 @@ export class RoomNpc {
     this.group.position.set(x, 0, z)
     scene.add(this.group)
 
-    this.texture = textureFromPixels(drawNpcCell(info.kind))
+    const visualKind: NpcVisualKind =
+      room === 'trial' || room === 'altar' || room === 'minigame' ? room : info.kind
+    this.texture = textureFromPixels(drawNpcCell(visualKind))
     this.spriteMat = new THREE.SpriteMaterial({
       map: this.texture,
       transparent: true,
@@ -348,7 +623,7 @@ export class RoomNpc {
       opacity: 0.34,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
-      color: PALETTES[info.kind].glow,
+      color: VISUAL_PALETTES[visualKind].glow,
       toneMapped: false,
     })
     this.ring = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.ringMat)
@@ -361,7 +636,7 @@ export class RoomNpc {
     // 提灯挂点：与 48×64 精灵里灯体的像素位置对齐，只给引路人加一层暖光
     let glow: THREE.Sprite | null = null
     let glowMat: THREE.SpriteMaterial | null = null
-    if (info.kind === 'guide') {
+    if (visualKind === 'guide') {
       glowMat = new THREE.SpriteMaterial({
         map: particleTexture('glow'),
         color: 0xffb35c,
