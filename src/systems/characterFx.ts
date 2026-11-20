@@ -615,6 +615,17 @@ export class CharacterFx {
 
   // ───────────────────── 丛雨：刀术 ─────────────────────
 
+  /** 按丛雨潜能分支覆写配色：流殇=爆血红，瞬闪=亮黄色，居合=冷青白 */
+  private murasamePalette(
+    styleId: StyleId,
+    branch?: 'liushang' | 'shunshan' | 'jianyi' | null,
+  ): ReturnType<typeof paletteFor> {
+    if (branch === 'liushang') return { main: 0xc8102e, accent: 0xff2a44, ring: 'ring', mote: 'spark' }
+    if (branch === 'shunshan') return { main: 0xffe042, accent: 0xfff6a8, ring: 'ring', mote: 'spark' }
+    if (branch === 'jianyi') return { main: 0xb8f3ff, accent: 0xffffff, ring: 'ring', mote: 'spark' }
+    return paletteFor(styleId)
+  }
+
   /** 普通拔刀：贴地弧形刀光 + 刀锋前缘，和音乐环完全区分。 */
   murasameSlash(
     px: number,
@@ -624,8 +635,9 @@ export class CharacterFx {
     range: number,
     styleId: StyleId,
     hit: boolean,
+    branch?: 'liushang' | 'shunshan' | 'jianyi' | null,
   ): void {
-    const p = paletteFor(styleId)
+    const p = this.murasamePalette(styleId, branch)
     const yaw = groundYaw(dirX, dirZ)
     const cx = px + dirX * range * 0.5
     const cz = pz + dirZ * range * 0.5
@@ -685,11 +697,36 @@ export class CharacterFx {
         size1: 0.02,
       })
     }
+    if (branch === 'liushang') {
+      // 流殇爆血红喷溅点缀
+      for (let i = 0; i < 4; i++) {
+        const a = base + rand(-0.9, 0.9)
+        const r = range * rand(0.45, 0.92)
+        this.spawnParticle('spark', px + Math.cos(a) * r, rand(0.28, 0.72), pz + Math.sin(a) * r, i % 2 === 0 ? 0xd90429 : 0x8f081a, rand(0.18, 0.3), {
+          vx: Math.cos(a) * rand(1.1, 2.4),
+          vy: rand(0.6, 1.9),
+          vz: Math.sin(a) * rand(1.1, 2.4),
+          gravity: -5.4,
+          drag: 2.0,
+          life: rand(0.28, 0.48),
+          spin: rand(-3.2, 3.2),
+          size1: 0.03,
+        })
+      }
+    }
   }
 
   /** 居合第三刀：一道贯穿型长线，端部再补一道窄弧光。 */
-  murasameIai(px: number, pz: number, dirX: number, dirZ: number, range: number, styleId: StyleId): void {
-    const p = paletteFor(styleId)
+  murasameIai(
+    px: number,
+    pz: number,
+    dirX: number,
+    dirZ: number,
+    range: number,
+    styleId: StyleId,
+    branch?: 'liushang' | 'shunshan' | 'jianyi' | null,
+  ): void {
+    const p = this.murasamePalette(styleId, branch)
     const yaw = groundYaw(dirX, dirZ)
     const cx = px + dirX * range * 0.5
     const cz = pz + dirZ * range * 0.5
@@ -757,8 +794,9 @@ export class CharacterFx {
     dirZ: number,
     styleId: StyleId,
     empowered: boolean,
+    branch?: 'liushang' | 'shunshan' | 'jianyi' | null,
   ): void {
-    const p = paletteFor(styleId)
+    const p = this.murasamePalette(styleId, branch)
     const dx = toX - fromX
     const dz = toZ - fromZ
     const dist = Math.max(0.01, Math.hypot(dx, dz))
@@ -841,6 +879,107 @@ export class CharacterFx {
       })
     }
     if (styleId === 'murasame-guard') this.murasameGuard(toX, toZ, empowered)
+  }
+
+  /** 居合收刀引爆连锁演出：收刀微闪 → 横斩刀光 → 场上标记依次爆裂。 */
+  murasameSheatheDetonate(
+    px: number,
+    pz: number,
+    dirX: number,
+    dirZ: number,
+    targets: readonly { x: number; z: number; stacks: number }[],
+  ): void {
+    const yaw = groundYaw(dirX, dirZ)
+    // 1. 收刀微闪（自身收束光环）
+    this.ground('ring', px, pz, {
+      width: 2.2,
+      life: 0.22,
+      color: 0xe8fbff,
+      startScale: 1.05,
+      endScale: 0.24,
+      opacity: 0.9,
+      spin: 1.8,
+      y: 0.09,
+    })
+    // 2. 横斩刀光（垂直于朝向的一道冷白横线 + 窄弧光）
+    this.ground('bladeLine', px + dirX * 0.45, pz + dirZ * 0.45, {
+      width: 0.95,
+      length: 5.4,
+      life: 0.26,
+      color: 0xb8f3ff,
+      yaw: yaw + Math.PI * 0.5,
+      startScale: 0.6,
+      endScale: 1.15,
+      opacity: 0.95,
+      delay: 0.05,
+      y: 0.095,
+    })
+    this.ground('bladeLine', px + dirX * 0.45, pz + dirZ * 0.45, {
+      width: 0.3,
+      length: 5.6,
+      life: 0.2,
+      color: 0xffffff,
+      yaw: yaw + Math.PI * 0.5,
+      startScale: 0.7,
+      endScale: 1.12,
+      opacity: 0.95,
+      delay: 0.06,
+      y: 0.1,
+    })
+    this.ground('slash', px + dirX * 0.6, pz + dirZ * 0.6, {
+      width: 3.4,
+      length: 3.4,
+      life: 0.22,
+      color: 0xc8f7ff,
+      yaw,
+      startScale: 0.75,
+      endScale: 1.1,
+      opacity: 0.75,
+      delay: 0.06,
+      y: 0.09,
+    })
+    // 3. 标记引爆连锁（按目标依次延迟爆开）
+    targets.forEach((t, idx) => {
+      const delay = 0.1 + Math.min(idx, 6) * 0.03
+      const scale = 1 + Math.min(3, t.stacks) * 0.35
+      this.ground('ring', t.x, t.z, {
+        width: 2.0 * scale,
+        life: 0.3,
+        color: 0x8ff6ff,
+        startScale: 0.25,
+        endScale: 1.15,
+        opacity: 0.9,
+        delay,
+        spin: -1.2,
+        y: 0.085,
+      })
+      this.ground('bladeLine', t.x, t.z, {
+        width: 0.55,
+        length: 2.2 * scale,
+        life: 0.22,
+        color: 0xffffff,
+        yaw: yaw + 0.65,
+        startScale: 0.5,
+        endScale: 1.1,
+        opacity: 0.9,
+        delay: delay + 0.02,
+        y: 0.095,
+      })
+      const count = 4 + Math.min(3, t.stacks) * 2
+      for (let i = 0; i < count; i++) {
+        const a = rand(0, TAU)
+        this.spawnParticle('spark', t.x, rand(0.35, 0.95), t.z, i % 2 === 0 ? 0xffffff : 0x8ff6ff, rand(0.14, 0.26), {
+          vx: Math.cos(a) * rand(1.0, 2.8),
+          vy: rand(0.6, 2.2),
+          vz: Math.sin(a) * rand(1.0, 2.8),
+          gravity: -3.2,
+          drag: 2.4,
+          life: rand(0.28, 0.5),
+          spin: rand(-3, 3),
+          size1: 0.02,
+        })
+      }
+    })
   }
 
   /** 守护冲击波：六边形护盾纹 + 金色余震。 */
@@ -1644,16 +1783,16 @@ export function fxBloodTick(scene: THREE.Scene, x: number, z: number): Potential
     sharedDropGeo.rotateX(-Math.PI / 2)
   }
 
-  const count = Math.random() < 0.5 ? 2 : 3
+  const count = Math.random() < 0.5 ? 3 : 4
   const drops: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; vx: number; vy: number; vz: number; size: number }[] = []
   for (let i = 0; i < count; i += 1) {
     const angle = (i / count) * TAU + rand(-0.55, 0.55)
-    const speed = rand(0.55, 1.15)
-    const size = rand(0.055, 0.085)
+    const speed = rand(0.85, 1.65)
+    const size = rand(0.065, 0.105)
     const mat = new THREE.MeshBasicMaterial({
-      color: i === 0 ? 0xa8162a : 0x7c0f1e,
+      color: i === 0 ? 0xff1e38 : i === 1 ? 0xc8102e : 0x8a071a,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.95,
       depthWrite: false,
     })
     const mesh = new THREE.Mesh(sharedDropGeo, mat)

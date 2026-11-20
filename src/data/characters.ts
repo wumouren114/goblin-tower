@@ -130,7 +130,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     title: '近战 · 突进',
     role: '贴脸扇形拔刀清群，右键 远距离突进聚怪并回血',
     chargeGainMul: 1,
-    base: { hp: 205, chargeMax: 80, stamina: 145, magic: 95, intelligence: 70, moveSpeed: 7.5 },
+    base: { hp: 236, chargeMax: 80, stamina: 145, magic: 95, intelligence: 70, moveSpeed: 7.5 },
     attack: {
       name: '拔刀斩',
       baseDamage: 19,

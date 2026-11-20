@@ -46,6 +46,8 @@ export interface Hittable {
   z: number
   radius: number
   alive: boolean
+  /** 最大生命（可选：实现后流殇按敌人最大生命百分比流血生效） */
+  readonly maxHp?: number
   /** 当前血量比例 0..1（可选：实现后泡泡处决才可用） */
   readonly hpRatio?: number
   /** 精英/首领：不参与斩杀 */
@@ -61,6 +63,19 @@ export function rhythmComboMul(combo: number): number {
   if (combo >= 40) return 1.3
   if (combo >= 20) return 1.15
   return 1
+}
+
+/**
+ * 丛雨 F 格挡对炸弹人爆炸伤害的减伤结算（与 game.ts damagePlayer 的 blocking ? 0.2 : 1 口径一致）。
+ */
+export function mitigateExplosionByBlock(
+  rawDamage: number,
+  blocking: boolean,
+): { damage: number; blocked: boolean } {
+  const safe = Math.max(0, rawDamage)
+  return blocking
+    ? { damage: safe * 0.2, blocked: true }
+    : { damage: safe, blocked: false }
 }
 
 export type PotentialBranchId =
@@ -164,9 +179,11 @@ interface ResonanceField {
 }
 
 interface Bleed {
-  until: number
-  dps: number
+  tickDamage: number
+  tickInterval: number
   tickLeft: number
+  ticksLeft: number
+  isLiushang?: boolean
 }
 
 const IDENTITY_MODS = {
@@ -369,18 +386,30 @@ export class Combat {
     return this.hasBranch('rhythm') ? this.beat.judge(performance.now()) : null
   }
 
-  /** 分支代价：流殇/瞬闪砍普攻，剑意砍技能（标记结算不吃） */
+  /** 分支代价：流殇砍普攻 -20%；瞬闪不再砍普攻；居合技能本体无直接伤害（引爆独立结算） */
   private potentialAtkMul(): number {
     let mul = 1
     if (this.hasBranch('liushang')) mul *= 0.8
-    if (this.hasBranch('shunshan')) mul *= 0.85
     return mul
   }
 
   private potentialSkillMul(): number {
-    let mul = this.hasBranch('jianyi') ? 0.8 : 1
+    let mul = 1
     if (this.hasBranch('shunshan') && this.hasNode('murasame-shunshan-power')) mul *= 1.2
     return mul
+  }
+
+  /** 返回当前丛雨潜能分支（供特效配色使用） */
+  private murasameFxBranch(): 'liushang' | 'shunshan' | 'jianyi' | null {
+    if (this.hasBranch('liushang')) return 'liushang'
+    if (this.hasBranch('shunshan')) return 'shunshan'
+    if (this.hasBranch('jianyi')) return 'jianyi'
+    return null
+  }
+
+  /** 查询目标当前居合标记层数 */
+  getMarkStacks(target: Hittable): number {
+    return this.marks.stacks('mark', this.keyOf(target))
   }
 
   /** F·强拍闪避：窗口内的下一次普攻强制 perfect */
@@ -431,18 +460,41 @@ export class Combat {
   }
 
   /**
-   * 流殇：普攻附加流血。
-   * 现有流血模型是「每 0.5s 一跳、按 dps 结算」，所以：
-   * - 强度节点直接提每跳百分比
-   * - 速率节点（0.4s 一跳）折算成 dps ×1.25
-   * - 持续节点延长总时长
+   * 流殇：普攻附加按敌人最大生命百分比结算的流血（与玩家自身攻击/魔力无关）。
+   * - 基础：每 0.5s 1 跳 ×6 跳（3s），每跳 = 敌人 maxHp × 1.2%（共 7.2%）
+   * - 血流：0.5s → 0.4s
+   * - 深创：1.2% → 1.5%
+   * - 不止：3s → 4s（点满 1.5% × 10 跳 = 15%）
    */
-  private applyLiushangBleed(target: Hittable, amount: number): void {
-    if (this.potentialBranch !== 'liushang' || !target.alive) return
-    const pct = this.hasNode('murasame-liushang-power') ? 0.1 : 0.08
-    const rateMul = this.hasNode('murasame-liushang-rate') ? 1.25 : 1
+  private applyLiushangBleed(target: Hittable): void {
+    if (!this.hasBranch('liushang') || !target.alive) return
+    const maxHp = target.maxHp ?? 0
+    if (maxHp <= 0) return
+    const pct = this.hasNode('murasame-liushang-power') ? 0.015 : 0.012
+    const interval = this.hasNode('murasame-liushang-rate') ? 0.4 : 0.5
     const duration = this.hasNode('murasame-liushang-long') ? 4 : 3
-    this.applyBleed(target, amount * pct * 2 * rateMul, duration)
+    const totalTicks = Math.max(1, Math.floor(duration / interval + 1e-9))
+    const tickDamage = maxHp * pct
+    const existing = this.bleeds.get(target)
+    this.bleeds.set(target, {
+      tickDamage: Math.max(existing?.tickDamage ?? 0, tickDamage),
+      tickInterval: interval,
+      tickLeft: Math.min(existing?.tickLeft ?? interval, interval),
+      ticksLeft: Math.max(existing?.ticksLeft ?? 0, totalTicks),
+      isLiushang: true,
+    })
+  }
+
+  /** 居合：普攻命中附加 1 层标记（上限 3 层，持续 4 秒） */
+  private applyJianyiMark(target: Hittable): void {
+    if (!this.hasBranch('jianyi') || !target.alive) return
+    const key = this.keyOf(target)
+    const before = this.marks.stacks('mark', key)
+    this.marks.apply('mark', key, 4000, { maxStacks: 3 })
+    if (this.marks.stacks('mark', key) > before) {
+      this.burstAt(target.x, target.z, 0xb8f3ff, 3)
+      fxMarkStack(this.scene, target.x, target.z, this.marks.stacks('mark', key))
+    }
   }
 
   setBuild(styleId: StyleId | string | undefined, awakenings: Partial<Record<AwakeningId, number>> | undefined): void {
@@ -854,15 +906,21 @@ export class Combat {
     if (this.style.id === 'murasame-blood') lifesteal += [0, 0.03, 0.05, 0.08][this.al('murasame-blood-price')]
     let leeched = 0
     for (const t of targets) {
-      const killed = t.hit(amount, dir.x * 2.2, dir.z * 2.2)
-      this.applyLiushangBleed(t, amount)
+      const markAmp =
+        this.hasBranch('jianyi') && this.hasNode('murasame-jianyi-amp') && this.marks.has('mark', this.keyOf(t))
+          ? 1.1
+          : 1
+      const dealt = amount * markAmp
+      const killed = t.hit(dealt, dir.x * 2.2, dir.z * 2.2)
+      this.applyLiushangBleed(t)
+      this.applyJianyiMark(t)
       if (gather > 0) pullToward(t, px, pz, gather)
-      this.hooks.onHit(t, amount, crit, killed)
-      if (lifesteal > 0) leeched += amount * lifesteal
+      this.hooks.onHit(t, dealt, crit, killed)
+      if (lifesteal > 0) leeched += dealt * lifesteal
     }
     if (lifesteal > 0 && leeched > 0) world.heal(leeched)
     if (targets.length > 0) this.gainResource(1)
-    this.characterFx.murasameSlash(px, pz, dir.x, dir.z, range, this.style.id, targets.length > 0)
+    this.characterFx.murasameSlash(px, pz, dir.x, dir.z, range, this.style.id, targets.length > 0, this.murasameFxBranch())
     // lv4+ 普攻带前冲
     const stepLen = tierNum(tier, 'stepOnAttack', 0)
     if (stepLen > 0) {
@@ -896,11 +954,18 @@ export class Combat {
     if (this.style.id === 'murasame-blood') lifesteal += [0, 0.03, 0.05, 0.08][this.al('murasame-blood-price')]
     let leeched = 0
     for (const t of targets) {
-      const killed = t.hit(amount, dir.x * 2.4, dir.z * 2.4)
-      this.hooks.onHit(t, amount, crit, killed)
-      if (lifesteal > 0) leeched += amount * lifesteal
+      const markAmp =
+        this.hasBranch('jianyi') && this.hasNode('murasame-jianyi-amp') && this.marks.has('mark', this.keyOf(t))
+          ? 1.1
+          : 1
+      const dealt = amount * markAmp
+      const killed = t.hit(dealt, dir.x * 2.4, dir.z * 2.4)
+      this.applyLiushangBleed(t)
+      this.applyJianyiMark(t)
+      this.hooks.onHit(t, dealt, crit, killed)
+      if (lifesteal > 0) leeched += dealt * lifesteal
       const bleed = this.al('murasame-iai-bleed')
-      if (bleed > 0) this.applyBleed(t, amount * [0, 0.18, 0.26, 0.36][bleed], [0, 3, 3.5, 4][bleed])
+      if (bleed > 0) this.applyBleed(t, dealt * [0, 0.18, 0.26, 0.36][bleed], [0, 3, 3.5, 4][bleed])
     }
     if (lifesteal > 0 && leeched > 0) world.heal(leeched)
     const mind = this.al('murasame-iai-mind')
@@ -910,7 +975,7 @@ export class Combat {
       this.hooks.onSfx('crit')
     }
     if (targets.length > 0) this.gainResource(1)
-    this.characterFx.murasameIai(px, pz, dir.x, dir.z, range, this.style.id)
+    this.characterFx.murasameIai(px, pz, dir.x, dir.z, range, this.style.id, this.murasameFxBranch())
   }
 
   private attackFish(
@@ -974,6 +1039,12 @@ export class Combat {
       return true
     }
     if (this.charId === 'murasame') {
+      if (this.hasBranch('jianyi')) {
+        const hasReadyMark = world.enemies.some(
+          (e) => e.alive && this.marks.stacks('mark', this.keyOf(e)) >= 2,
+        )
+        if (!hasReadyMark) return false
+      }
       if (!spend()) return false
       this.skillDash(px, pz, dir, tier, world)
       return true
@@ -984,7 +1055,12 @@ export class Combat {
   }
 
   private skillCost(tier: WeaponTier, fallback: number): number {
-    if (this.charId === 'murasame') return Math.max(20, tierNum(tier, 'skillCharge', fallback))
+    if (this.charId === 'murasame') {
+      const base = Math.max(20, tierNum(tier, 'skillCharge', fallback))
+      if (this.hasBranch('shunshan')) return Math.max(20, Math.round(base * 0.85))
+      if (this.hasBranch('jianyi')) return Math.max(20, Math.round(base * 0.75))
+      return base
+    }
     const mul =
       (this.hasBranch('swarm') ? 1.2 : 1) *
       (this.charId === 'mutsumi' && this.hasBranch('duet') ? 1.2 : 1)
@@ -1047,11 +1123,55 @@ export class Combat {
     const p = def.skill.params
     const empowered = this.resourceValue >= this.resourceMax
     if (empowered) this.spendResource(this.resourceMax)
+    const skillMul = tierNum(tier, 'skillDamageMul', 1)
+    // 居合分支：突进距离缩至 20%、本体 0 直接伤害，改为收刀横斩引爆场上标记
+    if (this.hasBranch('jianyi')) {
+      const distance = (p.distance ?? 7.5) * 0.2
+      const end = world.clamp(px + dir.x * distance, pz + dir.z * distance)
+      const baseSkillDmg =
+        hitDamage(p.damage ?? 45, this.stats.magic) *
+        skillMul *
+        this.bloodDamageMul() *
+        (1 + this.trialSkillDamage)
+      let totalStacks = 0
+      const detonatedTargets: { x: number; z: number; stacks: number }[] = []
+      for (const t of world.enemies) {
+        if (!t.alive) continue
+        const key = this.keyOf(t)
+        const stacks = this.marks.consume('mark', key)
+        if (stacks <= 0) continue
+        const detonateDmg = baseSkillDmg * 0.6 * stacks
+        const killed = t.hit(detonateDmg, 0, 0)
+        this.hooks.onHit(t, detonateDmg, false, killed)
+        totalStacks += stacks
+        detonatedTargets.push({ x: t.x, z: t.z, stacks })
+        if (this.hasNode('murasame-jianyi-boom')) {
+          const splashDmg = detonateDmg * 0.6
+          for (const near of world.enemies) {
+            if (!near.alive || near === t) continue
+            if (Math.hypot(near.x - t.x, near.z - t.z) > 3) continue
+            const splashKilled = near.hit(splashDmg, 0, 0)
+            this.hooks.onHit(near, splashDmg, false, splashKilled)
+          }
+        }
+      }
+      if (totalStacks > 0) {
+        world.heal(this.stats.maxHp * 0.03 * totalStacks)
+        this.hooks.onSfx('mark_settle')
+      }
+      world.grantInvuln(p.invulnerable ?? 0.3)
+      world.dashPlayer(dir.x, dir.z, distance, p.dashDuration ?? 0.24)
+      this.lockedLeft = Math.max(this.lockedLeft, p.recovery ?? 0.2)
+      this.characterFx.murasameSheatheDetonate(end.x, end.z, dir.x, dir.z, detonatedTargets)
+      this.hooks.onSfx('dash')
+      this.hooks.onSfx('skill')
+      return
+    }
+
     const distance = p.distance ?? 7.5
     const end = world.clamp(px + dir.x * distance, pz + dir.z * distance)
     const width = (p.pathWidth ?? 1.8) * (empowered ? 1.4 : 1)
     const hits = pickLineTargets(world.enemies, px, pz, end.x, end.z, width)
-    const skillMul = tierNum(tier, 'skillDamageMul', 1)
     const amount =
       hitDamage(p.damage ?? 45, this.stats.magic) *
       skillMul *
@@ -1067,37 +1187,12 @@ export class Combat {
       const killed = t.hit(dmg, dir.x * 1.2, dir.z * 1.2)
       this.hooks.onHit(t, dmg, crit, killed)
       dealt += dmg
-      // 瞬闪 × 流殇 · 回潮：技能命中带流血目标，返还 25% 充能
-      if (this.hasResonance('res-shunshan-liushang') && this.bleeds.has(t)) {
-        this.grantCharge(0.25)
-      }
-      // 剑意·根被动：技能命中「带标记」的目标时结算，每层 25% 技能伤害
-      if (this.hasBranch('jianyi') && t.alive) {
-        const key = this.keyOf(t)
-        const stacks = this.marks.consume('mark', key)
-        if (stacks > 0) {
-          const chargeBoost = this.hasResonance('res-jianyi-shunshan') ? 1 + 0.3 * this.meter.ratio : 1
-          const settle = dmg * 0.25 * stacks * chargeBoost
-          const settled = t.hit(settle, 0, 0)
-          this.hooks.onHit(t, settle, false, settled)
-          dealt += settle
-          this.hooks.onSfx('mark_settle')
-          this.burstAt(t.x, t.z, 0xffb347, 6)
-          if (this.hasNode('murasame-jianyi-boom')) {
-            for (const near of world.enemies) {
-              if (!near.alive || near === t) continue
-              if (Math.hypot(near.x - t.x, near.z - t.z) > 3) continue
-              near.hit(settle * 0.6, 0, 0)
-            }
-          }
-        }
-      }
-      // 瞬闪·断流：技能击杀返还 20 充能
-      if (killed && this.hasBranch('shunshan') && this.hasNode('murasame-shunshan-kill')) {
-        this.grantCharge(0.25)
-      }
       // 技能把路径上命中的敌人也拉到终点，方便接普攻
       if (t.alive) gatherTo(t, end.x, end.z, 0.95)
+    }
+    // 瞬闪·断流：技能命中返还 10% 充能（每次施放最多触发 1 次，避免无限循环）
+    if (hits.length > 0 && this.hasBranch('shunshan') && this.hasNode('murasame-shunshan-kill')) {
+      this.grantCharge(0.1)
     }
     // 燕返：满剑意时在落点追加一次回旋斩
     if (empowered) {
@@ -1144,15 +1239,17 @@ export class Combat {
       }
       this.characterFx.murasameGuard(end.x, end.z, empowered)
     }
-    // 回血与命中数挂钩：每命中 1 个敌人回 healPerHit 血
-    const healBase = tierNum(tier, 'skillHealPerHit', 7)
-    // 瞬闪·回气：每命中回血 7 → 10.5
-    const healPerHit = this.hasNode('murasame-shunshan-heal') ? healBase * 1.5 : healBase
-    world.heal(healPerHit * hits.length)
+    // 回血：瞬闪分支使用突进固定回血（28 → 回气 44），未选瞬闪时沿用每命中回血口径
+    if (this.hasBranch('shunshan')) {
+      world.heal(this.hasNode('murasame-shunshan-heal') ? 44 : (p.heal ?? 28))
+    } else {
+      const healBase = tierNum(tier, 'skillHealPerHit', 7)
+      world.heal(healBase * hits.length)
+    }
     world.grantInvuln(p.invulnerable ?? 0.3)
     world.dashPlayer(dir.x, dir.z, distance, p.dashDuration ?? 0.24)
     this.lockedLeft = Math.max(this.lockedLeft, p.recovery ?? 0.2)
-    this.characterFx.murasameDash(px, pz, end.x, end.z, dir.x, dir.z, this.style.id, empowered)
+    this.characterFx.murasameDash(px, pz, end.x, end.z, dir.x, dir.z, this.style.id, empowered, this.murasameFxBranch())
     this.hooks.onSfx('dash')
     this.hooks.onSfx('skill')
   }
@@ -1360,19 +1457,20 @@ export class Combat {
     }
 
     for (const [t, bleed] of this.bleeds) {
-      if (!t.alive || bleed.until <= this.combatTime) {
+      if (!t.alive || bleed.ticksLeft <= 0) {
         this.bleeds.delete(t)
         continue
       }
       bleed.tickLeft -= step
-      while (bleed.tickLeft <= 0 && bleed.until > this.combatTime) {
-        bleed.tickLeft += 0.5
+      while (bleed.tickLeft <= 1e-9 && bleed.ticksLeft > 0) {
+        bleed.tickLeft += bleed.tickInterval
+        bleed.ticksLeft -= 1
         const markMul = this.hasResonance('res-liushang-jianyi') && this.marks.has('mark', this.keyOf(t)) ? 1.4 : 1
-        const tick = bleed.dps * 0.5 * markMul
+        const tick = bleed.tickDamage * markMul
         const killed = t.hit(tick, 0, 0)
-        if (Math.floor(this.combatTime * 2) % 2 === 0) fxBloodTick(this.scene, t.x, t.z)
+        if (bleed.isLiushang || Math.floor(this.combatTime * 2) % 2 === 0) fxBloodTick(this.scene, t.x, t.z)
         this.hooks.onHit(t, tick, false, killed)
-        if (killed) {
+        if (killed || bleed.ticksLeft <= 0) {
           this.bleeds.delete(t)
           break
         }
@@ -1395,6 +1493,9 @@ export class Combat {
           this.hooks.onSfx('crit')
         }
       }
+    }
+    if (this.hasBranch('shunshan')) {
+      this.meter.add(this.meter.max * 0.015 * step)
     }
     if (this.hasBranch('jianyi') && this.hasNode('murasame-jianyi-regen')) {
       this.jianyiRegenTimer -= step
@@ -1696,14 +1797,19 @@ export class Combat {
     }
   }
 
-  /** 流血：刷新时取更高的每秒伤害与更长的持续时间 */
+  /** 流血：刷新时取更高的单跳伤害与更长的剩余跳数 */
   private applyBleed(t: Hittable, dps: number, duration: number): void {
     if (!t.alive || dps <= 0 || duration <= 0) return
+    const interval = 0.5
+    const tickDamage = dps * interval
+    const totalTicks = Math.max(1, Math.floor(duration / interval + 1e-9))
     const existing = this.bleeds.get(t)
     this.bleeds.set(t, {
-      until: Math.max(existing?.until ?? 0, this.combatTime + duration),
-      dps: Math.max(existing?.dps ?? 0, dps),
-      tickLeft: Math.min(existing?.tickLeft ?? 0.5, 0.5),
+      tickDamage: Math.max(existing?.tickDamage ?? 0, tickDamage),
+      tickInterval: Math.min(existing?.tickInterval ?? interval, interval),
+      tickLeft: Math.min(existing?.tickLeft ?? interval, interval),
+      ticksLeft: Math.max(existing?.ticksLeft ?? 0, totalTicks),
+      isLiushang: existing?.isLiushang,
     })
   }
 
