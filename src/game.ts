@@ -26,6 +26,7 @@ import { rotateInput } from './core/math'
 import { TowerFloor } from './world/floor'
 import { pickScene, STAGE_NAMES } from './data/stages'
 import { EVENTS, eventOf, type EventEffect } from './data/events'
+import { POTENTIALS } from './data/potentials'
 import { EventState } from './systems/eventState'
 import { EventPanel } from './ui/eventPanel'
 import { ExchangePanel } from './ui/exchangePanel'
@@ -273,8 +274,8 @@ export class Game {
   /** 命中顿帧（爽感）：击杀/暴击时短暂减速世界 */
   private hitStop = 0
   private mortisVisual = false
-  private awakeningOffers: TunnelOffer[] = []
-  private awakeningActive = false
+  private potentialOffers: TunnelOffer[] = []
+  private potentialActive = false
   private shieldHp = 0
   private shieldTime = 0
   private layerSnapshot: RunState | null = null
@@ -324,8 +325,8 @@ export class Game {
     this.riceStacks = 0
     this.shieldHp = 0
     this.shieldTime = 0
-    this.awakeningActive = false
-    this.awakeningOffers = []
+    this.potentialActive = false
+    this.potentialOffers = []
     this.run = makeRunState(character, difficulty)
     const style = styleForCharacter(character, styleId)
     this.run.style = style.id
@@ -384,8 +385,8 @@ export class Game {
     this.run.awakeningLayers = normalizeAwakeningLayers(state.awakeningLayers)
     this.shieldHp = 0
     this.shieldTime = 0
-    this.awakeningActive = false
-    this.awakeningOffers = []
+    this.potentialActive = false
+    this.potentialOffers = []
     this.rng = new Rng(state.seed)
     this.inventory = new Inventory()
     for (const item of state.inventory) this.inventory.add(item)
@@ -425,8 +426,8 @@ export class Game {
     this.paused = false
     this.shieldHp = 0
     this.shieldTime = 0
-    this.awakeningActive = false
-    this.awakeningOffers = []
+    this.potentialActive = false
+    this.potentialOffers = []
     this.hud.hideShop()
     this.hud.hideInventory()
     this.hud.hideTunnels()
@@ -2103,7 +2104,7 @@ export class Game {
     }
     const claimed = this.run.awakeningLayers ?? []
     if ((layer === 3 || layer === 6 || layer === 9) && !claimed.includes(layer)) {
-      this.openAwakening()
+      this.openPotential()
       return
     }
     // 清层奖励（三选一增益卡）已移除：战斗关产出走隧道（道具 / 潜能 / 金币）
@@ -2111,54 +2112,12 @@ export class Game {
   }
 
   /**
-   * 觉醒二选一：风格的两个觉醒中，未拥有的「获得 Lv1」，已拥有的「深化 Lv+1」。
-   * 两个都满级时直接跳过，避免空界面。
+   * 潜能三选一（替换旧觉醒）：
+   * - 还没选分支 → 三张分支卡（显示「身份 + 代价」）
+   * - 已选分支 → 该分支未点的节点，每个节点只有一级
+   * 节点点完后直接进隧道。
    */
-  private openAwakening(): void {
-    const style = styleForCharacter(this.run.character, this.run.style)
-    const current = normalizeAwakenings(style.id, this.run.awakenings)
-    const offers: TunnelOffer[] = []
-    for (const awakening of style.awakenings) {
-      const level = current[awakening.id] ?? 0
-      if (level >= 3) continue
-      const next = level + 1
-      const action: 'acquire' | 'upgrade' = level === 0 ? 'acquire' : 'upgrade'
-      const choice: AwakeningChoice = {
-        id: awakening.id,
-        styleId: style.id,
-        name: awakening.name,
-        icon: awakening.icon,
-        styleName: style.name,
-        action,
-        level: next,
-        desc: awakening.levels[next - 1],
-        currentDesc: level > 0 ? awakening.levels[level - 1] : undefined,
-      }
-      offers.push({
-        id: `awakening-${awakening.id}`,
-        kind: 'reward',
-        room: 'skill-card',
-        title: `${awakening.name} · Lv${next}`,
-        desc: action === 'acquire' ? `获得觉醒 · ${style.name}` : `深化觉醒 · ${style.name}`,
-        icon: awakening.icon,
-        payload: { awakening: choice },
-      })
-    }
-    if (offers.length === 0) {
-      this.addAwakeningLayer()
-      this.saveRun(AUTOSAVE_SLOT)
-      this.openTunnels()
-      return
-    }
-    this.awakeningOffers = offers
-    this.awakeningActive = true
-    this.phase = 'tunnel'
-    audio.startBgm('shop')
-    audio.duck(false)
-    this.hud.showTunnelOffers(offers, this.run.layer, 'awakening')
-    audio.levelUp()
-  }
-
+  /** 记录本层已经做过潜能选择（复用旧的 awakeningLayers 字段，避免动存档结构） */
   private addAwakeningLayer(): void {
     const layer = this.run.layer
     const list = this.run.awakeningLayers ?? []
@@ -2166,9 +2125,58 @@ export class Game {
     this.run.awakeningLayers = list
   }
 
+  private openPotential(): void {
+    const set = POTENTIALS[this.run.character]
+    const branchId = this.run.potential?.branch
+    const offers: TunnelOffer[] = []
+
+    if (!branchId) {
+      for (const branch of set.branches) {
+        offers.push({
+          id: `potential-${branch.id}`,
+          kind: 'reward',
+          room: 'skill-card',
+          title: branch.name,
+          desc: `${branch.identity}｜代价：${branch.cost}`,
+          icon: '✦',
+          payload: { potential: { branch: branch.id } },
+        })
+      }
+    } else {
+      const branch = set.branches.find((b) => b.id === branchId)
+      const picked = new Set(this.run.potential?.nodes ?? [])
+      const nodes = branch?.nodes.filter((n) => !picked.has(n.id)) ?? []
+      for (const node of nodes) {
+        offers.push({
+          id: `potential-${node.id}`,
+          kind: 'reward',
+          room: 'skill-card',
+          title: node.name,
+          desc: node.effect,
+          icon: '◇',
+          payload: { potential: { branch: branchId, nodeId: node.id } },
+        })
+      }
+    }
+
+    if (offers.length === 0) {
+      this.addAwakeningLayer()
+      this.saveRun(AUTOSAVE_SLOT)
+      this.openTunnels()
+      return
+    }
+    this.potentialOffers = offers
+    this.potentialActive = true
+    this.phase = 'tunnel'
+    audio.startBgm('shop')
+    audio.duck(false)
+    this.hud.showTunnelOffers(offers, this.run.layer, 'potential')
+    audio.levelUp()
+  }
+
   private openTunnels(): void {
-    this.awakeningActive = false
-    this.awakeningOffers = []
+    this.potentialActive = false
+    this.potentialOffers = []
     this.phase = 'tunnel'
     audio.startBgm('shop')
     audio.duck(false)
@@ -2190,21 +2198,27 @@ export class Game {
 
   pickTunnel(id: string): void {
     if (this.phase !== 'tunnel') return
-    if (this.awakeningActive) {
-      const pick = this.awakeningOffers.find((o) => o.id === id)
-      const choice = pick?.payload.awakening
+    if (this.potentialActive) {
+      const pick = this.potentialOffers.find((o) => o.id === id)
+      const choice = pick?.payload.potential
       if (!choice) return
-      this.awakeningActive = false
-      this.awakeningOffers = []
+      this.potentialActive = false
+      this.potentialOffers = []
       this.hud.hideTunnels()
-      const next = normalizeAwakenings(choice.styleId, this.run.awakenings)
-      next[choice.id] = choice.level
-      this.run.awakenings = next
-      this.combat?.setBuild(this.run.style ?? choice.styleId, next)
+
+      const current = this.run.potential
+      const nodes = [...(current?.nodes ?? [])]
+      if (choice.nodeId) nodes.push(choice.nodeId)
+      this.run.potential = { branch: choice.branch, nodes }
+      this.syncPotential()
       this.addAwakeningLayer()
       this.saveRun(AUTOSAVE_SLOT)
       audio.levelUp()
-      this.hud.toast(`觉醒：${choice.name} Lv${choice.level}`, 'good')
+
+      const label = choice.nodeId ? POTENTIALS[this.run.character].branches
+        .flatMap((b) => b.nodes)
+        .find((n) => n.id === choice.nodeId)?.name ?? '节点' : '分支'
+      this.hud.toast(`潜能：${label}`, 'good')
       this.openTunnels()
       return
     }
@@ -2956,7 +2970,7 @@ export class Game {
 
   /** 无头/联调：自动领取清层奖励卡（验证「先三选一，再传送门」） */
   debugPickFirstBonus(): void {
-    if (this.awakeningActive && this.awakeningOffers[0]) this.pickTunnel(this.awakeningOffers[0].id)
+    if (this.potentialActive && this.potentialOffers[0]) this.pickTunnel(this.potentialOffers[0].id)
   }
 
   /** 无头/联调：存档 → 回标题 → 读档，验证 continue 流程 */
@@ -2988,8 +3002,8 @@ export class Game {
   debugScreen(name: string): void {
     if (name === 'tunnel') {
       this.openTunnels()
-    } else if (name === 'awakening') {
-      this.openAwakening()
+    } else if (name === 'awakening' || name === 'potential') {
+      this.openPotential()
     } else if (name === 'shop') {
       this.proceedToShop()
     } else if (name === 'inventory') {

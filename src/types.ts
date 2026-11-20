@@ -103,7 +103,7 @@ export interface TunnelOffer {
 }
 
 /** 层末流程：清层奖励卡 → 时空隧道门；v4.6 在 3/6/9 层插入角色觉醒 */
-export type TunnelScreenMode = 'bonus' | 'tunnel' | 'awakening'
+export type TunnelScreenMode = 'bonus' | 'tunnel' | 'awakening' | 'potential'
 
 /** 一次觉醒二选一：获得新觉醒，或深化已有觉醒 */
 export interface AwakeningChoice {
@@ -147,6 +147,8 @@ export interface TunnelPayload {
   rest?: { healRatio: number; chargeRatio: number }
   /** 探索事件房：进场后按 id 打开事件面板 */
   event?: { id: string }
+  /** 潜能三选一：分支（首次）或分支 + 节点（后续） */
+  potential?: { branch: string; nodeId?: string }
 }
 
 export interface ShopOffer {

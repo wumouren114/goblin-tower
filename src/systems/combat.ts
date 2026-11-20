@@ -245,6 +245,19 @@ export class Combat {
     this.bleeds.clear()
   }
 
+  /** 分支代价：流殇/瞬闪砍普攻，剑意砍技能（标记结算不吃） */
+  private potentialAtkMul(): number {
+    if (this.potentialBranch === 'liushang') return 0.8
+    if (this.potentialBranch === 'shunshan') return 0.85
+    return 1
+  }
+
+  private potentialSkillMul(): number {
+    let mul = this.potentialBranch === 'jianyi' ? 0.8 : 1
+    if (this.potentialBranch === 'shunshan' && this.hasNode('murasame-shunshan-power')) mul *= 1.2
+    return mul
+  }
+
   private hasNode(id: string): boolean {
     return this.potentialNodes.has(id)
   }
@@ -560,7 +573,10 @@ export class Combat {
       skillRange(def.attack.baseRange, this.stats.intelligence) *
       tierNum(tier, 'radiusMul', 1) *
       (this.style.id === 'murasame-iai' ? 0.9 : 1)
-    const baseDamage = hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), this.stats.magic) * this.bloodDamageMul()
+    const baseDamage =
+      hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), this.stats.magic) *
+      this.bloodDamageMul() *
+      this.potentialAtkMul()
     const targets = pickConeTargets(world.enemies, px, pz, dir.x, dir.z, range, def.attack.angle ?? 110, 8)
     const crit = rng.chance(this.stats.critChance)
     const amount = crit ? baseDamage * this.stats.critMultiplier : baseDamage
@@ -600,7 +616,11 @@ export class Combat {
     const def = CHARACTERS.murasame
     const range = skillRange(6, this.stats.intelligence)
     const width = 1.4
-    const damage = hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), this.stats.magic) * 1.4 * this.bloodDamageMul()
+    const damage =
+      hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), this.stats.magic) *
+      1.4 *
+      this.bloodDamageMul() *
+      this.potentialAtkMul()
     const targets = pickLineTargets(world.enemies, px, pz, px + dir.x * range, pz + dir.z * range, width)
     const crit = rng.chance(this.stats.critChance)
     const amount = crit ? damage * this.stats.critMultiplier : damage
@@ -751,7 +771,8 @@ export class Combat {
       hitDamage(p.damage ?? 45, this.stats.magic) *
       skillMul *
       this.bloodDamageMul() *
-      (empowered ? 1.5 : 1)
+      (empowered ? 1.5 : 1) *
+      this.potentialSkillMul()
     const crit = rng.chance(this.stats.critChance)
     const dmg = crit ? amount * this.stats.critMultiplier : amount
     if (crit) this.hooks.onSfx('crit')
@@ -760,6 +781,13 @@ export class Combat {
       const killed = t.hit(dmg, dir.x * 1.2, dir.z * 1.2)
       this.hooks.onHit(t, dmg, crit, killed)
       dealt += dmg
+      // 剑意·根被动：技能命中时额外结算一段（简化版，不吃技能伤害衰减）
+      if (this.potentialBranch === 'jianyi' && t.alive) {
+        const settle = dmg * 0.5 * (this.hasNode('murasame-jianyi-amp') ? 1.1 : 1)
+        const settled = t.hit(settle, 0, 0)
+        this.hooks.onHit(t, settle, false, settled)
+        dealt += settle
+      }
       // 技能把路径上命中的敌人也拉到终点，方便接普攻
       if (t.alive) gatherTo(t, end.x, end.z, 0.95)
     }
