@@ -449,7 +449,7 @@ export interface HudV3 {
 }
 
 export interface HudV3Handlers {
-  onStart(character: CharacterId, difficulty: DifficultyId, styleId: StyleId): void
+  onStart(character: CharacterId, difficulty: DifficultyId, styleId?: StyleId): void
   onContinue(slot: number): void
   onTunnelPick(offerId: string): void
   onShopBuy(offerId: string): void

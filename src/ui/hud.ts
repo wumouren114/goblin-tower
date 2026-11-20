@@ -27,7 +27,8 @@ import type {
   TunnelType,
 } from '../types'
 import { CHARACTERS } from '../data/characters'
-import { STYLES_BY_CHARACTER, type StyleId } from '../data/awakenings'
+import type { StyleId } from '../data/awakenings'
+
 import { artReady, artUrl, type ArtKey } from '../art/atlasImport'
 import { roomIconDataUrl } from '../art/roomIcons'
 import { DIFFICULTIES, DIFFICULTY_IDS } from '../data/balance'
@@ -498,14 +499,7 @@ const UI_TEMPLATE = /* html */ `
           <section class="title-panel panel-char">
             <h2 class="panel-label">选择角色</h2>
             <div class="char-cards js-char-cards"></div>
-            <div class="style-picker">
-              <div class="style-picker-head">
-                <span class="style-picker-label">战斗风格</span>
-                <span class="style-picker-note">开局选择 · 3/6/9 层觉醒</span>
-              </div>
-              <div class="style-cards js-style-cards"></div>
-              <p class="style-detail js-style-detail"></p>
-            </div>
+            <p class="style-picker-note js-style-note">潜能于 3 / 6 / 9 层解锁 · 开局默认基础流派</p>
           </section>
           <section class="title-panel panel-diff">
             <h2 class="panel-label">选择难度</h2>
@@ -703,15 +697,12 @@ class HudImpl implements HudV3 {
   private diffCardsEl!: HTMLElement
   private readonly diffCardEls: HTMLButtonElement[] = []
   private diffTipEl!: HTMLElement
-  private styleCardsEl!: HTMLElement
-  private styleDetailEl!: HTMLElement
-  private readonly styleCardEls: HTMLButtonElement[] = []
   private startBtnEl!: HTMLButtonElement
   private continuePanelEl!: HTMLElement
   private continueListEl!: HTMLElement
   private selectedCharacter: CharacterId = 'mutsumi'
   private selectedDifficulty: DifficultyId = 'normal'
-  private selectedStyle: StyleId = 'mutsumi-solo'
+
   private startLocked = false
   private lastSlots: SaveSlotMeta[] = []
   /** 当前这局使用的角色：决定专武图标，随 snapshot.character 同步 */
@@ -1428,8 +1419,7 @@ class HudImpl implements HudV3 {
     this.titleInnerEl = this.q('.js-title-inner')
     this.titleKeyartEl = this.q<HTMLImageElement>('.js-title-keyart')
     this.charCardsEl = this.q('.js-char-cards')
-    this.styleCardsEl = this.q('.js-style-cards')
-    this.styleDetailEl = this.q('.js-style-detail')
+
     this.diffCardsEl = this.q('.js-diff-cards')
     this.diffTipEl = this.q('.js-diff-tip')
     this.startBtnEl = this.q('.js-start')
@@ -1487,7 +1477,6 @@ class HudImpl implements HudV3 {
       this.diffCardEls.push(card)
     }
 
-    this.buildStyleCards(this.selectedCharacter)
     this.startBtnEl.addEventListener('click', () => this.startGame())
 
     this.q('.js-end-title-btn').addEventListener('click', () => {
@@ -1684,47 +1673,7 @@ class HudImpl implements HudV3 {
     for (const card of this.charCardEls) {
       card.classList.toggle('is-active', card.dataset.char === id)
     }
-    if (changed || this.styleCardEls.length === 0) this.buildStyleCards(id)
     if (!silent) this.updateDiffTip()
-  }
-
-  /** 标题页战斗风格：3 张紧凑卡 + 下方完整机制/代价说明 */
-  private buildStyleCards(character: CharacterId): void {
-    const styles = STYLES_BY_CHARACTER[character] ?? []
-    if (!styles.some((style) => style.id === this.selectedStyle)) {
-      this.selectedStyle = styles[0]?.id ?? 'mutsumi-solo'
-    }
-    this.styleCardsEl.replaceChildren()
-    this.styleCardEls.length = 0
-    for (const style of styles) {
-      const card = el('button', 'style-card')
-      card.type = 'button'
-      card.dataset.style = style.id
-      const head = div('style-card-head')
-      const icon = span('style-card-icon')
-      setArtIcon(icon, STYLE_ART[style.id], style.icon)
-      head.append(icon, span('style-card-name', style.name))
-      card.append(head, span('style-card-tag', style.tagline))
-      card.title = `${style.desc}\n代价：${style.tradeoff}`
-      card.addEventListener('click', () => this.selectStyle(style.id))
-      this.styleCardsEl.appendChild(card)
-      this.styleCardEls.push(card)
-    }
-    this.selectStyle(this.selectedStyle, true)
-  }
-
-  private selectStyle(id: StyleId, silent = false): void {
-    const style = (STYLES_BY_CHARACTER[this.selectedCharacter] ?? []).find((s) => s.id === id)
-    if (!style) return
-    this.selectedStyle = style.id
-    for (const card of this.styleCardEls) {
-      card.classList.toggle('is-active', card.dataset.style === style.id)
-    }
-    setText(
-      this.styleDetailEl,
-      `${style.desc}  代价：${style.tradeoff}  资源·${style.resourceName}：${style.resourceHint}`,
-    )
-    void silent
   }
 
   private selectDifficulty(id: DifficultyId, silent = false): void {
@@ -1751,7 +1700,7 @@ class HudImpl implements HudV3 {
       this.startLocked = false
     }, PICK_DELAY_MS * 2)
     this.hideTitle()
-    this.handlers.onStart(this.selectedCharacter, this.selectedDifficulty, this.selectedStyle)
+    this.handlers.onStart(this.selectedCharacter, this.selectedDifficulty)
   }
 
   private renderContinueSlots(): void {
