@@ -2291,8 +2291,7 @@ export class Game {
       return
     }
     const claimed = this.run.awakeningLayers ?? []
-    // 潜能节奏：1 / 3 / 6 / 9 层各一次（第 1 层先立 build 底子，别让前期空窗）
-    if ((layer === 1 || layer === 3 || layer === 6 || layer === 9) && !claimed.includes(layer)) {
+    if ((layer === 3 || layer === 6 || layer === 9) && !claimed.includes(layer)) {
       this.openPotential()
       return
     }
