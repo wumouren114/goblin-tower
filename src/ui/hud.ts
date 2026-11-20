@@ -2344,6 +2344,8 @@ class HudImpl implements HudV3 {
     const statLabel: Record<string, string> = {
       hp: '生命', attack: '攻击', magic: '魔力', armor: '护甲', dodge: '闪避', crit: '暴击',
       moveSpeed: '移速', stamina: '耐力', skillCharge: '充能', hpRegen: '回血', goldGain: '金币',
+      intelligence: '智力', chargeMax: '充能上限', healPerSec: '每秒回血',
+      skillDamage: '技能伤害', attackSpeed: '攻速', hurtTaken: '受伤',
     }
     for (const [stat, tier] of Object.entries(snap.cards ?? {})) {
       if (!tier || tier <= 0) continue
