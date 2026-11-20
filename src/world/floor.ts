@@ -291,6 +291,7 @@ export class TowerFloor implements WorldV3 {
 
   /** 中央地标（替换塔心信标）；null = 该层仍用旧信标 */
   private landmarkSpin: THREE.Group | null = null
+  private landmarkSpinAxis: 'y' | 'z' = 'y'
   private landmarkBacklight: THREE.Mesh | null = null
   private landmarkGlowIndex = -1
   private landmarkBacklightY = 3.2
@@ -840,6 +841,7 @@ export class TowerFloor implements WorldV3 {
 
     const spin = new THREE.Group()
     this.landmarkSpin = spin
+    this.landmarkSpinAxis = 'y'
 
     if (kind === 'windmill') {
       add(new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.35, 0.55, 14), stoneMat), 0.28)
@@ -875,26 +877,64 @@ export class TowerFloor implements WorldV3 {
       spin.add(core)
       group.add(spin)
     } else {
-      add(new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.9, 0.8, 16), stoneMat), 0.4)
-      add(new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.7, 3.6, 10), stoneMat), 2.0)
-      const gear = new THREE.Mesh(new THREE.TorusGeometry(2.0, 0.42, 8, 24), accentMat)
-      gear.position.y = 4.2
-      gear.castShadow = true
-      spin.add(gear)
-      for (let i = 0; i < 8; i += 1) {
-        const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.72), accentMat)
-        const a = (i * Math.PI) / 4
-        tooth.position.set(Math.cos(a) * 2.4, 4.2, Math.sin(a) * 2.4)
-        tooth.rotation.y = -a
-        tooth.castShadow = true
-        spin.add(tooth)
+      // 齿轮地标：底座 + 退到后方的细立柱与横轴，正面 16:9 视角完全不遮挡巨型齿轮
+      this.landmarkSpinAxis = 'z'
+      add(new THREE.Mesh(new THREE.CylinderGeometry(2.5, 2.85, 0.72, 16), stoneMat), 0.36)
+
+      const rearPost = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.46, 3.8, 10), stoneMat)
+      rearPost.position.set(0, 2.1, -0.95)
+      rearPost.castShadow = true
+      rearPost.receiveShadow = true
+      group.add(rearPost)
+
+      const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 1.05, 10), stoneMat)
+      axle.rotation.x = Math.PI / 2
+      axle.position.set(0, 3.9, -0.45)
+      axle.castShadow = true
+      group.add(axle)
+
+      // XY 平面朝向镜头的大齿轮：外环 + 轮毂 + 十字辐条 + 10 枚宽厚外齿（齿宽 0.66 >= 0.6，合批 1 drawcall）
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(1.9, 0.34, 10, 28), accentMat)
+      rim.castShadow = true
+      spin.add(rim)
+
+      const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.56, 0.54, 12), accentMat)
+      hub.rotation.x = Math.PI / 2
+      hub.castShadow = true
+      spin.add(hub)
+
+      const spokeH = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.34, 0.26), accentMat)
+      spokeH.castShadow = true
+      spin.add(spokeH)
+      const spokeV = new THREE.Mesh(new THREE.BoxGeometry(0.34, 3.6, 0.26), accentMat)
+      spokeV.castShadow = true
+      spin.add(spokeV)
+
+      const toothCount = 10
+      const toothGeo = new THREE.BoxGeometry(0.76, 0.66, 0.56)
+      const toothMats: THREE.Matrix4[] = []
+      const tq = new THREE.Quaternion()
+      const tAxis = new THREE.Vector3(0, 0, 1)
+      const tScale = new THREE.Vector3(1, 1, 1)
+      for (let i = 0; i < toothCount; i += 1) {
+        const a = (i / toothCount) * Math.PI * 2
+        tq.setFromAxisAngle(tAxis, a)
+        toothMats.push(
+          new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(a) * 2.42, Math.sin(a) * 2.42, 0), tq, tScale),
+        )
       }
+      const teethMesh = this.instanced(toothGeo, accentMat, toothMats, true)
+      teethMesh.name = 'GearTeeth'
+      spin.add(teethMesh)
+
+      spin.position.set(0, 3.9, 0)
+      spin.rotation.x = -0.14
       group.add(spin)
     }
 
     // 地标逆光描边环 + 背后柔光晕（保证 90 只怪同屏时仍能一眼认出当前区域）
-    const backY = kind === 'windmill' ? 2.95 : kind === 'orrery' ? 4.1 : 4.2
-    const rimOuter = kind === 'windmill' ? 2.55 : kind === 'orrery' ? 2.75 : 2.95
+    const backY = kind === 'windmill' ? 2.95 : kind === 'orrery' ? 4.1 : 3.9
+    const rimOuter = kind === 'windmill' ? 2.55 : kind === 'orrery' ? 2.75 : 3.1
     const rimInner = rimOuter - 0.34
     const backMat = new THREE.MeshBasicMaterial({
       color: mixHex(theme.detail.backlightColor, 0xffffff, 0.32),
@@ -1540,20 +1580,20 @@ export class TowerFloor implements WorldV3 {
     const theme = this.theme
     if (!theme) return
     const detail = theme.detail
-    const count = 10
+    const count = 16
     const mats: THREE.Matrix4[] = []
     const q = new THREE.Quaternion()
     const rotX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
     const rotY = new THREE.Quaternion()
 
     for (let i = 0; i < count; i += 1) {
-      const angle = (i / count) * Math.PI * 2 + detail.lightPatchAngle * 0.5
-      const dist = rng.range(half * 0.28, half * 0.72)
-      const x = Math.cos(angle) * dist
-      const z = Math.sin(angle) * dist
-      const w = rng.range(2.6, 4.8)
-      const l = rng.range(3.2, 6.2)
-      rotY.setFromAxisAngle(UP, detail.lightPatchAngle + rng.range(-0.14, 0.14))
+      const ring = i % 2 === 0 ? rng.range(half * 0.24, half * 0.48) : rng.range(half * 0.5, half * 0.78)
+      const angle = (i / count) * Math.PI * 2 + detail.lightPatchAngle * 0.5 + rng.range(-0.18, 0.18)
+      const x = Math.cos(angle) * ring
+      const z = Math.sin(angle) * ring
+      const w = rng.range(3.0, 5.2)
+      const l = rng.range(3.6, 6.4)
+      rotY.setFromAxisAngle(UP, detail.lightPatchAngle + rng.range(-0.18, 0.18))
       q.copy(rotY).multiply(rotX)
       mats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 0.022, z), q, new THREE.Vector3(w, l, 1)))
     }
@@ -1862,7 +1902,8 @@ export class TowerFloor implements WorldV3 {
     const t = this.time
     if (this.landmarkSpin) {
       const spinSpeed = this.theme?.detail.landmarkSpinSpeed ?? 0.5
-      this.landmarkSpin.rotation.y += dt * spinSpeed
+      if (this.landmarkSpinAxis === 'z') this.landmarkSpin.rotation.z -= dt * spinSpeed
+      else this.landmarkSpin.rotation.y += dt * spinSpeed
     }
     if (this.landmarkBacklight) {
       const mat = this.landmarkBacklight.material as THREE.MeshBasicMaterial
