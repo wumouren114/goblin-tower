@@ -3597,103 +3597,348 @@ interface ArchPalette {
 }
 
 const ARCH_PALETTE: Record<ArchetypeKind, ArchPalette> = {
-  ranged: { outline: 0x120c1c, skin: 0x6f8f4a, skinDark: 0x47602e, cloth: 0x4a3b7a, clothDark: 0x2f2552, accent: 0xb47bff, eye: 0xe6d4ff },
-  blocker: { outline: 0x0d1420, skin: 0x7fa844, skinDark: 0x50722b, cloth: 0x33476b, clothDark: 0x22304a, accent: 0x8fd8ff, eye: 0xd6f4ff },
-  charger: { outline: 0x1a0e0a, skin: 0x9a5a3a, skinDark: 0x6a3a24, cloth: 0x7a3b2a, clothDark: 0x4f2418, accent: 0xff6a4a, eye: 0xffd23f },
-  summoner: { outline: 0x08161a, skin: 0x6a7a8a, skinDark: 0x445160, cloth: 0x2f4a55, clothDark: 0x1c3138, accent: 0x64e0c0, eye: 0xc8fff0 },
-  bomber: { outline: 0x0f1a08, skin: 0x7fa844, skinDark: 0x50722b, cloth: 0x4a5a2f, clothDark: 0x2e3a1c, accent: 0xa8f060, eye: 0xeaffb0 },
+  ranged: { outline: 0x120c1c, skin: 0x769a4f, skinDark: 0x4d6931, cloth: 0x4b3882, clothDark: 0x2c1f54, accent: 0xc58aff, eye: 0xf0e0ff },
+  blocker: { outline: 0x0d1420, skin: 0x82ab48, skinDark: 0x52732c, cloth: 0x355078, clothDark: 0x20324f, accent: 0x6ce5ff, eye: 0xdcf7ff },
+  charger: { outline: 0x1a0e0a, skin: 0xa45638, skinDark: 0x6d3520, cloth: 0x7c2d20, clothDark: 0x4c1911, accent: 0xff5a3a, eye: 0xffdc4a },
+  summoner: { outline: 0x08161a, skin: 0x16242d, skinDark: 0x0c151b, cloth: 0x1f5c63, clothDark: 0x12383e, accent: 0x5ff5cc, eye: 0xd8fff4 },
+  bomber: { outline: 0x0f1a08, skin: 0x7da842, skinDark: 0x4e6e27, cloth: 0x495e28, clothDark: 0x2c3b16, accent: 0xc2ff4d, eye: 0xf2ffc2 },
 }
 
-const ARCH_WOOD = 0x8a5a2e
-const ARCH_WOOD_DARK = 0x53341a
-const ARCH_WHITE = 0xe8e0c4
+const ARCH_WOOD = 0x9c6331
+const ARCH_WOOD_DARK = 0x573419
+const ARCH_GOLD = 0xe6b95c
+const ARCH_WHITE = 0xf4ecd4
+const ARCH_SPARK = 0xff9a3c
 
 type ArchDir = 'down' | 'up' | 'side'
 
-function drawArch(cell: PixelCanvas, kind: ArchetypeKind, dir: ArchDir, pose: GoblinPose): void {
+function drawArch(cell: PixelCanvas, kind: ArchetypeKind, dir: ArchDir, frame: number): void {
   const p = ARCH_PALETTE[kind]
-  const bob = pose.bob
+  const f = frame & 3
   const side = dir === 'side'
-  const wide = kind === 'blocker' || kind === 'bomber'
+  const up = dir === 'up'
   const cx = 14
-  const float = kind === 'summoner' ? 3 : 0
-  const bodyY = 20 - bob - float
-  const headY = 10 - bob - float
-  const faceX = cx + (side ? 1 : 0) + (kind === 'charger' && side ? 1 : 0)
 
-  // 腿：召唤者浮空不画腿
-  if (kind !== 'summoner') {
-    const liftA = pose.legPhase === 1 ? 1 : 0
-    const liftB = pose.legPhase === 2 ? 1 : 0
-    cell.fillRect(cx - 5, 22 + liftA, 3, 7 - liftA, p.skinDark)
-    cell.fillRect(cx + 2, 22 + liftB, 3, 7 - liftB, p.skinDark)
-  }
+  // 4 帧行走相位：0 中立 / 1 左脚迈出 / 2 中立 / 3 右脚迈出
+  const stride = f === 1 ? 1 : f === 3 ? -1 : 0
+  const bob = f === 1 || f === 3 ? 1 : 0
 
-  // 躯干 + 腹部
-  cell.ellipse(cx, bodyY, wide ? 8 : 6, wide ? 8 : 7, p.cloth)
-  cell.ellipse(cx, bodyY + 1, wide ? 5 : 3, wide ? 5 : 4, p.skin)
-
-  // 手臂：浮空法师与圆滚滚的自爆体不画手臂，拉开剪影
-  if (kind !== 'summoner' && kind !== 'bomber') {
-    cell.fillRect(cx - 8, bodyY - 3, 2, 6, p.skinDark)
-    if (!side) cell.fillRect(cx + 6, bodyY - 3, 2, 6, p.skinDark)
-  }
-  // 封路者：宽护肩，体型一眼更壮
-  if (kind === 'blocker') {
-    cell.ellipse(cx - 8, bodyY - 5, 3, 3, p.clothDark)
-    cell.ellipse(cx + 8, bodyY - 5, 3, 3, p.clothDark)
-  }
-
-  // 头 + 耳
-  cell.circle(faceX, headY, 5, p.skin)
-  cell.triangle(cx - 7, headY - 1, cx - 4, headY + 1, cx - 6, headY + 3, p.skinDark)
-  if (!side) cell.triangle(cx + 7, headY - 1, cx + 4, headY + 1, cx + 6, headY + 3, p.skinDark)
-
-  // 各原型的标志物
   if (kind === 'ranged') {
-    // 兜帽 + 法杖 + 顶端法球
-    cell.ellipse(cx, headY - 2, 6, 4, p.clothDark)
-    cell.fillRect(cx - 5, headY - 1, 10, 3, p.clothDark)
-    cell.vLine(cx + 7, headY - 5, 28, ARCH_WOOD_DARK)
-    cell.circle(cx + 7, headY - 6, 2, p.accent)
-    cell.set(cx + 7, headY - 6, ARCH_WHITE)
-  } else if (kind === 'blocker') {
-    // 法典 + 脚下法阵（封路意象：它负责铺持续伤害区域）
-    cell.fillRect(cx - 4, bodyY - 3, 8, 9, p.clothDark)
-    cell.hLine(cx - 2, cx + 2, bodyY + 1, p.accent)
-    cell.hLine(cx - 2, cx + 2, bodyY + 4, p.accent)
-    cell.set(cx - 7, 29, p.accent)
-    cell.set(cx, 30, p.accent)
-    cell.set(cx + 7, 29, p.accent)
-  } else if (kind === 'charger') {
-    // 双角 + 红围巾 + 前倾
-    cell.triangle(cx - 8, headY - 7, cx - 2, headY - 3, cx - 5, headY, p.accent)
-    cell.triangle(cx + 8, headY - 7, cx + 2, headY - 3, cx + 5, headY, p.accent)
-    cell.hLine(cx - 5, cx + 5, headY + 4, p.accent)
-    cell.fillRect(faceX - 3, headY + 5, 7, 3, p.clothDark)
-  } else if (kind === 'summoner') {
-    // 斗篷 + 浮空微光 + 环绕符文
-    cell.triangle(cx, bodyY - 8, cx - 11, 31, cx + 11, 31, p.clothDark)
-    cell.set(cx - 6, 30, p.accent)
-    cell.set(cx + 6, 30, p.accent)
-    const orbit = pose.legPhase === 0 ? -1 : pose.legPhase === 1 ? 0 : 1
-    cell.set(cx - 8 + orbit, headY - 3, p.accent)
-    cell.set(cx + 8 + orbit, headY + 1, p.accent)
-  } else {
-    // 自爆：圆身 + 发光核心 + 引线
-    cell.ellipse(cx, bodyY + 1, 10, 9, p.cloth)
-    cell.circle(cx, bodyY + 2, 4, p.accent)
-    cell.circle(cx, bodyY + 2, 2, ARCH_WHITE)
-    cell.line(cx, headY - 3, cx + 3, headY - 7, ARCH_WOOD_DARK)
-    cell.set(cx + 3, headY - 8, p.accent)
+    // ── 1. 瘦高法师：细长身形 + 尖顶巫师帽 + 侧持高法杖 ──
+    const bodyY = 19 - bob
+    const headY = 11 - bob
+
+    // 交替迈步的细长双腿
+    if (side) {
+      const fLeg = cx + stride * 3
+      const bLeg = cx - stride * 3
+      cell.fillRect(bLeg - 1, 24, 3, 6, p.clothDark)
+      cell.fillRect(fLeg - 1, 24, 3, 6 - (stride !== 0 ? 1 : 0), p.skinDark)
+    } else {
+      const liftL = f === 1 ? 2 : 0
+      const liftR = f === 3 ? 2 : 0
+      cell.fillRect(cx - 4, 24 - liftL, 3, 6, p.skinDark)
+      cell.fillRect(cx + 1, 24 - liftR, 3, 6, p.skinDark)
+    }
+
+    // 瘦高长袍（明显窄于其他原型）
+    cell.triangle(cx, bodyY - 6, cx - 5, 25 - bob, cx + 5, 25 - bob, p.cloth)
+    cell.fillRect(cx - 4, bodyY - 4, 8, 8, p.cloth)
+    cell.vLine(cx, bodyY - 3, 24 - bob, p.accent)
+    cell.hLine(cx - 4, cx + 4, 24 - bob, p.clothDark)
+
+    // 细手臂（随步态摆动）
+    const armShift = stride
+    cell.fillRect(cx - 6, bodyY - 2 + armShift, 2, 5, p.clothDark)
+    if (!side) cell.fillRect(cx + 4, bodyY - 2 - armShift, 2, 5, p.clothDark)
+
+    // 头部 + 尖耳
+    const fx = cx + (side ? 1 : 0)
+    cell.circle(fx, headY, 3, p.skin)
+    if (!side) {
+      cell.hLine(cx - 5, cx - 4, headY, p.skinDark)
+      cell.hLine(cx + 4, cx + 5, headY, p.skinDark)
+    }
+
+    // 高尖顶巫师帽（拉出瘦高剪影）
+    cell.ellipse(fx, headY - 3, 6, 2, p.clothDark)
+    cell.triangle(fx + (side ? -2 : -1), headY - 10, fx - 4, headY - 3, fx + 4, headY - 3, p.cloth)
+    cell.hLine(fx - 4, fx + 4, headY - 4, p.accent)
+
+    // 高法杖 + 顶部脉动法球（随帧上下摆动与闪烁）
+    const staffX = side ? 21 : 22
+    const staffBob = f === 1 ? -1 : f === 3 ? 1 : 0
+    cell.vLine(staffX, 6 + staffBob, 30, ARCH_WOOD_DARK)
+    cell.vLine(staffX - 1, 10 + staffBob, 22, ARCH_WOOD)
+    const orbY = 5 + staffBob
+    cell.circle(staffX, orbY, 2, p.accent)
+    cell.set(staffX, orbY, ARCH_WHITE)
+    if (f === 1 || f === 3) {
+      cell.set(staffX - 3, orbY - 1, p.accent)
+      cell.set(staffX + 2, orbY - 2, ARCH_WHITE)
+    }
+
+    if (!up) {
+      cell.set(fx - 1, headY, p.eye)
+      cell.set(fx + 2, headY, p.eye)
+    }
+    return
   }
 
-  // 眼睛（朝上时后脑勺不画眼）
-  if (dir !== 'up') {
-    cell.set(faceX - 2, headY, p.eye)
-    cell.set(faceX + 2, headY, p.eye)
-    cell.set(faceX - 2, headY + 1, p.outline)
-    cell.set(faceX + 2, headY + 1, p.outline)
+  if (kind === 'blocker') {
+    // ── 2. 宽肩持书者：宽厚护肩 + 高对比度展开法典（不再被躯干挡住） ──
+    const bodyY = 19 - bob
+    const headY = 9 - bob
+
+    // 粗壮迈步战靴
+    if (side) {
+      const fLeg = cx + stride * 3
+      const bLeg = cx - stride * 3
+      cell.fillRect(bLeg - 2, 24, 4, 6, p.clothDark)
+      cell.fillRect(fLeg - 2, 24 - (stride !== 0 ? 1 : 0), 4, 6, p.clothDark)
+    } else {
+      const liftL = f === 1 ? 2 : 0
+      const liftR = f === 3 ? 2 : 0
+      cell.fillRect(cx - 6, 24 - liftL, 4, 6, p.clothDark)
+      cell.fillRect(cx + 2, 24 - liftR, 4, 6, p.clothDark)
+    }
+
+    // 宽厚铠甲躯干 + 巨大护肩
+    cell.fillRect(cx - 7, bodyY - 5, 14, 11, p.cloth)
+    cell.fillRect(cx - 6, bodyY - 4, 12, 9, p.clothDark)
+    // 左右巨型护肩（撑出宽肩方形剪影）
+    cell.ellipse(cx - 8, bodyY - 5, 4, 3, p.cloth)
+    cell.ellipse(cx + 8, bodyY - 5, 4, 3, p.cloth)
+    cell.hLine(cx - 10, cx - 6, bodyY - 7, p.accent)
+    cell.hLine(cx + 6, cx + 10, bodyY - 7, p.accent)
+
+    // 头部 + 尖耳
+    const fx = cx + (side ? 1 : 0)
+    cell.circle(fx, headY, 4, p.skin)
+    cell.triangle(cx - 6, headY - 1, cx - 4, headY, cx - 5, headY + 2, p.skinDark)
+    if (!side) cell.triangle(cx + 6, headY - 1, cx + 4, headY, cx + 5, headY + 2, p.skinDark)
+
+    // 展开的魔导法典（暖棕皮封面 + 亮米白书页 + 发光蓝符文，正面/侧面/背面皆清晰）
+    const bookBob = f === 2 ? -1 : 0
+    if (side) {
+      // 侧面：双臂向前托举展开的法典，明显伸出身躯前缘
+      cell.fillRect(cx + 3, bodyY - 2, 4, 3, p.skinDark)
+      const bx = 18
+      const by = bodyY - 5 + bookBob
+      cell.fillRect(bx, by, 7, 9, ARCH_WOOD)
+      cell.fillRect(bx + 1, by + 1, 5, 7, ARCH_WHITE)
+      cell.vLine(bx, by, by + 8, ARCH_GOLD)
+      cell.hLine(bx + 2, bx + 5, by + 3, p.accent)
+      cell.hLine(bx + 2, bx + 4, by + 5, p.accent)
+      if (f === 1 || f === 3) cell.set(bx + 3, by - 2, p.accent)
+    } else if (up) {
+      // 背面：护肩披风 + 右侧探出的发光法典边缘
+      cell.fillRect(cx - 5, bodyY - 3, 10, 8, p.cloth)
+      const bx = 19
+      const by = bodyY - 4 + bookBob
+      cell.fillRect(bx, by, 6, 8, ARCH_WOOD)
+      cell.fillRect(bx + 1, by + 1, 4, 6, ARCH_WHITE)
+      cell.hLine(bx + 2, bx + 4, by + 3, p.accent)
+    } else {
+      // 正面：胸前双手展开宽幅法典，米白书页与金脊高对比度弹出
+      const by = bodyY - 3 + bookBob
+      cell.fillRect(cx - 6, by, 12, 8, ARCH_WOOD)
+      cell.fillRect(cx - 5, by + 1, 4, 6, ARCH_WHITE)
+      cell.fillRect(cx + 1, by + 1, 4, 6, ARCH_WHITE)
+      cell.vLine(cx, by, by + 7, ARCH_GOLD)
+      cell.hLine(cx - 4, cx - 2, by + 3, p.accent)
+      cell.hLine(cx + 2, cx + 4, by + 3, p.accent)
+      cell.hLine(cx - 4, cx - 2, by + 5, p.accent)
+      cell.hLine(cx + 2, cx + 4, by + 5, p.accent)
+      // 书页上方漂浮符文星点
+      cell.set(cx, by - 2 - (f % 2), p.accent)
+    }
+
+    // 脚下封路法阵微光（随帧闪烁）
+    const glowShift = f % 2
+    cell.set(cx - 8 + glowShift, 30, p.accent)
+    cell.set(cx, 30, ARCH_WHITE)
+    cell.set(cx + 8 - glowShift, 30, p.accent)
+
+    if (!up) {
+      cell.set(fx - 2, headY, p.eye)
+      cell.set(fx + 2, headY, p.eye)
+      cell.set(fx - 2, headY + 1, p.outline)
+      cell.set(fx + 2, headY + 1, p.outline)
+    }
+    return
+  }
+
+  if (kind === 'charger') {
+    // ── 3. 有角前倾冲锋者：低头弯角 + 俯冲前倾身姿 + 飘动红围巾 + 大步奔袭 ──
+    const stomp = f === 1 || f === 3 ? 1 : 0
+    const bodyY = 19 + stomp
+    const headY = side ? 13 + stomp : 12 + stomp
+    const fx = side ? cx + 4 : cx
+
+    // 大跨度奔袭双腿
+    if (side) {
+      const fLeg = cx + 2 + stride * 4
+      const bLeg = cx - 3 - stride * 4
+      cell.fillRect(bLeg - 2, 23, 4, 7 - (f === 1 ? 2 : 0), p.clothDark)
+      cell.fillRect(fLeg - 2, 23, 4, 7 - (f === 3 ? 2 : 0), p.skinDark)
+    } else {
+      const liftL = f === 1 ? 3 : 0
+      const liftR = f === 3 ? 3 : 0
+      cell.fillRect(cx - 6, 23 - liftL, 4, 7, p.skinDark)
+      cell.fillRect(cx + 2, 23 - liftR, 4, 7, p.skinDark)
+    }
+
+    // 前倾厚背躯干
+    if (side) {
+      cell.ellipse(cx - 1, bodyY - 2, 7, 5, p.cloth)
+      cell.ellipse(cx + 2, bodyY - 1, 5, 4, p.skin)
+      // 向后飘扬的红色冲锋围巾（4 帧波浪摆动）
+      const wave = f === 1 ? -1 : f === 3 ? 1 : 0
+      cell.fillRect(cx - 9, headY + 1 + wave, 7, 2, p.accent)
+      cell.fillRect(cx - 12, headY + 2 - wave, 4, 2, p.accent)
+    } else {
+      cell.ellipse(cx, bodyY, 7, 6, p.cloth)
+      cell.ellipse(cx, bodyY + 1, 4, 4, p.skin)
+      // 胸前/颈部红围巾 + 飘带
+      cell.fillRect(cx - 6, headY + 3, 12, 2, p.accent)
+      cell.fillRect(cx + 4 + stride, headY + 5, 3, 4, p.accent)
+      // 蓄力前摆双臂
+      cell.fillRect(cx - 9, bodyY - 3 + stride, 3, 6, p.skinDark)
+      cell.fillRect(cx + 6, bodyY - 3 - stride, 3, 6, p.skinDark)
+    }
+
+    // 低垂前探的兽首 + 巨大弯曲双角（红基 + 骨白尖端）
+    cell.circle(fx, headY, 4, p.skin)
+    if (side) {
+      // 向前顶出的尖锐弯角
+      cell.triangle(fx + 7, headY - 7, fx + 1, headY - 4, fx + 4, headY - 1, p.accent)
+      cell.line(fx + 5, headY - 5, fx + 8, headY - 7, ARCH_WHITE)
+      cell.set(fx + 8, headY - 8, ARCH_WHITE)
+    } else {
+      // 左右外展巨角（拉出强烈尖角剪影）
+      cell.triangle(cx - 10, headY - 8, cx - 3, headY - 3, cx - 5, headY, p.accent)
+      cell.triangle(cx + 10, headY - 8, cx + 3, headY - 3, cx + 5, headY, p.accent)
+      cell.line(cx - 8, headY - 6, cx - 10, headY - 8, ARCH_WHITE)
+      cell.line(cx + 8, headY - 6, cx + 10, headY - 8, ARCH_WHITE)
+    }
+
+    if (!up) {
+      cell.set(fx - 2, headY, p.eye)
+      cell.set(fx + 2, headY, p.eye)
+      cell.set(fx - 2, headY + 1, p.outline)
+      cell.set(fx + 2, headY + 1, p.outline)
+    }
+    return
+  }
+
+  if (kind === 'summoner') {
+    // ── 4. 浮空长斗篷：明显离地起伏 + 尖顶深青兜帽（修掉灰铁盔感）+ 环绕灵体符文 ──
+    const hover = f === 0 ? 0 : f === 1 ? -2 : f === 2 ? -3 : -1
+    const headY = 11 + hover
+    const hemY = 27 + hover
+    const sway = f === 1 ? 1 : f === 3 ? -1 : 0
+    const fx = cx + (side ? 1 : 0)
+
+    // 飘逸长斗篷主体（无腿，离地悬空）
+    cell.triangle(cx, headY - 1, cx - 10 + sway, hemY, cx + 10 + sway, hemY, p.clothDark)
+    cell.triangle(cx, headY + 1, cx - 7 + sway, hemY - 1, cx + 7 + sway, hemY - 1, p.cloth)
+    // 斗篷下摆锯齿尾焰与青色金边
+    cell.hLine(cx - 9 + sway, cx + 9 + sway, hemY - 1, p.accent)
+    cell.fillRect(cx - 8 + sway, hemY, 3, 2, p.clothDark)
+    cell.fillRect(cx - 1 + sway, hemY, 3, 2, p.cloth)
+    cell.fillRect(cx + 6 + sway, hemY, 3, 2, p.clothDark)
+
+    // 脚下浮空能量微光（固定贴近地面，衬托身体上下悬浮）
+    cell.hLine(cx - 4, cx + 4, 30, p.cloth)
+    cell.set(cx - 2 + sway, 30, p.accent)
+    cell.set(cx + 2 - sway, 30, p.accent)
+
+    // 尖顶深青兜帽（取代旧版灰色圆头，不再像铁盔）
+    cell.triangle(fx, headY - 8, fx - 6, headY + 1, fx + 6, headY + 1, p.cloth)
+    cell.ellipse(fx, headY, 5, 4, p.clothDark)
+    cell.hLine(fx - 3, fx + 3, headY - 4, p.accent)
+    cell.set(fx, headY - 6, p.accent)
+
+    // 兜帽阴影面孔 + 发光翡翠双目
+    if (!up) {
+      cell.ellipse(fx, headY + 1, 3, 3, p.skinDark)
+      cell.set(fx - 2, headY + 1, p.eye)
+      cell.set(fx + 2, headY + 1, p.eye)
+      cell.set(fx - 2, headY, p.accent)
+      cell.set(fx + 2, headY, p.accent)
+    }
+
+    // 两枚环绕旋转的翡翠灵球（4 帧完整轨道位移）
+    const orbitA = [
+      { x: cx - 10, y: headY + 3 },
+      { x: cx - 8, y: headY - 2 },
+      { x: cx + 10, y: headY + 1 },
+      { x: cx + 8, y: headY + 6 },
+    ][f]
+    const orbitB = [
+      { x: cx + 10, y: headY + 6 },
+      { x: cx + 9, y: headY + 1 },
+      { x: cx - 10, y: headY - 1 },
+      { x: cx - 9, y: headY + 5 },
+    ][f]
+    cell.fillRect(orbitA.x - 1, orbitA.y, 2, 2, p.accent)
+    cell.set(orbitA.x, orbitA.y, ARCH_WHITE)
+    cell.fillRect(orbitB.x, orbitB.y, 2, 2, p.accent)
+    return
+  }
+
+  // ── 5. 圆胖发光体（bomber）：球形大肚 + 4 帧明显膨胀/收缩 + 闪烁引线火花 ──
+  const rx = f === 0 ? 8 : f === 1 ? 10 : f === 2 ? 11 : 7
+  const ry = f === 0 ? 7 : f === 1 ? 8 : f === 2 ? 9 : 7
+  const coreR = f === 0 ? 3 : f === 1 ? 4 : f === 2 ? 5 : 3
+  const innerR = f === 2 ? 3 : f === 1 ? 2 : 1
+  const bodyY = 20 - (f === 2 ? 1 : 0)
+  const headY = bodyY - ry - 1
+  const fx = cx + (side ? 1 : 0)
+
+  // 短小交替摇摆的胖脚
+  const liftL = f === 1 ? 2 : 0
+  const liftR = f === 3 ? 2 : 0
+  cell.fillRect(cx - 5, 27 - liftL, 3, 3, p.skinDark)
+  cell.fillRect(cx + 2, 27 - liftR, 3, 3, p.skinDark)
+
+  // 圆胖躯干（膨胀帧明显鼓起）
+  cell.ellipse(cx, bodyY, rx, ry, p.cloth)
+  cell.ellipse(cx, bodyY, Math.max(4, rx - 2), Math.max(4, ry - 2), p.skin)
+  // 发光不稳定核心（背面弱化，正面与侧面高亮）
+  if (!up) {
+    cell.circle(fx, bodyY + 1, coreR, p.accent)
+    cell.circle(fx, bodyY + 1, innerR, ARCH_WHITE)
+  } else {
+    cell.circle(cx, bodyY + 1, Math.max(2, coreR - 1), p.accent)
+  }
+
+  // 顶在圆肚上的小头 + 尖耳
+  cell.circle(fx, headY, 4, p.skin)
+  cell.triangle(cx - 6, headY - 1, cx - 3, headY, cx - 5, headY + 2, p.skinDark)
+  if (!side) cell.triangle(cx + 6, headY - 1, cx + 3, headY, cx + 5, headY + 2, p.skinDark)
+
+  // 燃烧引线 + 随膨胀帧爆裂闪烁的橙白火花
+  const fuseTipX = fx + 3
+  const fuseTipY = Math.max(2, headY - 6)
+  cell.line(fx, headY - 3, fuseTipX, fuseTipY, ARCH_WOOD_DARK)
+  cell.set(fuseTipX, fuseTipY, ARCH_SPARK)
+  if (f === 1 || f === 2) {
+    cell.set(fuseTipX - 1, fuseTipY - 1, ARCH_WHITE)
+    cell.set(fuseTipX + 1, fuseTipY - 1, p.accent)
+    cell.set(fuseTipX + 1, fuseTipY + 1, ARCH_SPARK)
+  }
+  if (f === 2) {
+    cell.set(fuseTipX, fuseTipY - 2, ARCH_WHITE)
+    cell.set(fuseTipX - 2, fuseTipY, ARCH_SPARK)
+  }
+
+  if (!up) {
+    cell.set(fx - 2, headY, p.eye)
+    cell.set(fx + 2, headY, p.eye)
+    cell.set(fx - 2, headY + 1, p.outline)
+    cell.set(fx + 2, headY + 1, p.outline)
   }
 }
 
@@ -3706,12 +3951,11 @@ export function buildArchetypeAtlas(kind: ArchetypeKind): AtlasData {
   for (let row = 0; row < FRAME_ROWS; row++) {
     const dir = dirs[row]
     for (let frame = 0; frame < FRAME_COLS; frame++) {
-      const pose = goblinPose(frame)
       let cell = new PixelCanvas(cellW, cellH)
-      if (dir === 'up') drawArch(cell, kind, 'up', pose)
-      else if (dir === 'down') drawArch(cell, kind, 'down', pose)
+      if (dir === 'up') drawArch(cell, kind, 'up', frame)
+      else if (dir === 'down') drawArch(cell, kind, 'down', frame)
       else {
-        drawArch(cell, kind, 'side', pose)
+        drawArch(cell, kind, 'side', frame)
         if (dir === 'left') cell = cell.mirrored()
       }
       cell.outline(ARCH_PALETTE[kind].outline)
