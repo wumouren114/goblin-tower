@@ -1342,11 +1342,13 @@ class HudImpl implements HudV3 {
 
   private beatEl: HTMLDivElement | null = null
   private beatFlash = 0
-  private lastBeatPhase = 0
+
+  private lastBeatPhase: number | null = null
 
   /** 节奏分支的节拍环：越接近拍点越小越亮 */
   updateBeat(phase: number, judge: 'perfect' | 'good' | 'miss' | null): void {
-    this.lastBeatPhase = phase
+    this.lastBeatPhase = Number.isFinite(phase) ? phase : null
+
     if (!this.beatEl) {
       const el = document.createElement('div')
       el.style.cssText = [
@@ -1376,7 +1378,9 @@ class HudImpl implements HudV3 {
 
   private comboEl: HTMLDivElement | null = null
 
-  /** 节奏分支连击数：显示 ×N，随连击放大并按当前 BPM 脉冲，60 以上封顶不再增大/变色 */
+
+  /** 节奏分支连击数：×N 格式，20/40/60 三档放大并按节拍相位脉冲（无节拍时静止，60 以上封顶） */
+
   updateCombo(count: number): void {
     if (!this.comboEl) {
       const el = document.createElement('div')
@@ -1401,14 +1405,24 @@ class HudImpl implements HudV3 {
       return
     }
     const capped = Math.min(60, count)
+
+    const baseScale =
+      capped >= 60
+        ? 1.7
+        : capped >= 40
+          ? 1.44 + ((capped - 40) / 20) * 0.14
+          : capped >= 20
+            ? 1.22 + ((capped - 20) / 20) * 0.14
+            : 1.0 + (capped / 20) * 0.12
+    const hasBeat = this.lastBeatPhase !== null
+    const near = hasBeat ? Math.max(0, 1 - Math.min(this.lastBeatPhase!, 1 - this.lastBeatPhase!) * 2) : 0
     const tierRatio = capped / 60
-    const near = Math.max(0, 1 - Math.min(this.lastBeatPhase, 1 - this.lastBeatPhase) * 2)
-    const pulse = near * near * (0.06 + tierRatio * 0.12)
-    const scale = 1 + tierRatio * 0.55 + pulse
-    const lift = -(near * near * (1.5 + tierRatio * 2))
+    const pulse = hasBeat ? near * near * (0.06 + tierRatio * 0.12) : 0
+    const lift = hasBeat ? -(near * near * (1.5 + tierRatio * 2.5)) : 0
     this.comboEl.textContent = `×${count}`
     this.comboEl.style.opacity = '1'
-    this.comboEl.style.transform = `translateX(-50%) translateY(${lift.toFixed(2)}px) scale(${scale.toFixed(3)})`
+    this.comboEl.style.transform = `translateX(-50%) translateY(${lift.toFixed(2)}px) scale(${(baseScale + pulse).toFixed(3)})`
+
     this.comboEl.style.color = count >= 60 ? '#ffd479' : count >= 40 ? '#ff9fd0' : count >= 20 ? '#9fd8ff' : '#cfd8ee'
   }
 

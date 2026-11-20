@@ -1,0 +1,476 @@
+<html style="margin:0;padding:0;">
+<title>肉鸽爬塔开发 · AI提示词工作台</title>
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; padding:24px 16px 44px; background:#f1f5f9; font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif; color:#1e293b; font-size:13px; }
+  .wrap { max-width:1060px; margin:0 auto; }
+  h1 { font-size:21px; margin:0 0 4px; }
+  .sub { color:#64748b; margin:0 0 14px; font-size:12.5px; line-height:1.5; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; background:#1e293b; border-radius:10px; padding:10px 14px; margin-bottom:14px; position:sticky; top:0; z-index:20; }
+  .toolbar button, .toolbar select { font-size:13px; padding:6px 12px; border-radius:6px; border:1px solid #cbd5e1; background:#fff; cursor:pointer; font-family:inherit; }
+  .toolbar button:hover { background:#e2e8f0; }
+  .toolbar .save-tip { color:#cbd5e1; font-size:12px; margin-left:auto; }
+  .box { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:14px 16px; margin-bottom:14px; }
+  .box h2 { font-size:14px; margin:0 0 10px; }
+  .info-grid { display:flex; flex-wrap:wrap; gap:10px; }
+  .info-grid label { display:flex; align-items:center; gap:7px; flex:1 1 240px; }
+  .info-grid span { white-space:nowrap; font-weight:600; color:#334155; }
+  input, select, textarea { font-family:inherit; font-size:13px; border:1px solid #cbd5e1; border-radius:5px; padding:6px 8px; background:#fff; color:#0f172a; }
+  input[type=text], select { width:100%; min-width:0; }
+  textarea { width:100%; min-height:88px; resize:vertical; line-height:1.5; }
+  .global-ta { min-height:64px; }
+  .pgrid { display:flex; flex-wrap:wrap; gap:10px 16px; }
+  .pitem { flex:1 1 250px; min-width:210px; }
+  .pitem .pl { display:flex; justify-content:space-between; font-size:12.5px; margin-bottom:3px; }
+  .bar { height:10px; background:#e2e8f0; border-radius:999px; overflow:hidden; }
+  .fill { height:100%; border-radius:999px; width:0; }
+  .d-play { background:#0d9488; } .d-sys { background:#2563eb; } .d-con { background:#d97706; }
+  .d-perf { background:#dc2626; } .d-tech { background:#4f46e5; } .d-qual { background:#059669; }
+  .stage { background:#fff; border:1px solid #e2e8f0; border-left:5px solid #334155; border-radius:10px; margin-bottom:14px; overflow:hidden; }
+  .stage-head { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:11px 14px; cursor:pointer; user-select:none; background:#f8fafc; }
+  .stage-head .num { width:22px; height:22px; border-radius:50%; background:#334155; color:#fff; font-size:12px; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; }
+  .stage-head .sname { font-size:15px; font-weight:700; }
+  .stage-count { margin-left:auto; font-size:12px; color:#64748b; }
+  .stage-body { padding:12px 14px 14px; }
+  .stage.collapsed .stage-body { display:none; }
+  .group-title { font-size:12.5px; font-weight:700; color:#334155; margin:12px 0 8px; padding-left:2px; border-left:3px solid #94a3b8; padding-left:8px; }
+  .group-title:first-child { margin-top:0; }
+  .task { border:1px solid #e2e8f0; border-radius:9px; padding:10px 12px; margin-bottom:9px; background:#fcfcfd; }
+  .task.done { background:#f0fdf4; border-color:#86efac; }
+  .task-head { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:8px; }
+  .task-head input[type=checkbox] { accent-color:#059669; width:16px; height:16px; }
+  .task-head .tname { font-weight:700; font-size:13.5px; }
+  .dim-dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .task-head select { width:auto; padding:3px 7px; font-size:12px; }
+  .task-actions { display:flex; gap:7px; margin:7px 0; flex-wrap:wrap; }
+  .task-actions button { font-size:12px; padding:4px 12px; border-radius:5px; border:1px solid #0d9488; background:#ccfbf1; color:#115e59; cursor:pointer; font-family:inherit; }
+  .task-actions button:hover { background:#99f6e4; }
+  .task-actions button.copied { background:#0d9488; color:#fff; }
+  .result-label { font-size:12px; color:#64748b; margin:6px 0 4px; }
+  .hide { display:none; }
+  .deps { display:flex; flex-wrap:wrap; gap:7px; }
+  .dep { font-size:12.5px; border:1px solid #cbd5e1; border-radius:8px; padding:4px 9px; background:#f8fafc; }
+  .dep .arr { color:#dc2626; padding:0 4px; font-weight:700; }
+  .noshow { display:none; }
+  @media print {
+    body { background:#fff; padding:0; }
+    .toolbar { display:none; }
+    .stage, .task { break-inside:avoid; }
+    .stage.collapsed .stage-body { display:block; }
+    .task-actions { display:none; }
+  }
+</style>
+<div class="wrap">
+  <h1>肉鸽爬塔开发 · AI 提示词工作台</h1>
+  <p class="sub">用法：在每个环节的框里写发给 agent 的具体指令 → 点“复制提示词”（自动附加全局要求）→ 粘贴给 agent → 把产出文件名/链接/要点记在产出记录里 → 勾选完成。内容自动保存在本机浏览器。</p>
+
+  <div class="toolbar">
+    <button type="button" id="btn-toggle">折叠/展开全部</button>
+    <select id="filter">
+      <option value="all">显示全部</option>
+      <option value="open">仅看未完成</option>
+      <option value="sent">仅看已发Agent</option>
+    </select>
+    <button type="button" id="btn-export">导出备份</button>
+    <button type="button" id="btn-import">导入备份</button>
+    <button type="button" id="btn-print">打印 / 另存PDF</button>
+    <button type="button" id="btn-reset">清空重填</button>
+    <input type="file" id="file-import" accept=".json" class="noshow">
+    <span class="save-tip" id="save-tip">自动保存已开启</span>
+  </div>
+
+  <div class="box">
+    <h2>项目信息与全局指令</h2>
+    <div class="info-grid" style="margin-bottom:10px;">
+      <label><span>项目名称</span><input type="text" data-info="project" placeholder="你的游戏项目名"></label>
+      <label><span>当前版本</span><input type="text" data-info="version" placeholder="如 v0.1"></label>
+    </div>
+    <div class="result-label">全局要求（复制任何提示词时自动附加在末尾，例如：输出语言、只给事项、不要代码、风格约束）</div>
+    <textarea class="global-ta" data-info="global" placeholder="例：用中文回答；只输出结论不要过程；不要写代码；严格按我给的格式。"></textarea>
+  </div>
+
+  <div class="box">
+    <h2>完成度总览（按勾选自动统计）</h2>
+    <div class="pgrid" id="pgrid"></div>
+  </div>
+
+  <div id="root"></div>
+
+  <div class="box">
+    <h2>环节依赖参考（决定先后顺序）</h2>
+    <div class="deps">
+      <span class="dep">战斗指令<span class="arr">→先有→</span>核心循环指令</span>
+      <span class="dep">关卡地图<span class="arr">→先有→</span>爬塔结构 / 随机规则</span>
+      <span class="dep">UI界面<span class="arr">→先有→</span>系统规则</span>
+      <span class="dep">内容生产<span class="arr">→先有→</span>配置管线 / 配置表结构</span>
+      <span class="dep">技术实现<span class="arr">→先有→</span>系统设计</span>
+      <span class="dep">平衡调整<span class="arr">→先有→</span>可玩版本 / 数据采集</span>
+      <span class="dep">测试<span class="arr">→先有→</span>可玩版本</span>
+      <span class="dep">版本封版<span class="arr">→先有→</span>测试通过 / 无阻塞Bug</span>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  try {
+    var P = { play:'玩法', sys:'系统', con:'内容', perf:'表现', tech:'技术', qual:'质量' };
+    var STAGES = [
+      { name:'项目定义', groups:[
+        { items:[
+          {n:'核心体验',d:'play'},{n:'游戏范围',d:'play'},{n:'平台与输入方式',d:'tech'},{n:'完成度目标',d:'qual'}
+        ]}
+      ]},
+      { name:'核心玩法与系统设计', groups:[
+        { g:'核心循环', items:[{n:'局内循环',d:'play'},{n:'局外循环',d:'play'}]},
+        { g:'爬塔结构', items:[{n:'塔层与节点',d:'play'},{n:'路线分支',d:'play'},{n:'房间类型',d:'play'},{n:'难度曲线',d:'play'}]},
+        { g:'肉鸽随机规则', items:[{n:'随机池与权重',d:'play'},{n:'稀有度',d:'play'},{n:'保底与防重复',d:'play'},{n:'种子系统',d:'sys'}]},
+        { g:'构筑系统', items:[{n:'卡牌/遗物/装备/词条',d:'play'},{n:'协同与反协同',d:'play'}]},
+        { g:'经济系统', items:[{n:'掉落与商店',d:'play'}]},
+        { items:[{n:'局内成长',d:'play'},{n:'局外解锁',d:'play'},{n:'重开循环',d:'play'},{n:'事件系统',d:'sys'},{n:'叙事碎片',d:'sys'},{n:'成就与挑战',d:'sys'}]}
+      ]},
+      { name:'战斗与关卡设计', groups:[
+        { g:'战斗设计', items:[
+          {n:'技能与招式设计',d:'play'},{n:'武器/卡牌/道具战斗效果',d:'play'},{n:'状态效果',d:'play'},{n:'判定与命中',d:'play'},
+          {n:'战斗节奏',d:'play'},{n:'战斗反馈',d:'play'},
+          {n:'敌人AI',d:'play'},{n:'敌人行为模式',d:'play'},{n:'精英怪设计',d:'play'},
+          {n:'Boss节点',d:'play'},{n:'Boss阶段与招式',d:'play'},
+          {n:'战斗关卡',d:'play'},{n:'战斗数值',d:'play'},{n:'战斗可读性',d:'play'}
+        ]},
+        { g:'关卡与地图设计', items:[
+          {n:'场景主题',d:'play'},{n:'塔层结构',d:'play'},{n:'地图生成规则',d:'play'},
+          {n:'战斗房',d:'play'},{n:'事件房',d:'play'},{n:'商店房',d:'play'},{n:'休息房',d:'play'},{n:'宝箱房',d:'play'},{n:'Boss房',d:'play'},
+          {n:'路线选择',d:'play'},{n:'房间难度',d:'play'},{n:'房间节奏',d:'play'},{n:'地图信息展示',d:'play'}
+        ]}
+      ]},
+      { name:'内容生产', groups:[
+        { items:[
+          {n:'角色内容',d:'con'},{n:'卡牌/遗物/装备/词条内容',d:'con'},{n:'敌人内容',d:'con'},{n:'Boss内容',d:'con'},
+          {n:'事件内容',d:'con'},{n:'文本内容',d:'con'},{n:'对话内容',d:'con'},{n:'道具与奖励内容',d:'con'},
+          {n:'配置表',d:'con'},{n:'内容验收',d:'con'},{n:'内容版本管理',d:'con'}
+        ]}
+      ]},
+      { name:'表现层设计', groups:[
+        { g:'美术设计', items:[
+          {n:'美术风格',d:'perf'},{n:'场景设计',d:'perf'},{n:'场景氛围',d:'perf'},{n:'角色美术',d:'perf'},
+          {n:'怪物美术',d:'perf'},{n:'NPC美术',d:'perf'},{n:'Boss美术',d:'perf'},{n:'动画',d:'perf'},
+          {n:'战斗特效',d:'perf'},{n:'道具图标',d:'perf'},{n:'UI视觉',d:'perf'},{n:'内部展示美术',d:'perf'}
+        ]},
+        { g:'UI/UX设计', items:[
+          {n:'信息架构',d:'perf'},{n:'主菜单',d:'perf'},{n:'HUD',d:'perf'},{n:'地图界面',d:'perf'},
+          {n:'构筑界面',d:'perf'},{n:'背包/卡牌/遗物界面',d:'perf'},{n:'商店界面',d:'perf'},{n:'事件界面',d:'perf'},
+          {n:'战斗结算',d:'perf'},{n:'爬塔结算',d:'perf'},{n:'局外成长界面',d:'perf'},{n:'新手引导',d:'perf'},
+          {n:'可读性',d:'perf'},{n:'键鼠/手柄/触屏交互',d:'perf'},{n:'无障碍事项',d:'perf'}
+        ]},
+        { g:'音频设计', items:[
+          {n:'音乐',d:'perf'},{n:'战斗音效',d:'perf'},{n:'UI音效',d:'perf'},{n:'环境音效',d:'perf'},
+          {n:'角色/怪物音效',d:'perf'},{n:'Boss音效',d:'perf'},{n:'语音',d:'perf'},{n:'动态混音',d:'perf'},{n:'音频验收',d:'perf'}
+        ]},
+        { g:'叙事与世界观', items:[
+          {n:'世界观',d:'perf'},{n:'塔的背景',d:'perf'},{n:'角色设定',d:'perf'},{n:'敌人设定',d:'perf'},
+          {n:'NPC设定',d:'perf'},{n:'事件文本',d:'perf'},{n:'对话',d:'perf'},{n:'碎片叙事',d:'perf'},{n:'叙事与玩法结合点',d:'perf'}
+        ]}
+      ]},
+      { name:'技术开发', groups:[
+        { items:[
+          {n:'技术架构',d:'tech'},{n:'战斗系统',d:'tech'},{n:'地图生成系统',d:'tech'},{n:'随机系统',d:'tech'},
+          {n:'数据配置系统',d:'tech'},{n:'存档系统',d:'tech'},{n:'UI框架',d:'tech'},{n:'音频系统',d:'tech'},
+          {n:'工具链',d:'tech'},{n:'编辑器工具',d:'tech'},{n:'性能优化',d:'tech'},{n:'平台适配',d:'tech'},
+          {n:'版本构建',d:'tech'},{n:'运行日志与内部数据采集',d:'tech'}
+        ]}
+      ]},
+      { name:'平衡与数据', groups:[
+        { items:[
+          {n:'战斗数值',d:'play'},{n:'经济数值',d:'play'},{n:'掉落权重',d:'play'},{n:'随机权重',d:'play'},
+          {n:'难度曲线',d:'play'},{n:'构筑强度',d:'play'},{n:'敌人强度',d:'play'},{n:'Boss强度',d:'play'},
+          {n:'通关率',d:'play'},{n:'重开率',d:'play'},{n:'内部数据采集',d:'play'},{n:'平衡迭代',d:'play'}
+        ]}
+      ]},
+      { name:'测试', groups:[
+        { items:[
+          {n:'功能测试',d:'qual'},{n:'战斗测试',d:'qual'},{n:'随机性测试',d:'qual'},{n:'平衡测试',d:'qual'},
+          {n:'存档测试',d:'qual'},{n:'性能测试',d:'qual'},{n:'兼容测试',d:'qual'},{n:'用户测试',d:'qual'},
+          {n:'Bug管理',d:'qual'},{n:'回归测试',d:'qual'}
+        ]}
+      ]},
+      { name:'完成度验收与版本封版', groups:[
+        { items:[
+          {n:'核心循环完整',d:'play'},{n:'爬塔全流程可通关',d:'play'},{n:'构筑闭环完整',d:'play'},{n:'重开闭环完整',d:'play'},
+          {n:'系统无缺项',d:'sys'},{n:'内容量达标',d:'con'},
+          {n:'美术覆盖达标',d:'perf'},{n:'UI覆盖达标',d:'perf'},{n:'音频覆盖达标',d:'perf'},
+          {n:'平衡可玩',d:'play'},{n:'测试通过',d:'qual'},{n:'无阻塞Bug',d:'qual'},{n:'版本封版',d:'tech'}
+        ]}
+      ]}
+    ];
+
+    var KEY = 'roguelike-ai-prompt-workbench-v1';
+    var root = document.getElementById('root');
+    var pgrid = document.getElementById('pgrid');
+    if (!root || !pgrid) return;
+
+    var allRows = [];
+    function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+    STAGES.forEach(function(st, si){
+      var card = document.createElement('div');
+      card.className = 'stage collapsed';
+      var html = '<div class="stage-head"><span class="num">' + (si+1) + '</span><span class="sname">' + esc(st.name) + '</span>'
+        + '<span class="stage-count" id="count-g'+si+'"></span></div><div class="stage-body">';
+      st.groups.forEach(function(gr){
+        if (gr.g) html += '<div class="group-title">' + esc(gr.g) + '</div>';
+        gr.items.forEach(function(it){
+          var id = 'r' + si + '_' + allRows.length;
+          allRows.push({ id:id, dim:it.d });
+          html += '<div class="task" data-task="' + id + '" data-dim="' + it.d + '">'
+            + '<div class="task-head">'
+            + '<input type="checkbox" data-done="' + id + '" title="完成">'
+            + '<span class="dim-dot d-' + it.d + '"></span>'
+            + '<span class="tname">' + esc(it.n) + '</span>'
+            + '<select data-status="' + id + '">'
+            + '<option>待处理</option><option>提示词已写</option><option>已发Agent</option><option>已完成</option>'
+            + '</select></div>'
+            + '<textarea data-prompt="' + id + '" placeholder="写给 agent 的具体指令：要它做什么、对象与范围、约束与边界、期望的输出格式……"></textarea>'
+            + '<div class="task-actions"><button type="button" data-copy="' + id + '">复制提示词</button></div>'
+            + '<div class="result-label">Agent 产出记录（文件名 / 链接 / 采纳要点）</div>'
+            + '<input type="text" data-result="' + id + '" placeholder="记录 agent 的产出位置或要点"></div>';
+        });
+      });
+      html += '</div>';
+      card.innerHTML = html;
+      root.appendChild(card);
+    });
+
+    var dimStats = {};
+    Object.keys(P).forEach(function(k){ dimStats[k] = { t:0, d:0 }; });
+    allRows.forEach(function(r){ dimStats[r.dim].t++; });
+
+    var phtml = '';
+    Object.keys(P).forEach(function(k){
+      phtml += '<div class="pitem"><div class="pl"><span>' + P[k] + '完成度</span><span id="p-'+k+'">0/0（0%）</span></div>'
+        + '<div class="bar"><div class="fill d-'+k+'" id="f-'+k+'"></div></div></div>';
+    });
+    phtml += '<div class="pitem"><div class="pl"><span><b>总完成度</b></span><span id="p-all">0/0（0%）</span></div>'
+      + '<div class="bar"><div class="fill" id="f-all" style="background:#0f172a;"></div></div></div>';
+    pgrid.innerHTML = phtml;
+
+    function save(){
+      var data = { info:{}, rows:{} };
+      document.querySelectorAll('[data-info]').forEach(function(el){
+        data.info[el.getAttribute('data-info')] = el.value;
+      });
+      allRows.forEach(function(r){
+        data.rows[r.id] = {
+          done: document.querySelector('[data-done="'+r.id+'"]').checked,
+          status: document.querySelector('[data-status="'+r.id+'"]').value,
+          prompt: document.querySelector('[data-prompt="'+r.id+'"]').value,
+          result: document.querySelector('[data-result="'+r.id+'"]').value
+        };
+      });
+      try { localStorage.setItem(KEY, JSON.stringify(data)); } catch(e){}
+      var t = new Date();
+      var hh = ('0'+t.getHours()).slice(-2), mm = ('0'+t.getMinutes()).slice(-2), ss = ('0'+t.getSeconds()).slice(-2);
+      var tip = document.getElementById('save-tip');
+      if (tip) tip.textContent = '已自动保存 ' + hh + ':' + mm + ':' + ss;
+    }
+
+    function refresh(){
+      var total = { t:0, d:0 };
+      Object.keys(dimStats).forEach(function(k){ dimStats[k].d = 0; });
+      var stageDone = {};
+      allRows.forEach(function(r){
+        var done = document.querySelector('[data-done="'+r.id+'"]').checked;
+        var taskEl = document.querySelector('[data-task="'+r.id+'"]');
+        if (taskEl) taskEl.className = done ? 'task done' : 'task';
+        total.t++;
+        if (done) { dimStats[r.dim].d++; total.d++; }
+        var si = r.id.split('_')[0].slice(1);
+        if (!stageDone[si]) stageDone[si] = { t:0, d:0 };
+        stageDone[si].t++; if (done) stageDone[si].d++;
+      });
+      Object.keys(P).forEach(function(k){
+        var s = dimStats[k], pct = s.t ? Math.round(s.d*100/s.t) : 0;
+        var pe = document.getElementById('p-'+k), fe = document.getElementById('f-'+k);
+        if (pe) pe.textContent = s.d + '/' + s.t + '（' + pct + '%）';
+        if (fe) fe.style.width = pct + '%';
+      });
+      var ap = total.t ? Math.round(total.d*100/total.t) : 0;
+      var pa = document.getElementById('p-all'), fa = document.getElementById('f-all');
+      if (pa) pa.textContent = total.d + '/' + total.t + '（' + ap + '%）';
+      if (fa) fa.style.width = ap + '%';
+      Object.keys(stageDone).forEach(function(si){
+        var ce = document.getElementById('count-g'+si);
+        if (ce) ce.textContent = stageDone[si].d + '/' + stageDone[si].t;
+      });
+      applyFilter();
+    }
+
+    function applyFilter(){
+      var f = document.getElementById('filter');
+      var mode = f ? f.value : 'all';
+      allRows.forEach(function(r){
+        var el = document.querySelector('[data-task="'+r.id+'"]');
+        if (!el) return;
+        var done = document.querySelector('[data-done="'+r.id+'"]').checked;
+        var status = document.querySelector('[data-status="'+r.id+'"]').value;
+        var hidden = false;
+        if (mode === 'open' && done) hidden = true;
+        if (mode === 'sent' && status !== '已发Agent') hidden = true;
+        el.className = (done ? 'task done' : 'task') + (hidden ? ' hide' : '');
+      });
+    }
+
+    function applyData(data){
+      if (!data) return;
+      if (data.info) {
+        document.querySelectorAll('[data-info]').forEach(function(el){
+          if (data.info[el.getAttribute('data-info')] != null) el.value = data.info[el.getAttribute('data-info')];
+        });
+      }
+      if (data.rows) {
+        allRows.forEach(function(r){
+          var v = data.rows[r.id]; if (!v) return;
+          document.querySelector('[data-done="'+r.id+'"]').checked = !!v.done;
+          if (v.status) document.querySelector('[data-status="'+r.id+'"]').value = v.status;
+          document.querySelector('[data-prompt="'+r.id+'"]').value = v.prompt || '';
+          document.querySelector('[data-result="'+r.id+'"]').value = v.result || '';
+        });
+      }
+    }
+
+    function copyText(text, btn){
+      function flash(){
+        btn.className = 'copied';
+        btn.textContent = '已复制';
+        setTimeout(function(){ btn.className = ''; btn.textContent = '复制提示词'; }, 1400);
+      }
+      function fallback(){
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        try { document.execCommand('copy'); flash(); }
+        catch(e){ window.alert('复制失败，请手动选择文本复制。'); }
+        document.body.removeChild(ta);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(flash).catch(fallback);
+      } else fallback();
+    }
+
+    var saved = null;
+    try { saved = localStorage.getItem(KEY); } catch(e){}
+    if (saved) { try { applyData(JSON.parse(saved)); } catch(e){} }
+
+    root.addEventListener('change', function(ev){
+      var el = ev.target; if (!el) return;
+      var doneAttr = el.getAttribute('data-done');
+      var statusAttr = el.getAttribute('data-status');
+      if (doneAttr) {
+        var stEl = document.querySelector('[data-status="'+doneAttr+'"]');
+        if (el.checked) { if (stEl) stEl.value = '已完成'; }
+        else { if (stEl && stEl.value === '已完成') stEl.value = '提示词已写'; }
+      } else if (statusAttr) {
+        var dEl = document.querySelector('[data-done="'+statusAttr+'"]');
+        if (el.value === '已完成') { if (dEl) dEl.checked = true; }
+        else { if (dEl) dEl.checked = false; }
+      }
+      refresh(); save();
+    });
+    root.addEventListener('input', function(ev){
+      if (!ev.target) return;
+      var attr = ev.target.getAttribute('data-prompt');
+      if (attr) {
+        var stEl = document.querySelector('[data-status="'+attr+'"]');
+        if (stEl && stEl.value === '待处理' && ev.target.value.trim()) stEl.value = '提示词已写';
+      }
+      save();
+    });
+    root.addEventListener('click', function(ev){
+      var el = ev.target;
+      if (el.tagName !== 'BUTTON') return;
+      var copyId = el.getAttribute('data-copy');
+      if (!copyId) return;
+      var promptEl = document.querySelector('[data-prompt="'+copyId+'"]');
+      var prompt = promptEl ? promptEl.value.trim() : '';
+      if (!prompt) { window.alert('先在上方框里写提示词，再复制。'); return; }
+      var gEl = document.querySelector('[data-info="global"]');
+      var global = gEl ? gEl.value.trim() : '';
+      var full = global ? (prompt + '\n\n' + global) : prompt;
+      copyText(full, el);
+      var stEl = document.querySelector('[data-status="'+copyId+'"]');
+      if (stEl) stEl.value = '已发Agent';
+      save();
+    });
+
+    document.querySelectorAll('.stage-head').forEach(function(h){
+      h.addEventListener('click', function(){
+        var card = h.parentNode;
+        card.className = card.className.match(/collapsed/) ? 'stage' : 'stage collapsed';
+      });
+    });
+    var filterEl = document.getElementById('filter');
+    if (filterEl) filterEl.addEventListener('change', function(){ applyFilter(); });
+
+    var btnToggle = document.getElementById('btn-toggle');
+    if (btnToggle) btnToggle.addEventListener('click', function(){
+      var stages = document.querySelectorAll('.stage');
+      var anyOpen = false;
+      stages.forEach(function(s){ if (!s.className.match(/collapsed/)) anyOpen = true; });
+      stages.forEach(function(s){
+        s.className = anyOpen ? 'stage collapsed' : 'stage';
+      });
+    });
+    var btnReset = document.getElementById('btn-reset');
+    if (btnReset) btnReset.addEventListener('click', function(){
+      if (window.confirm('确定清空全部内容？建议先导出备份，此操作不可恢复。')) {
+        try { localStorage.removeItem(KEY); } catch(e){}
+        window.location.reload();
+      }
+    });
+    var btnPrint = document.getElementById('btn-print');
+    if (btnPrint) btnPrint.addEventListener('click', function(){ window.print(); });
+    var btnExport = document.getElementById('btn-export');
+    if (btnExport) btnExport.addEventListener('click', function(){
+      var raw = null;
+      try { raw = localStorage.getItem(KEY); } catch(e){}
+      var blob = new Blob([raw || '{}'], { type:'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = '肉鸽爬塔提示词工作台备份.json';
+      a.click();
+      try { URL.revokeObjectURL(a.href); } catch(e){}
+    });
+    var btnImport = document.getElementById('btn-import');
+    var fileInput = document.getElementById('file-import');
+    if (btnImport && fileInput) {
+      btnImport.addEventListener('click', function(){ fileInput.click(); });
+      fileInput.addEventListener('change', function(){
+        if (!fileInput.files || !fileInput.files[0]) return;
+        var reader = new FileReader();
+        reader.onload = function(){
+          try {
+            var data = JSON.parse(reader.result);
+            applyData(data); refresh(); save();
+            window.alert('导入成功，内容已保存。');
+          } catch(e){ window.alert('导入失败：文件不是有效的备份。'); }
+        };
+        reader.readAsText(fileInput.files[0]);
+        fileInput.value = '';
+      });
+    }
+    document.querySelector('.box').addEventListener('input', function(ev){
+      if (ev.target && ev.target.getAttribute('data-info')) save();
+    });
+
+    refresh();
+  } catch(e) {
+    console.error(e);
+    var r = document.getElementById('root');
+    if (r) r.innerHTML = '<p style="color:#b91c1c;">脚本运行异常，请刷新后重试；若仍异常请告知。</p>';
+  }
+})();
+</script>
+<noscript><p style="color:#b91c1c;padding:10px;">本工作台需要启用 JavaScript。</p></noscript>
+</html>
