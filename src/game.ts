@@ -1072,7 +1072,7 @@ export class Game {
   }
 
   /** 调试：直接打开一个小游戏（?minigame=windmill），用于验收 */
-  debugMinigame(id: 'windmill' | 'starlines' | 'gears' | 'tower-drop'): void {
+  debugMinigame(id: 'windmill' | 'starlines' | 'gears' | 'tower-drop' | 'mole-tap'): void {
     const game = MINIGAMES[id]
     const root = document.createElement('div')
     root.style.cssText = 'position:fixed;inset:0;z-index:950;background:#0b0d14'
@@ -2910,6 +2910,17 @@ export class Game {
       .then((res) => {
         root.remove()
         audio.duck(false)
+        // 哥布林打点：按敲中数分层结算（<15 初等 / 15~29 中等 / 30 高等）
+        if (game.id === 'mole-tap') {
+          const hits = res.score ?? 0
+          const gold = hits >= 30 ? 180 + 40 * this.run.layer : hits >= 15 ? 90 + 25 * this.run.layer : 40 + 15 * this.run.layer
+          const tier = hits >= 30 ? '高等' : hits >= 15 ? '中等' : '初等'
+          this.addGold(gold)
+          this.hud.toast(`打点结算（${tier}）：金币 +${gold}`, hits >= 15 ? 'good' : 'info')
+          if (hits >= 30) this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
+          this.completeRoomMap(`哥布林打点 · ${tier}结算`)
+          return
+        }
         if (res.win) {
           const gold = 90 + 25 * this.run.layer
           this.addGold(gold)
