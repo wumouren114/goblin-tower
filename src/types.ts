@@ -430,6 +430,8 @@ export interface HudV3Handlers {
   onShopBuy(offerId: string): void
   onShopRefresh(): void
   onShopClose(): void
+  /** 流浪商人「交换」（可选：未接线的预览可不实现） */
+  onExchange?: () => void
   onOpenInventory(): void
   onCloseInventory(): void
   onMergeItem(uidA: string, uidB: string): void

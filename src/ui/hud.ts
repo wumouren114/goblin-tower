@@ -564,6 +564,7 @@ const UI_TEMPLATE = /* html */ `
       <footer class="shop-foot">
         <button class="btn-ghost js-shop-refresh" type="button">重掷 <b class="js-refresh-cost">25</b> 金</button>
         <button class="btn-ghost js-shop-inv" type="button">进入背包 <kbd>TAB / I</kbd></button>
+        <button class="btn-ghost js-shop-exchange" type="button">交换卡 <kbd>X</kbd></button>
         <button class="btn-primary js-shop-continue" type="button">继续前进</button>
       </footer>
     </div>
@@ -1490,6 +1491,7 @@ class HudImpl implements HudV3 {
       this.handlers.onShopRefresh()
     })
     this.q('.js-shop-inv').addEventListener('click', () => this.handlers.onOpenInventory())
+    this.q('.js-shop-exchange').addEventListener('click', () => this.handlers.onExchange?.())
     this.shopContinueEl.addEventListener('click', () => {
       this.hideShop()
       this.handlers.onShopClose()

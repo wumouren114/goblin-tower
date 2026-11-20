@@ -27,6 +27,8 @@ import { pickScene, STAGE_NAMES } from './data/stages'
 import { EVENTS, eventOf, type EventEffect } from './data/events'
 import { EventState } from './systems/eventState'
 import { EventPanel } from './ui/eventPanel'
+import { ExchangePanel } from './ui/exchangePanel'
+import { cardIdOfItem } from './data/cards'
 import { CHARACTERS, CHARGE_FLOOR_START_RATIO, skillRange } from './data/characters'
 import { getWeaponTier, charTakeDamageMul, tierNum, MAX_WEAPON_LV } from './data/characterRuntime'
 import {
@@ -45,7 +47,7 @@ import {
   BALANCE,
 } from './data/balance'
 import { Inventory } from './systems/inventory'
-import { generateOffers, REFRESH_COST, trainingPriceFor } from './systems/shop'
+import { generateOffers, MerchantExchange, REFRESH_COST, trainingPriceFor } from './systems/shop'
 import { rollTunnels, resolveRoom } from './systems/tunnels'
 import { listSlots, loadFromSlot, saveToSlot } from './systems/saveLoad'
 import {
@@ -238,6 +240,9 @@ export class Game {
   /** 探索事件状态（线索 / 伏笔 / 记忆碎片），目前只用于事件原型 */
   private readonly eventState = new EventState()
   private readonly eventPanel = new EventPanel()
+  /** 流浪商人「交换」：价格按同一房间内的次数递增，离开房间重置 */
+  private readonly merchantExchange = new MerchantExchange()
+  private readonly exchangePanel = new ExchangePanel()
   private prevMaxHp = 100
 
   private layerTotal = 0
@@ -681,8 +686,13 @@ export class Game {
       this.tryTowerInteract()
     }
 
-    // 临时：V 直接抽一个探索事件（事件房间接通前用来验证面板与结算）
-    if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('KeyV')) {
+    // 商店里按 X 打开流浪商人的「交换」
+    if (this.phase === 'shop' && !this.inventoryOpen() && this.input.justPressed('KeyX')) {
+      this.openExchange()
+    }
+
+    // 调试：G 抽一个探索事件（事件房间接通后用不到）
+    if (this.phase === 'playing' && !this.inventoryOpen() && this.input.justPressed('KeyG')) {
       this.openDebugEvent()
     }
   }
@@ -916,6 +926,15 @@ export class Game {
    * 临时调试入口：抽一个事件 + 一个隐藏真身，打开面板。
    * 等事件房间接进隧道后，改由房间触发这里。
    */
+  /** 调试：直接打开商店（?shop=1），用于验证交换入口 */
+  debugOpenShop(): void {
+    this.shopOffers = generateOffers(this.run.layer, this.run.character, 0, this.rng)
+    this.shopMode = 'room'
+    this.merchantExchange.reset()
+    this.phase = 'shop'
+    this.hud.showShop(this.shopOffers, this.run.gold, REFRESH_COST, 'room')
+  }
+
   /** 调试：立即打开一个随机事件（?event=1） */
   debugOpenEventNow(): void {
     this.openDebugEvent()
@@ -980,6 +999,44 @@ export class Game {
         this.hud.toast(`遭遇战 ×${eff.count}（待接线）`, 'bad')
       }
     }
+  }
+
+  /**
+   * 流浪商人「交换」：同档不同名三选一。
+   * 价格由 MerchantExchange 维护（0/15/25/40/65…，同一房间内递增，离开房间重置）。
+   */
+  openExchange(): void {
+    if (this.phase !== 'shop' || this.inventoryOpen() || this.exchangePanel.isOpen) return
+    const cards = this.inventory.items.filter((it) => it.kind === 'buff-card')
+    this.exchangePanel.open(this.run.gold, cards, {
+      onPickSource: (uid) => {
+        const item = this.inventory.get(uid)
+        if (!item) return null
+        const offer = this.merchantExchange.rollChoices(item, this.inventory, this.rng)
+        if (!offer) return null
+        return {
+          price: offer.price,
+          choices: offer.choices.map((c) => ({
+            id: cardIdOfItem(c) ?? '',
+            name: c.name,
+            desc: c.desc,
+            icon: c.icon,
+          })),
+        }
+      },
+      onCommit: (uid, cardId) => {
+        const res = this.merchantExchange.commitExchange(uid, cardId, this.inventory, this.run.gold)
+        if (!res.ok) {
+          if (res.reason === 'poor') return '金币不足。'
+          if (res.reason === 'no-target') return '没有可换的同档卡（同档、不同名、且未持有）。'
+          return '这次换不了。'
+        }
+        this.run.gold = res.goldAfter
+        this.hud.updateShop(this.shopOffers, this.run.gold, REFRESH_COST)
+        return `获得「${res.received?.name ?? '新卡'}」，花费 ${res.cost} 金。`
+      },
+      onClose: () => this.hud.updateShop(this.shopOffers, this.run.gold, REFRESH_COST),
+    })
   }
 
   /** 塔内互动结算：祭坛给护盾/治疗/充能，塔藏箱随机给金币/治疗/充能 */
@@ -2226,6 +2283,7 @@ export class Game {
       room.resolved = true
       this.shopOffers = res.shopOffers
       this.shopMode = 'room'
+      this.merchantExchange.reset()
       this.phase = 'shop'
       audio.startBgm('shop')
       audio.setBgmIntensity(0)
