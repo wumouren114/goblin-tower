@@ -333,55 +333,34 @@ const BATTLE_REWARD_DESC: Record<BattleReward, string> = {
 function describePayload(room: TunnelRoom, payload: TunnelPayload): { title: string; desc: string } {
   switch (room) {
     case 'chest':
-      return {
-        title: '宝藏密室',
-        desc: payload.card ? `打开宝箱：获得「${payload.card.name}」` : '打开宝箱：获得一张卡',
-      }
+      return { title: '宝藏密室', desc: '打开宝箱，领取其中的奖励' }
     case 'event':
-      return { title: '陌生的旅人', desc: '有人靠在墙边，似乎想和你说点什么' }
-    case 'skill-card': {
-      const skill = payload.skillCard
-      return {
-        title: '技能祭坛',
-        desc: skill ? `获得技能卡：${skill.name}` : '获得一张技能卡',
-      }
-    }
+      return { title: '陌生的旅人', desc: '与路过的旅人交谈，做出你的选择' }
+    case 'skill-card':
+      return { title: '技能圣所', desc: '前往技能圣所，领取一张技能卡' }
     case 'merchant':
-      return { title: '流浪商人', desc: '4 件货随意选购，可花 25 金重掷' }
-    case 'altar': {
-      const reward = payload.altarReward
-      const statText = reward ? `${CARD_LABEL[reward.stat]} +${reward.value}` : '永久祝福'
-      return {
-        title: '古老祭坛',
-        desc: `${payload.altarCost ?? 0} 金换永久祝福（${statText}）`,
-      }
-    }
+      return { title: '流浪商人', desc: '与流浪商人交易' }
+    case 'altar':
+      return { title: '古老祭坛', desc: '在祭坛前做出献祭，换取永久增益' }
     case 'mob-wave': {
       const reward = payload.reward ?? 'gold'
-      return {
-        title: BATTLE_REWARD_TITLE[reward],
-        desc: `${payload.enemyCount ?? 0} 只哥布林涌来 · ${BATTLE_REWARD_DESC[reward]}`,
-      }
+      return { title: BATTLE_REWARD_TITLE[reward], desc: '击败来袭的敌人' }
     }
     case 'elite-fight': {
-      const elite = payload.eliteCount ?? 0
-      const guards = Math.max(0, (payload.enemyCount ?? elite) - elite)
+      const reward = payload.reward ?? 'gold'
       return {
-        title: `精英伏击 · ${BATTLE_REWARD_TITLE[payload.reward ?? 'gold'].split(' · ')[1]}`,
-        desc: `${elite} 精英 + ${guards} 随从 · ${BATTLE_REWARD_DESC[payload.reward ?? 'gold']}`,
+        title: `精英伏击 · ${BATTLE_REWARD_TITLE[reward].split(' · ')[1]}`,
+        desc: '挑战精英及其随从',
       }
     }
     case 'boss':
-      return { title: 'Boss 房间', desc: '正面击破最终阶段 Boss，锁定通关' }
+      return { title: 'Boss 房间', desc: '直面阶段首领，展开决战' }
     case 'minigame':
-      return { title: '塔的称量', desc: '一场小小的试炼，赢了它便漏一点东西给你' }
+      return { title: '塔的称量', desc: '完成一场小试炼，赢取高塔的馈赠' }
     case 'trial':
-      return { title: '立约者', desc: '他愿意先借你力量，代价写在契约背面' }
+      return { title: '立约者', desc: '与立约者签订或婉拒誓约' }
     case 'rest':
-      return {
-        title: '休憩营地',
-        desc: `回血 ${Math.round(REST_HEAL_RATIO * 100)}%、充能 +${Math.round(REST_CHARGE_RATIO * 100)}%，安全但没金币`,
-      }
+      return { title: '休憩营地', desc: '在营地稍作休整，恢复状态' }
     default:
       return { title: '未知房间', desc: '' }
   }

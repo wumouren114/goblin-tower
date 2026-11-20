@@ -105,7 +105,7 @@ export interface TunnelOffer {
 }
 
 /** 层末流程：清层奖励卡 → 时空隧道门；v4.6 在 3/6/9 层插入角色觉醒 */
-export type TunnelScreenMode = 'bonus' | 'tunnel' | 'awakening' | 'potential' | 'trial' | 'weapon'
+export type TunnelScreenMode = 'bonus' | 'tunnel' | 'awakening' | 'potential' | 'trial' | 'weapon' | 'altar'
 
 /** 一次觉醒二选一：获得新觉醒，或深化已有觉醒 */
 export interface AwakeningChoice {
@@ -403,6 +403,8 @@ export interface HudSnapshot {
   skillName?: string
   skillReady?: boolean
   cardCount?: number
+  /** 可选：当前背包物品快照（供右上角第二状态栏展示已穿戴道具） */
+  inventory?: readonly InventoryItem[]
   difficulty?: DifficultyId
 }
 

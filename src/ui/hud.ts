@@ -150,6 +150,20 @@ interface KeyGuideCellRef {
 /* ------------------------------------------------------------------ */
 
 const CHAR_ORDER: CharacterId[] = ['mutsumi', 'murasame', 'fish']
+/** 祭坛/事件卡片内部 icon key → 可读像素符号映射（避免原始英文 key 重叠乱码） */
+const OFFER_ICON_MAP: Record<string, string> = {
+  card: '🃏',
+  drop: '🩸',
+  seal: '⚖️',
+  chalice: '🍷',
+  coin: '🪙',
+}
+
+function displayOfferIcon(raw?: string): string {
+  if (!raw) return '✦'
+  return OFFER_ICON_MAP[raw] ?? raw
+}
+
 const CHAR_EMOJI: Record<CharacterId, string> = { mutsumi: '🥒', murasame: '🗡️', fish: '🐟' }
 
 /** 卡牌维度 → 原画图标（充能上限 / 充能效率共用一张充能图标） */
@@ -430,6 +444,13 @@ const UI_TEMPLATE = /* html */ `
         <div class="stat stat-alive"><span class="stat-label">场上敌人</span><span class="stat-val js-alive-stat">0</span></div>
         <div class="stat stat-kill"><span class="stat-label">累计击杀</span><span class="stat-val js-kills-stat">0</span></div>
       </div>
+      <div class="hud-status-bar js-status-bar" aria-label="局内状态速览">
+        <div class="sb-meta">
+          <span class="sb-floor js-sb-floor">第 1 层 · 阶段 1</span>
+          <span class="sb-gold">🪙 <b class="js-sb-gold">0</b></span>
+        </div>
+        <div class="sb-items js-sb-items"><span class="sb-empty">暂无道具</span></div>
+      </div>
       <div class="mute-chip js-mute" hidden>🔇 已静音</div>
     </div>
 
@@ -679,6 +700,10 @@ class HudImpl implements HudV3 {
   private aliveEl!: HTMLElement
   private aliveStatEl!: HTMLElement
   private goldEl!: HTMLElement
+  private sbFloorEl!: HTMLElement
+  private sbGoldEl!: HTMLElement
+  private sbItemsEl!: HTMLElement
+  private lastSbItemsKey = ''
   private diffEl!: HTMLElement
   private killsEl!: HTMLElement
   private killsStatEl!: HTMLElement
@@ -903,6 +928,9 @@ class HudImpl implements HudV3 {
     setText(this.killsEl, fmtInt(snapshot.kills || 0))
     setText(this.killsStatEl, fmtInt(snapshot.kills || 0))
     setText(this.goldEl, fmtInt(snapshot.gold || 0))
+    setText(this.sbFloorEl, `第 ${Math.max(1, Math.floor(snapshot.floor || 1))} 层 · 阶段 ${Math.max(1, Math.floor(snapshot.stage || 1))}`)
+    setText(this.sbGoldEl, fmtInt(snapshot.gold || 0))
+    this.renderStatusBarItems(snapshot.inventory ?? this.invItems, snapshot.cardCount)
     const diffName =
       snapshot.difficultyName ||
       (snapshot.difficulty ? DIFFICULTIES[snapshot.difficulty]?.name : '') ||
@@ -1020,65 +1048,73 @@ class HudImpl implements HudV3 {
     const isPotential = mode === 'potential'
     const isTrial = mode === 'trial'
     const isWeapon = mode === 'weapon'
-    const isTunnel = !isBonus && !isAwakening && !isPotential && !isTrial && !isWeapon
+    const isAltar = mode === 'altar'
+    const isTunnel = !isBonus && !isAwakening && !isPotential && !isTrial && !isWeapon && !isAltar
     this.tunnelMode = mode
     this.tunnelOffers = offers.slice(0, this.tunnelCardRefs.length)
     this.tunnelEl.classList.toggle('is-bonus', isBonus)
-    this.tunnelEl.classList.toggle('is-awakening', isAwakening)
-    this.tunnelEl.classList.toggle('is-awakening', isPotential || isAwakening || isTrial || isWeapon)
+    this.tunnelEl.classList.toggle('is-awakening', isPotential || isAwakening || isTrial || isWeapon || isAltar)
     this.tunnelEl.classList.toggle('is-tunnel', isTunnel)
     this.tunnelEl.dataset.mode = mode
     this.tunnelEl.setAttribute(
       'aria-label',
-      isTrial ? '立约' : isWeapon ? '专武方向三选一' : isAwakening ? '专武方向选择' : isPotential ? '潜能三选一' : isBonus ? '清层奖励三选一' : '时空隧道路线选择',
+      isAltar ? '献祭三选一' : isTrial ? '立约' : isWeapon ? '专武方向三选一' : isAwakening ? '专武方向选择' : isPotential ? '潜能三选一' : isBonus ? '清层奖励三选一' : '时空隧道路线选择',
     )
-    setText(this.tunnelModeMarkEl, isAwakening ? '✦' : isPotential ? '✦' : isBonus ? '🎁' : '🧭')
+    setText(this.tunnelModeMarkEl, isAltar ? '🕯️' : isAwakening ? '✦' : isPotential ? '✦' : isBonus ? '🎁' : '🧭')
     setText(
       this.tunnelKickerEl,
-      isAwakening
-        ? 'WEAPON · UPGRADE PATH'
-        : isTrial
-          ? 'TRIAL · THE OATH'
-          : isWeapon
-            ? 'WEAPON · CHOOSE A PATH'
-            : isPotential
-          ? 'POTENTIAL · CHOOSE A PATH'
-          : isBonus
-            ? 'STEP 1 / 2 · LAYER REWARD'
-            : 'TIME RIFT',
+      isAltar
+        ? 'ALTAR · SACRIFICE'
+        : isAwakening
+          ? 'WEAPON · UPGRADE PATH'
+          : isTrial
+            ? 'TRIAL · THE OATH'
+            : isWeapon
+              ? 'WEAPON · CHOOSE A PATH'
+              : isPotential
+                ? 'POTENTIAL · CHOOSE A PATH'
+                : isBonus
+                  ? 'STEP 1 / 2 · LAYER REWARD'
+                  : 'TIME RIFT',
     )
     setText(
       this.tunnelTitleEl,
-      isTrial ? '立约 · 接受或婉拒' : isWeapon ? '专武 · 三选一' : isAwakening ? '专武 · 强化方向' : isPotential ? '潜能 · 三选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道',
+      isAltar ? '献祭 · 三选一' : isTrial ? '立约 · 接受或婉拒' : isWeapon ? '专武 · 三选一' : isAwakening ? '专武 · 强化方向' : isPotential ? '潜能 · 三选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道',
     )
     setText(
       this.tunnelSubEl,
-      isAwakening
+      isAltar
         ? hasLayer
-          ? `第 ${layer} 层 · 获得新专武方向，或深化已有方向`
-          : '获得新专武方向，或深化已有方向'
-        : isPotential
+          ? `第 ${layer} 层 · 献上代价换取永久收益，落印不可逆`
+          : '献上代价换取永久收益，落印不可逆'
+        : isAwakening
           ? hasLayer
-            ? `第 ${layer} 层 · 选择潜能分支或节点`
-            : '选择潜能分支或节点'
-          : isBonus
-          ? hasLayer
-            ? `第 ${layer} 层清层奖励 · 领取后进入时空隧道选路线`
-            : '本层清层奖励 · 领取后进入时空隧道选路线'
-          : hasLayer
-            ? `第 ${layer} 层 · 选择一条路`
-            : '选择一条路',
+            ? `第 ${layer} 层 · 获得新专武方向，或深化已有方向`
+            : '获得新专武方向，或深化已有方向'
+          : isPotential
+            ? hasLayer
+              ? `第 ${layer} 层 · 选择潜能分支或节点`
+              : '选择潜能分支或节点'
+            : isBonus
+              ? hasLayer
+                ? `第 ${layer} 层清层奖励 · 领取后进入时空隧道选路线`
+                : '本层清层奖励 · 领取后进入时空隧道选路线'
+              : hasLayer
+                ? `第 ${layer} 层 · 选择一条路`
+                : '选择一条路',
     )
     this.tunnelHintEl.hidden = isTunnel
-    this.tunnelHintEl.innerHTML = isTrial
-      ? '读清代价与收益，选「立约」或「婉拒」；拒绝没有任何惩罚'
-      : isWeapon
-        ? '选择一个专武方向，再点「确认」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>'
-        : isAwakening
-          ? '选中一个方向，再点「确认选择」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd> 可直接选中）'
-      : isBonus
-        ? '选中一张奖励卡，再点「领取奖励」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
-        : '选中一条路线，再点「确认路线」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
+    this.tunnelHintEl.innerHTML = isAltar
+      ? '看清献上什么、换取什么；献祭代价不可逆，也可直接离开'
+      : isTrial
+        ? '读清代价与收益，选「立约」或「婉拒」；拒绝没有任何惩罚'
+        : isWeapon
+          ? '选择一个专武方向，再点「确认」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>'
+          : isAwakening
+            ? '选中一个方向，再点「确认选择」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd> 可直接选中）'
+            : isBonus
+              ? '选中一张奖励卡，再点「领取奖励」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
+              : '选中一条路线，再点「确认路线」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
     for (let i = 0; i < this.tunnelCardRefs.length; i += 1) {
       const ref = this.tunnelCardRefs[i]
       const offer = this.tunnelOffers[i]
@@ -1092,7 +1128,7 @@ class HudImpl implements HudV3 {
       ref.card.className = `tunnel-card kind-${offer.kind}`
       setText(
         ref.band,
-        isTrial ? '考验' : isWeapon ? '专武' : isAwakening ? '专武' : isPotential ? '潜能' : isBonus ? '清层奖励' : ROOM_BAND[offer.room] ?? TUNNEL_META[offer.kind]?.label ?? '未知',
+        isAltar ? '祭坛' : isTrial ? '考验' : isWeapon ? '专武' : isAwakening ? '专武' : isPotential ? '潜能' : isBonus ? '清层奖励' : ROOM_BAND[offer.room] ?? TUNNEL_META[offer.kind]?.label ?? '未知',
       )
       const potentialBranch =
         isPotential && offer.payload?.potential?.branch
@@ -1101,9 +1137,11 @@ class HudImpl implements HudV3 {
       if (isTunnel) {
         setRoomIcon(ref.icon, offer.room)
       } else if (isPotential) {
-        setArtIcon(ref.icon, null, offer.icon || potentialBranch?.icon || '✦')
+        setArtIcon(ref.icon, null, displayOfferIcon(offer.icon || potentialBranch?.icon))
+      } else if (isAltar) {
+        setArtIcon(ref.icon, null, displayOfferIcon(offer.icon))
       } else {
-        setArtIcon(ref.icon, this.tunnelIconArt(offer), offer.icon || '✦')
+        setArtIcon(ref.icon, this.tunnelIconArt(offer), displayOfferIcon(offer.icon))
       }
       if (potentialBranch?.accent) {
         ref.card.style.borderColor = potentialBranch.accent
@@ -1120,18 +1158,20 @@ class HudImpl implements HudV3 {
       }
       setText(
         ref.room,
-        isAwakening
-          ? offer.payload.awakening?.styleName ?? '专武方向'
-          : isPotential
-            ? '潜能'
-            : isBonus
-            ? '本层奖励 · 增益卡'
-            : ROOM_LABEL[offer.room] ?? '未知房间',
+        isAltar
+          ? '献祭 · 不可逆'
+          : isAwakening
+            ? offer.payload.awakening?.styleName ?? '专武方向'
+            : isPotential
+              ? '潜能'
+              : isBonus
+                ? '本层奖励 · 增益卡'
+                : ROOM_LABEL[offer.room] ?? '未知房间',
       )
       setText(ref.title, offer.title)
       setText(ref.desc, offer.desc)
       const lines = this.tunnelPreviewLines(offer, mode)
-      ref.preview.hidden = isTunnel || isPotential
+      ref.preview.hidden = isTunnel || isPotential || isAltar
       ref.preview.replaceChildren(...lines.map((line) => this.makePreviewRow(line)))
       setText(ref.key, String(i + 1))
     }
@@ -1190,6 +1230,7 @@ class HudImpl implements HudV3 {
       this.invSelected = null
     }
     this.renderInventory(gold)
+    this.renderStatusBarItems(this.invItems)
   }
 
   hideInventory(): void {
@@ -1560,6 +1601,9 @@ class HudImpl implements HudV3 {
     this.aliveEl = this.q('.js-alive')
     this.aliveStatEl = this.q('.js-alive-stat')
     this.goldEl = this.q('.js-gold')
+    this.sbFloorEl = this.q('.js-sb-floor')
+    this.sbGoldEl = this.q('.js-sb-gold')
+    this.sbItemsEl = this.q('.js-sb-items')
     this.diffEl = this.q('.js-diff')
     this.killsEl = this.q('.js-kills')
     this.killsStatEl = this.q('.js-kills-stat')
@@ -1830,30 +1874,35 @@ class HudImpl implements HudV3 {
       const isPotential = this.tunnelMode === 'potential'
       const isTrial = this.tunnelMode === 'trial'
       const isWeapon = this.tunnelMode === 'weapon'
+      const isAltar = this.tunnelMode === 'altar'
       this.tunnelConfirmEl.disabled = this.tunnelSelected < 0
       this.tunnelConfirmEl.textContent = this.tunnelSelected >= 0
-        ? isTrial
-          ? '立约'
-          : isWeapon
-            ? '确认专武'
-            : isAwakening
-              ? '确认选择'
-              : isPotential
-            ? '确认潜能'
-            : isBonus
-              ? '领取奖励'
-              : '确认路线'
-        : isTrial
-          ? '请阅读契约'
-          : isWeapon
-            ? '请选择一个专武方向'
-            : isAwakening
-              ? '请先选择一个方向'
-              : isPotential
-            ? '请先选择一个潜能'
-            : isBonus
-              ? '请先选择一张奖励卡'
-              : '请先选择一条路线'
+        ? isAltar
+          ? '确认献祭'
+          : isTrial
+            ? '立约'
+            : isWeapon
+              ? '确认专武'
+              : isAwakening
+                ? '确认选择'
+                : isPotential
+                  ? '确认潜能'
+                  : isBonus
+                    ? '领取奖励'
+                    : '确认路线'
+        : isAltar
+          ? '请选择一项献祭'
+          : isTrial
+            ? '请阅读契约'
+            : isWeapon
+              ? '请选择一个专武方向'
+              : isAwakening
+                ? '请先选择一个方向'
+                : isPotential
+                  ? '请先选择一个潜能'
+                  : isBonus
+                    ? '请先选择一张奖励卡'
+                    : '请先选择一条路线'
     }
   }
 
@@ -2266,6 +2315,33 @@ class HudImpl implements HudV3 {
     this.handlers.onDiscardItem?.(item.uid)
     // 回调通常已让 game 触发 updateInventory；这里兜底重绘，确保丢弃后立即从面板消失
     this.renderInventory(this.invGold)
+  }
+
+  /** 右上角第二状态栏：展示当前已穿戴道具卡（最多 4 张，超出显示 +N） */
+  private renderStatusBarItems(items: readonly InventoryItem[], fallbackCardCount?: number): void {
+    const cards = items.filter((it) => it.kind === 'buff-card')
+    const key =
+      cards.length > 0
+        ? cards.map((c) => `${c.uid}:${c.tier}:${c.name}`).join('|')
+        : `empty:${fallbackCardCount ?? 0}`
+    if (key === this.lastSbItemsKey) return
+    this.lastSbItemsKey = key
+
+    if (cards.length === 0) {
+      const label = fallbackCardCount && fallbackCardCount > 0 ? `已穿戴 ${fallbackCardCount} 张道具` : '暂无道具'
+      this.sbItemsEl.replaceChildren(span('sb-empty', label))
+      return
+    }
+    const visible = cards.slice(0, 4)
+    const nodes: HTMLElement[] = visible.map((c) => {
+      const chip = span('sb-item-chip')
+      chip.append(span('sb-item-icon', displayOfferIcon(c.icon)), span('sb-item-name', c.name))
+      return chip
+    })
+    if (cards.length > 4) {
+      nodes.push(span('sb-more', `+${cards.length - 4}`))
+    }
+    this.sbItemsEl.replaceChildren(...nodes)
   }
 
   private renderInventory(gold: number): void {
