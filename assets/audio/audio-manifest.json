@@ -5,7 +5,7 @@
   "channels": 1,
   "bitsPerSample": 16,
   "targetPeakDb": -1,
-  "totalBytes": 7023938,
+  "totalBytes": 7068126,
   "files": [
     {
       "file": "bgm_title.wav",
@@ -578,6 +578,40 @@
       "durationRangeS": [
         0.15,
         0.26
+      ]
+    },
+    {
+      "file": "sfx_boss_phase.wav",
+      "kind": "sfx",
+      "bytes": 26504,
+      "sha256": "5620fd32341bd83d194e9ac0c6255333f19d402e9b48c5f4913f27d92559dfa6",
+      "samples": 13230,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.6,
+      "peakDb": -3.5,
+      "rmsDb": -16.59,
+      "durationRangeS": [
+        0.48,
+        0.72
+      ]
+    },
+    {
+      "file": "sfx_boss_enrage.wav",
+      "kind": "sfx",
+      "bytes": 17684,
+      "sha256": "3aaa16a82a9143d55cfc9b153034c8ea8cb1537b79877829cc8dd9fb6058a5de",
+      "samples": 8820,
+      "sampleRate": 22050,
+      "channels": 1,
+      "bitsPerSample": 16,
+      "durationS": 0.4,
+      "peakDb": -3,
+      "rmsDb": -15.28,
+      "durationRangeS": [
+        0.32,
+        0.48
       ]
     }
   ]

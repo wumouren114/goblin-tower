@@ -51,7 +51,7 @@ const arcs = new Set(ARC_IDS)
 console.log('\n事件数据 · event-smoke')
 
 check('事件数量与 id 唯一', () => {
-  eq(EVENTS.length, 8)
+  eq(EVENTS.length, 12)
   const seen = new Set()
   for (const e of EVENTS) {
     ok(!seen.has(e.id), `重复 id: ${e.id}`)

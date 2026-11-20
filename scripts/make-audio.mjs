@@ -1175,6 +1175,77 @@ const SFX_SPECS = {
       noiseVoice(b, false, 0, 0.18, { vol: 0.3, a: 0.002, hp: 160, lp: 2200, sweepLp: 480, decay: 0.065 })
     },
   },
+  sfx_boss_phase: {
+    peakDb: -3.5,
+    durationS: 0.6,
+    render: (b) => {
+      // Boss 转阶段：低吼 + 金属摩擦（600ms）
+      tone(b, false, 0, 0.56, 95, {
+        type: 'saw',
+        vol: 0.34,
+        a: 0.025,
+        d: 0.12,
+        s: 0.72,
+        r: 0.16,
+        slideTo: 46,
+        vibrato: 0.035,
+        vibratoRate: 7.5,
+      })
+      tone(b, false, 0, 0.54, 62, { type: 'sine', vol: 0.38, a: 0.015, pdecay: 0.26, slideTo: 34 })
+      noiseVoice(b, false, 0.04, 0.52, {
+        vol: 0.26,
+        a: 0.02,
+        hp: 1400,
+        lp: 5200,
+        sweepHp: 2800,
+        sweepLp: 9200,
+        decay: 0.28,
+      })
+      tone(b, false, 0.06, 0.44, 1180, { type: 'square', duty: 0.25, vol: 0.14, a: 0.015, pdecay: 0.18, slideTo: 1620 })
+      tone(b, false, 0.08, 0.42, 1790, { type: 'tri', vol: 0.11, a: 0.015, pdecay: 0.16, slideTo: 1340 })
+      delay(b, 0.07, 0.24, 0.18, false)
+    },
+  },
+  sfx_boss_enrage: {
+    peakDb: -3,
+    durationS: 0.4,
+    render: (b) => {
+      // Boss 狂暴：高频嘶吼（400ms）
+      tone(b, false, 0, 0.38, 620, {
+        type: 'saw',
+        vol: 0.28,
+        a: 0.012,
+        d: 0.08,
+        s: 0.76,
+        r: 0.1,
+        slideTo: 1480,
+        vibrato: 0.05,
+        vibratoRate: 18,
+      })
+      tone(b, false, 0.02, 0.35, 980, {
+        type: 'square',
+        duty: 0.25,
+        vol: 0.2,
+        a: 0.012,
+        d: 0.07,
+        s: 0.7,
+        r: 0.1,
+        slideTo: 1960,
+        vibrato: 0.045,
+        vibratoRate: 22,
+      })
+      noiseVoice(b, false, 0, 0.38, {
+        vol: 0.28,
+        a: 0.008,
+        hp: 2400,
+        lp: 9800,
+        sweepHp: 3600,
+        sweepLp: 10500,
+        decay: 0.22,
+      })
+      tone(b, false, 0, 0.18, 180, { type: 'sine', vol: 0.22, a: 0.004, pdecay: 0.07, slideTo: 95 })
+    },
+  },
 }
 
 /** 文档 08 里的时长要求（秒），make 时自检、check 时也会再验一遍 */
@@ -1208,6 +1279,8 @@ const SFX_DURATION_RANGE = {
   sfx_recall: [0.22, 0.38],
   sfx_watergun: [0.85, 1.15],
   sfx_push: [0.15, 0.26],
+  sfx_boss_phase: [0.48, 0.72],
+  sfx_boss_enrage: [0.32, 0.48],
 }
 
 function renderSfx(name, spec) {
