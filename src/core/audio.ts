@@ -48,6 +48,10 @@ export type SfxName =
   | 'recall'
   | 'push'
   | 'watergun'
+  | 'boss_phase'
+  | 'boss_enrage'
+  | 'boss_phase'
+  | 'boss_enrage'
 
 export type AudioState = 'idle' | 'loading' | 'ready' | 'unavailable'
 

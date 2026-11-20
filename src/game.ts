@@ -258,6 +258,7 @@ export class Game {
   private readonly statusField = new StatusField()
   /** 上一帧的节拍相位：越过 1→0 时播拍点音 */
   private lastBeatPhase = 0
+  private bossEnraged = false
   /** 通用 Q/F 技能冷却（秒，绝对时间戳） */
   private qSkillCdUntil = 0
   private fSkillCdUntil = 0
@@ -625,6 +626,7 @@ export class Game {
         },
         onRoar: () => {
           audio.bossRoar()
+          audio.play('boss_phase', { volume: 0.9 })
           this.rig.shake(0.35)
           this.hud.toast(`${boss.title}进入狂暴状态！`, 'bad')
         },
@@ -875,6 +877,21 @@ export class Game {
     p.z = clamped.z
 
     // v5：删除 Shift 冲刺（唯一位移由技能负责），玩家防御手段只有走位
+
+    // Boss 狂暴：二阶段且血量 <30% 时触发一次
+    if (this.boss?.alive && this.boss.phase2 && !this.bossEnraged && this.boss.hp / this.boss.maxHp < 0.3) {
+      this.bossEnraged = true
+      audio.play('boss_enrage', { volume: 0.9 })
+      this.rig.shake(0.3)
+      this.hud.floatText(new THREE.Vector3(this.boss.x, 3.4, this.boss.z), '狂暴！', 'crit')
+    }
+
+    // 誓约兑现：每秒回血
+    const healPerSec = this.run.trialBoons?.healPerSec ?? 0
+    if (healPerSec > 0 && p && p.alive && p.hp < p.stats.maxHp) {
+      p.heal(p.stats.maxHp * healPerSec * dt)
+      this.run.hp = p.hp
+    }
 
     // 键位引导条：解锁状态与冷却
     if (this.hud.setKeyGuide) {

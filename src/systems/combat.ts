@@ -983,7 +983,8 @@ export class Combat {
       skillMul *
       this.bloodDamageMul() *
       (empowered ? 1.5 : 1) *
-      this.potentialSkillMul()
+      this.potentialSkillMul() *
+      (1 + this.trialSkillDamage)
     const crit = rng.chance(this.stats.critChance)
     const dmg = crit ? amount * this.stats.critMultiplier : amount
     if (crit) this.hooks.onSfx('crit')
