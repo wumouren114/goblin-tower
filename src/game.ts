@@ -27,12 +27,13 @@ import { TowerFloor } from './world/floor'
 import { pickScene, STAGE_NAMES } from './data/stages'
 import { EVENTS, eventOf, type EventEffect } from './data/events'
 import { POTENTIALS } from './data/potentials'
+import { MINIGAMES } from './minigames'
 import { EventState } from './systems/eventState'
 import { EventPanel } from './ui/eventPanel'
 import { ExchangePanel } from './ui/exchangePanel'
 import { HazardField, type HazardState } from './systems/hazardZone'
 import { StatusField } from './systems/statusEffects'
-import { cardIdOfItem } from './data/cards'
+import { cardIdOfItem, ITEM_CARDS } from './data/cards'
 import { CHARACTERS, CHARGE_FLOOR_START_RATIO, skillRange } from './data/characters'
 import { getWeaponTier, charTakeDamageMul, tierNum, MAX_WEAPON_LV } from './data/characterRuntime'
 import {
@@ -253,6 +254,12 @@ export class Game {
   private readonly statusField = new StatusField()
   /** 上一帧的节拍相位：越过 1→0 时播拍点音 */
   private lastBeatPhase = 0
+  /** 刚选中的那扇门（战斗门的战后奖励类型从这里取） */
+  private currentDoor: TunnelOffer | null = null
+  private cardRewardOffers: TunnelOffer[] = []
+  private cardRewardActive = false
+  private weaponRewardOffers: TunnelOffer[] = []
+  private weaponRewardActive = false
   private readonly hazardMeshes = new Map<HazardState, THREE.Mesh>()
   private prevMaxHp = 100
 
@@ -978,6 +985,18 @@ export class Game {
     this.run.potential = { branch, nodes }
     this.syncPotential()
     this.hud.toast(`潜能：${branch}${nodes.length ? ' + ' + nodes.length + ' 节点' : ''}`, 'good')
+  }
+
+  /** 调试：直接打开一个小游戏（?minigame=windmill），用于验收 */
+  debugMinigame(id: 'windmill' | 'starlines' | 'gears'): void {
+    const game = MINIGAMES[id]
+    const root = document.createElement('div')
+    root.style.cssText = 'position:fixed;inset:0;z-index:950;background:#0b0d14'
+    document.body.appendChild(root)
+    void game.mount(root, { layer: this.run.layer, rng: () => this.rng.next(), stake: 0 }).then((res) => {
+      document.body.dataset.minigame = res.win ? 'win' : 'lose'
+      root.remove()
+    })
   }
 
   /** 调试：直接放一次鱼的技能（?fishskill=1），用于验证召唤物 */
@@ -2262,6 +2281,35 @@ export class Game {
 
   pickTunnel(id: string): void {
     if (this.phase !== 'tunnel') return
+    if (this.cardRewardActive) {
+      const pick = this.cardRewardOffers.find((o) => o.id === id)
+      if (!pick?.payload.card) return
+      this.cardRewardActive = false
+      this.cardRewardOffers = []
+      this.hud.hideTunnels()
+      audio.click()
+      this.grantRewardItem(pick.payload.card)
+      this.hud.toast(`获得「${pick.payload.card.name}」`, 'good')
+      this.advanceToNextLayer()
+      return
+    }
+    if (this.weaponRewardActive) {
+      const pick = this.weaponRewardOffers.find((o) => o.id === id)
+      const choice = pick?.payload.awakening
+      if (!choice) return
+      this.weaponRewardActive = false
+      this.weaponRewardOffers = []
+      this.hud.hideTunnels()
+      audio.click()
+      const next = normalizeAwakenings(choice.styleId, this.run.awakenings)
+      next[choice.id] = choice.level
+      this.run.awakenings = next
+      this.combat?.setBuild(this.run.style ?? choice.styleId, next)
+      this.hud.toast(`专武：${choice.name} Lv${choice.level}`, 'good')
+      audio.levelUp()
+      this.advanceToNextLayer()
+      return
+    }
     if (this.potentialActive) {
       const pick = this.potentialOffers.find((o) => o.id === id)
       const choice = pick?.payload.potential
@@ -2295,8 +2343,100 @@ export class Game {
     this.enterRoomMap(offer)
   }
 
+  /** 战斗门的战后奖励：专武方向 / 一笔金币 / 三选一卡 */
+  private grantBattleDoorReward(): void {
+    const reward = this.currentDoor?.payload.reward ?? 'gold'
+    if (reward === 'gold') {
+      const gold = Math.round(clearGoldFor(this.run.difficulty, this.run.layer) * 1.4)
+      this.addGold(gold)
+      this.hud.toast(`战斗奖励：金币 +${gold}`, 'good')
+      this.vfx.levelUpBurst(this.player?.x ?? 0, this.player?.z ?? 0)
+      this.advanceToNextLayer()
+      return
+    }
+    if (reward === 'card') {
+      this.openCardReward()
+      return
+    }
+    this.openWeaponReward()
+  }
+
+  /** 战后三选一：增益卡 */
+  private openCardReward(): void {
+    const offers: TunnelOffer[] = []
+    const pool = [...ITEM_CARDS]
+    for (let i = 0; i < 3 && pool.length > 0; i += 1) {
+      const idx = this.rng.int(0, pool.length - 1)
+      const def = pool.splice(idx, 1)[0]
+      const tier = (this.run.layer >= 9 ? 3 : this.run.layer >= 5 ? 2 : 1) as 1 | 2 | 3
+      offers.push({
+        id: `reward-card-${def.id}`,
+        kind: 'battle',
+        room: 'skill-card',
+        title: def.name,
+        desc: def.note ?? def.text.replace('{v}', String(def.tiers[tier - 1])),
+        icon: '🎴',
+        payload: { card: makeCardItem(def.id, tier) },
+      })
+    }
+    if (offers.length === 0) {
+      this.advanceToNextLayer()
+      return
+    }
+    this.cardRewardOffers = offers
+    this.cardRewardActive = true
+    this.phase = 'tunnel'
+    audio.duck(false)
+    this.hud.showTunnelOffers(offers, this.run.layer, 'bonus')
+    audio.levelUp()
+  }
+
+  /** 战后三选一：专武升级方向（复用旧觉醒数据） */
+  private openWeaponReward(): void {
+    const style = styleForCharacter(this.run.character, this.run.style)
+    const current = normalizeAwakenings(style.id, this.run.awakenings)
+    const offers: TunnelOffer[] = []
+    for (const awakening of style.awakenings) {
+      const level = current[awakening.id] ?? 0
+      if (level >= 3) continue
+      const next = level + 1
+      offers.push({
+        id: `weapon-${awakening.id}`,
+        kind: 'battle',
+        room: 'skill-card',
+        title: `${awakening.name} · Lv${next}`,
+        desc: awakening.levels[next - 1],
+        icon: awakening.icon,
+        payload: {
+          awakening: {
+            id: awakening.id,
+            styleId: style.id,
+            name: awakening.name,
+            icon: awakening.icon,
+            styleName: style.name,
+            action: level === 0 ? 'acquire' : 'upgrade',
+            level: next,
+            desc: awakening.levels[next - 1],
+            currentDesc: level > 0 ? awakening.levels[level - 1] : undefined,
+          },
+        },
+      })
+    }
+    if (offers.length === 0) {
+      this.advanceToNextLayer()
+      return
+    }
+    this.weaponRewardOffers = offers
+    this.weaponRewardActive = true
+    this.phase = 'tunnel'
+    audio.duck(false)
+    this.hud.showTunnelOffers(offers, this.run.layer, 'awakening')
+    audio.levelUp()
+  }
+
   /** 选完路线后真正进入房间地图：玩家可以走动，找到 NPC 按 Enter 开启房间内容 */
   private enterRoomMap(offer: TunnelOffer): void {
+    this.currentDoor = offer
     const p = this.player
     const floor = this.floor
     if (!p || !floor) return
@@ -2472,8 +2612,8 @@ export class Game {
     this.disposeRoomMap()
     this.hud.setInteractPrompt(null)
     audio.click()
-    this.proceedToShop()
-    this.hud.toast('穿过裂隙，回到塔内商店', 'info')
+    // 商店是一扇独立的门（交易类），房里不再强制接一段标准商店
+    this.advanceToNextLayer()
   }
 
   private disposeRoomMap(): void {
@@ -2560,7 +2700,7 @@ export class Game {
     }
     this.addGold(clearGoldFor(this.run.difficulty, this.run.layer))
     this.hud.toast(picked.count > 0 ? `房间清空！自动吸取 ${picked.count} 件掉落` : '房间清空！', 'good')
-    this.proceedToShop()
+    this.grantBattleDoorReward()
   }
 
   private proceedToShop(): void {
@@ -2684,6 +2824,11 @@ export class Game {
       this.hud.toast('额外货架结束，进入本层标准商店', 'good')
       return
     }
+    this.advanceToNextLayer()
+  }
+
+  /** 结算存档并推进下一层（房间完成 / 商店离开都走这里） */
+  private advanceToNextLayer(): void {
     this.saveRun(AUTOSAVE_SLOT)
     this.layerSnapshot = {
       ...this.run,

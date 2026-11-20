@@ -118,6 +118,8 @@ async function boot(): Promise<void> {
     if (params.get('hazard') === '1') game.debugSpawnHazard()
     if (params.get('blocker') === '1') game.debugSpawnBlocker()
     if (params.get('fishskill') === '1') game.debugCastFishSkill()
+    const mg = params.get('minigame')
+    if (mg === 'windmill' || mg === 'starlines' || mg === 'gears') game.debugMinigame(mg)
     if (params.get('shop') === '1') game.debugOpenShop()
     if (params.get('exchange') === '1') {
       game.debugOpenShop()
