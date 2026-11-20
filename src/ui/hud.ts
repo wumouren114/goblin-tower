@@ -451,7 +451,7 @@ const UI_TEMPLATE = /* html */ `
           </div>
           <div class="bar bar-charge"><i class="js-charge-fill"></i><span class="bar-sheen"></span></div>
           <div class="resource-row js-resource-row">
-            <span class="resource-style js-resource-style">风格</span>
+            <span class="resource-style js-resource-style">潜能</span>
             <span class="resource-name js-resource-name">资源</span>
             <span class="resource-pips js-resource-pips" aria-hidden="true"></span>
           </div>
@@ -538,7 +538,7 @@ const UI_TEMPLATE = /* html */ `
           <div class="howto-list">
             <div class="howto-row"><span class="howto-keys"><kbd>WASD / 方向键</kbd></span><span>移动躲闪，左键点击普攻（自动锁敌）</span></div>
             <div class="howto-row"><span class="howto-keys"><kbd>右键</kbd></span><span>释放专武技能，充能靠击杀</span></div>
-            <div class="howto-row"><span class="howto-keys"><kbd>TAB / I</kbd></span><span>商店中查看背包，两张同级同类卡可合成，点格子右上角 × 可丢弃</span></div>
+            <div class="howto-row"><span class="howto-keys"><kbd>TAB / I</kbd></span><span>商店中查看背包，同名道具卡自动原地升档，点格子右上角 × 可丢弃</span></div>
             <div class="howto-row"><span class="howto-keys"><kbd>P</kbd></span><span>暂停 / 存档</span></div>
           </div>
           <p class="howto-note">清空全部敌人后从时空隧道三选一前进 · V 切视角 · M 静音。</p>
@@ -590,7 +590,7 @@ const UI_TEMPLATE = /* html */ `
           <h2 class="inv-title">背包</h2>
         </div>
         <div class="inv-head-right">
-          <div class="inv-count js-inv-count">0 / 18</div>
+          <div class="inv-count js-inv-count">0 件</div>
           <div class="shop-gold"><span class="shop-gold-label">金币</span><b class="js-inv-gold">0</b></div>
         </div>
       </header>
@@ -599,12 +599,12 @@ const UI_TEMPLATE = /* html */ `
         <aside class="inv-summary">
           <h3 class="inv-summary-title">已获卡片汇总</h3>
           <div class="inv-stats js-inv-stats"></div>
-          <p class="inv-hint js-inv-hint">点击两张同级同种的卡牌合成；消耗品点击即使用；点格子右上角 × 丢弃。</p>
-          <p class="inv-warn js-inv-warn" hidden>背包已满：可合成/丢弃，或在商店购买时自动合成。</p>
+          <p class="inv-hint js-inv-hint">同名道具卡自动原地升档（蓝→紫→金）；消耗品点击即使用；点格子右上角 × 丢弃。</p>
+          <p class="inv-warn js-inv-warn" hidden></p>
         </aside>
       </div>
       <footer class="inv-foot">
-        <span class="inv-tip">同类同级增益卡可合成，最高 3 级；点 × 可丢弃，丢弃不退金币。TAB / I / Esc 关闭</span>
+        <span class="inv-tip">同名道具卡自动原地升档，最高金档（3 级）；点 × 可丢弃，丢弃不退金币。TAB / I / Esc 关闭</span>
         <button class="btn-primary js-inv-close" type="button">关闭</button>
       </footer>
     </div>
@@ -1013,7 +1013,7 @@ class HudImpl implements HudV3 {
     this.tunnelEl.dataset.mode = mode
     this.tunnelEl.setAttribute(
       'aria-label',
-      isTrial ? '立约' : isWeapon ? '专武方向三选一' : isAwakening ? '角色觉醒二选一' : isPotential ? '潜能三选一' : isBonus ? '清层奖励三选一' : '时空隧道路线选择',
+      isTrial ? '立约' : isWeapon ? '专武方向三选一' : isAwakening ? '专武方向选择' : isPotential ? '潜能三选一' : isBonus ? '清层奖励三选一' : '时空隧道路线选择',
     )
     setText(this.tunnelModeMarkEl, isAwakening ? '✦' : isPotential ? '✦' : isBonus ? '🎁' : '🧭')
     setText(
@@ -1032,14 +1032,14 @@ class HudImpl implements HudV3 {
     )
     setText(
       this.tunnelTitleEl,
-      isTrial ? '立约 · 接受或婉拒' : isWeapon ? '专武 · 三选一' : isAwakening ? '角色觉醒 · 二选一' : isPotential ? '潜能 · 三选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道',
+      isTrial ? '立约 · 接受或婉拒' : isWeapon ? '专武 · 三选一' : isAwakening ? '专武 · 强化方向' : isPotential ? '潜能 · 三选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道',
     )
     setText(
       this.tunnelSubEl,
       isAwakening
         ? hasLayer
-          ? `第 ${layer} 层 · 获得新觉醒，或深化已有觉醒`
-          : '获得新觉醒，或深化已有觉醒'
+          ? `第 ${layer} 层 · 获得新专武方向，或深化已有方向`
+          : '获得新专武方向，或深化已有方向'
         : isPotential
           ? hasLayer
             ? `第 ${layer} 层 · 选择潜能分支或节点`
@@ -1058,7 +1058,7 @@ class HudImpl implements HudV3 {
       : isWeapon
         ? '选择一个专武方向，再点「确认」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>'
         : isAwakening
-          ? '选中一个觉醒，再点「确认觉醒」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd> 可直接选中）'
+          ? '选中一个方向，再点「确认选择」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd> 可直接选中）'
       : isBonus
         ? '选中一张奖励卡，再点「领取奖励」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
         : '选中一条路线，再点「确认路线」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 可直接选中，防误触）'
@@ -1075,7 +1075,7 @@ class HudImpl implements HudV3 {
       ref.card.className = `tunnel-card kind-${offer.kind}`
       setText(
         ref.band,
-        isTrial ? '考验' : isWeapon ? '专武' : isAwakening ? '角色觉醒' : isPotential ? '潜能' : isBonus ? '清层奖励' : TUNNEL_META[offer.kind]?.label ?? '未知',
+        isTrial ? '考验' : isWeapon ? '专武' : isAwakening ? '专武' : isPotential ? '潜能' : isBonus ? '清层奖励' : TUNNEL_META[offer.kind]?.label ?? '未知',
       )
       const potentialBranch =
         isPotential && offer.payload?.potential?.branch
@@ -1104,7 +1104,7 @@ class HudImpl implements HudV3 {
       setText(
         ref.room,
         isAwakening
-          ? offer.payload.awakening?.styleName ?? '战斗风格'
+          ? offer.payload.awakening?.styleName ?? '专武方向'
           : isPotential
             ? '潜能'
             : isBonus
@@ -1679,7 +1679,7 @@ class HudImpl implements HudV3 {
           : isWeapon
             ? '确认专武'
             : isAwakening
-              ? '确认觉醒'
+              ? '确认选择'
               : isPotential
             ? '确认潜能'
             : isBonus
@@ -1690,7 +1690,7 @@ class HudImpl implements HudV3 {
           : isWeapon
             ? '请选择一个专武方向'
             : isAwakening
-              ? '请先选择一个觉醒'
+              ? '请先选择一个方向'
               : isPotential
             ? '请先选择一个潜能'
             : isBonus
@@ -1909,7 +1909,7 @@ class HudImpl implements HudV3 {
       })
       if (awakening.currentDesc) lines.push({ text: `当前 · ${awakening.currentDesc}`, art: null })
       lines.push({ text: `${awakening.currentDesc ? '升级后' : '效果'} · ${awakening.desc}`, art: null })
-      lines.push({ text: `风格 · ${awakening.styleName}`, art: null })
+      lines.push({ text: `分支 · ${awakening.styleName}`, art: null })
       return lines
     }
     if (typeof payload.gold === 'number' && payload.gold > 0) {
