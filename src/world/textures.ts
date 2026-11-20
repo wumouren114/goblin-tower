@@ -686,64 +686,67 @@ function makeMoteTexture(): THREE.CanvasTexture {
   return finalize(canvas, { nearest: false, repeat: false })
 }
 
-/** 地面光斑贴图（窗光 / 树影斑驳 / 晶光菱斑 / 拱窗光束） */
+/** 地面光斑贴图（全柔边径向/线性羽化，无硬边多边形色纸感） */
 function makeLightPatchTexture(kind: LightPatchKind): THREE.CanvasTexture {
-  const { canvas, ctx } = makeCanvas(64, 64)
-  ctx.clearRect(0, 0, 64, 64)
+  const { canvas, ctx } = makeCanvas(128, 128)
+  ctx.clearRect(0, 0, 128, 128)
+
+  const softSpot = (cx: number, cy: number, rx: number, ry: number, alpha: number, rot = 0): void => {
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.rotate(rot)
+    ctx.scale(1, ry / Math.max(1, rx))
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx)
+    g.addColorStop(0, `rgba(255,255,255,${alpha})`)
+    g.addColorStop(0.45, `rgba(255,255,255,${(alpha * 0.55).toFixed(3)})`)
+    g.addColorStop(0.78, `rgba(255,255,255,${(alpha * 0.14).toFixed(3)})`)
+    g.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = g
+    ctx.beginPath()
+    ctx.arc(0, 0, rx, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
 
   if (kind === 'window') {
-    const g = ctx.createLinearGradient(8, 6, 56, 58)
-    g.addColorStop(0, 'rgba(255,255,255,0.95)')
-    g.addColorStop(0.75, 'rgba(255,255,255,0.6)')
-    g.addColorStop(1, 'rgba(255,255,255,0.05)')
-    ctx.fillStyle = g
-    for (const [x, y] of [[8, 8], [34, 8], [8, 34], [34, 34]]) {
-      ctx.fillRect(x, y, 22, 22)
-    }
+    // 柔化 2×2 窗格光斑：每个窗格自身径向羽化，避免硬矩形切边
+    softSpot(42, 42, 26, 22, 0.82)
+    softSpot(86, 42, 26, 22, 0.78)
+    softSpot(42, 84, 26, 22, 0.64)
+    softSpot(86, 84, 26, 22, 0.6)
+    softSpot(64, 60, 42, 36, 0.25)
   } else if (kind === 'canopy') {
-    const spots: [number, number, number, number][] = [
-      [22, 22, 16, 11], [42, 24, 14, 10], [32, 40, 18, 12], [18, 42, 10, 8], [46, 44, 11, 8],
-    ]
-    for (const [cx, cy, rx, ry] of spots) {
-      const g = ctx.createRadialGradient(cx, cy, 1, cx, cy, Math.max(rx, ry))
-      g.addColorStop(0, 'rgba(255,255,255,0.85)')
-      g.addColorStop(0.6, 'rgba(255,255,255,0.35)')
-      g.addColorStop(1, 'rgba(255,255,255,0)')
-      ctx.fillStyle = g
-      ctx.beginPath()
-      ctx.ellipse(cx, cy, rx, ry, 0.3, 0, Math.PI * 2)
-      ctx.fill()
-    }
+    // 树影斑驳：多枚重叠柔光椭圆
+    softSpot(44, 44, 30, 20, 0.72, 0.25)
+    softSpot(82, 48, 26, 18, 0.66, -0.2)
+    softSpot(64, 78, 34, 22, 0.7, 0.15)
+    softSpot(36, 82, 20, 16, 0.48, -0.3)
+    softSpot(92, 84, 22, 16, 0.45, 0.35)
   } else if (kind === 'crystal') {
-    const g = ctx.createRadialGradient(32, 32, 2, 32, 32, 28)
-    g.addColorStop(0, 'rgba(255,255,255,1)')
-    g.addColorStop(0.45, 'rgba(255,255,255,0.6)')
-    g.addColorStop(1, 'rgba(255,255,255,0)')
-    ctx.fillStyle = g
-    ctx.beginPath()
-    ctx.moveTo(32, 4)
-    ctx.lineTo(44, 22)
-    ctx.lineTo(60, 32)
-    ctx.lineTo(44, 42)
-    ctx.lineTo(32, 60)
-    ctx.lineTo(20, 42)
-    ctx.lineTo(4, 32)
-    ctx.lineTo(20, 22)
-    ctx.closePath()
-    ctx.fill()
+    // 晶光：柔和星芒 + 中心晕染，无锐利切角
+    softSpot(64, 64, 42, 42, 0.62)
+    softSpot(64, 64, 52, 16, 0.55, 0)
+    softSpot(64, 64, 52, 16, 0.55, Math.PI / 2)
+    softSpot(64, 64, 36, 12, 0.38, Math.PI / 4)
+    softSpot(64, 64, 36, 12, 0.38, -Math.PI / 4)
   } else {
-    const g = ctx.createLinearGradient(32, 4, 32, 62)
-    g.addColorStop(0, 'rgba(255,255,255,0.92)')
-    g.addColorStop(0.65, 'rgba(255,255,255,0.52)')
-    g.addColorStop(1, 'rgba(255,255,255,0)')
-    ctx.fillStyle = g
-    ctx.beginPath()
-    ctx.arc(32, 22, 18, Math.PI, 0)
-    ctx.lineTo(50, 58)
-    ctx.lineTo(14, 58)
-    ctx.closePath()
-    ctx.fill()
+    // 拱窗光束：上圆下淡的柔化长椭圆光带
+    softSpot(64, 48, 34, 32, 0.78)
+    softSpot(64, 76, 36, 42, 0.58)
+    softSpot(64, 96, 32, 24, 0.28)
   }
+
+  // 全局外圈柔化遮罩：保证贴图四周边缘平滑归零（约 0.3m 过渡带）
+  ctx.globalCompositeOperation = 'destination-in'
+  const mask = ctx.createRadialGradient(64, 64, 16, 64, 64, 62)
+  mask.addColorStop(0, 'rgba(255,255,255,1)')
+  mask.addColorStop(0.58, 'rgba(255,255,255,0.78)')
+  mask.addColorStop(0.84, 'rgba(255,255,255,0.22)')
+  mask.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = mask
+  ctx.fillRect(0, 0, 128, 128)
+  ctx.globalCompositeOperation = 'source-over'
+
   return finalize(canvas, { nearest: false, repeat: false })
 }
 
