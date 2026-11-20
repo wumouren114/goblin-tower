@@ -273,8 +273,6 @@ export class Game {
   /** 命中顿帧（爽感）：击杀/暴击时短暂减速世界 */
   private hitStop = 0
   private mortisVisual = false
-  private bonusOffers: TunnelOffer[] = []
-  private bonusActive = false
   private awakeningOffers: TunnelOffer[] = []
   private awakeningActive = false
   private shieldHp = 0
@@ -328,8 +326,6 @@ export class Game {
     this.shieldTime = 0
     this.awakeningActive = false
     this.awakeningOffers = []
-    this.bonusActive = false
-    this.bonusOffers = []
     this.run = makeRunState(character, difficulty)
     const style = styleForCharacter(character, styleId)
     this.run.style = style.id
@@ -389,8 +385,6 @@ export class Game {
     this.shieldTime = 0
     this.awakeningActive = false
     this.awakeningOffers = []
-    this.bonusActive = false
-    this.bonusOffers = []
     this.rng = new Rng(state.seed)
     this.inventory = new Inventory()
     for (const item of state.inventory) this.inventory.add(item)
@@ -431,8 +425,6 @@ export class Game {
     this.shieldTime = 0
     this.awakeningActive = false
     this.awakeningOffers = []
-    this.bonusActive = false
-    this.bonusOffers = []
     this.hud.hideShop()
     this.hud.hideInventory()
     this.hud.hideTunnels()
@@ -2099,7 +2091,8 @@ export class Game {
       this.openAwakening()
       return
     }
-    this.openBonusCards()
+    // 清层奖励（三选一增益卡）已移除：战斗关产出走隧道（道具 / 潜能 / 金币）
+    this.openTunnels()
   }
 
   /**
@@ -2139,13 +2132,11 @@ export class Game {
     if (offers.length === 0) {
       this.addAwakeningLayer()
       this.saveRun(AUTOSAVE_SLOT)
-      this.openBonusCards()
+      this.openTunnels()
       return
     }
     this.awakeningOffers = offers
     this.awakeningActive = true
-    this.bonusActive = false
-    this.bonusOffers = []
     this.phase = 'tunnel'
     audio.startBgm('shop')
     audio.duck(false)
@@ -2158,51 +2149,6 @@ export class Game {
     const list = this.run.awakeningLayers ?? []
     if (!list.includes(layer)) list.push(layer)
     this.run.awakeningLayers = list
-  }
-
-  /** 每层清空后：先三选一拿一张增益卡，再开时空隧道。
-   *  高层按 balance.shop.quality 掷品质，出精制/臻品，后期不至于「选谁都一样」 */
-  private openBonusCards(): void {
-    this.awakeningActive = false
-    this.awakeningOffers = []
-    const pool = [...BALANCE.buffCards]
-    this.bonusOffers = []
-    for (let i = 0; i < 3 && pool.length > 0; i += 1) {
-      const idx = this.rng.int(0, pool.length - 1)
-      const card = pool.splice(idx, 1)[0]
-      const q = qualityFor(this.run.layer, this.rng)
-      const value = Number((card.value * q.valueMul).toFixed(3))
-      const tierName = q.tier === 3 ? '臻品' : q.tier === 2 ? '精制' : ''
-      this.bonusOffers.push({
-        id: `bonus-${i}`,
-        kind: 'reward',
-        room: 'skill-card',
-        title: `${tierName}${card.name}`,
-        desc: '选择后永久生效',
-        icon: this.cardIcon(card.stat),
-        payload: {
-          skillCard: {
-            id: card.id,
-            name: card.name,
-            desc: card.desc,
-            stat: card.stat as CardStat,
-            value,
-            tier: q.tier,
-            valueMul: q.valueMul,
-          },
-        },
-      })
-    }
-    if (this.bonusOffers.length === 0) {
-      this.openTunnels()
-      return
-    }
-    this.bonusActive = true
-    this.phase = 'tunnel'
-    audio.startBgm('shop')
-    audio.duck(false)
-    this.hud.showTunnelOffers(this.bonusOffers, this.run.layer, 'bonus')
-    audio.levelUp()
   }
 
   private openTunnels(): void {
@@ -2244,24 +2190,6 @@ export class Game {
       this.saveRun(AUTOSAVE_SLOT)
       audio.levelUp()
       this.hud.toast(`觉醒：${choice.name} Lv${choice.level}`, 'good')
-      this.openBonusCards()
-      return
-    }
-    if (this.bonusActive) {
-      const pick = this.bonusOffers.find((o) => o.id === id)
-      if (!pick) return
-      this.bonusActive = false
-      this.bonusOffers = []
-      this.hud.hideTunnels()
-      audio.click()
-      const card = pick.payload.skillCard
-      if (card) {
-        const item = makeCardItem(card.stat as CardStat, card.tier ?? 1)
-        item.value = card.value
-        if (this.grantRewardItem(item)) {
-          this.hud.toast(`清层奖励：${item.name}`, 'good')
-        }
-      }
       this.openTunnels()
       return
     }
@@ -3010,7 +2938,6 @@ export class Game {
   /** 无头/联调：自动领取清层奖励卡（验证「先三选一，再传送门」） */
   debugPickFirstBonus(): void {
     if (this.awakeningActive && this.awakeningOffers[0]) this.pickTunnel(this.awakeningOffers[0].id)
-    else if (this.bonusActive && this.bonusOffers[0]) this.pickTunnel(this.bonusOffers[0].id)
   }
 
   /** 无头/联调：存档 → 回标题 → 读档，验证 continue 流程 */
