@@ -15,7 +15,7 @@ import { ProjectileSystem, type ProjectileBurstContext, type ProjectileHitContex
 import { MinionSystem, type Minion, type MinionSpec } from './minions'
 import { CharacterFx } from './characterFx'
 import { getBillboardYaw } from '../art/sprites'
-import { fxBloodTick, fxMarkStack } from './characterFx'
+import { fxBloodTick, fxMarkStack, fxComboBurst } from './characterFx'
 import { createProjectileMesh, disposeProjectileArt } from '../art/projectiles'
 import { disposeMinionArt } from '../art/minions'
 import { pickConeTargets, pickLineTargets, gatherTo, pullToward } from './attack'

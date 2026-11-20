@@ -29,7 +29,9 @@ import { pickScene, STAGE_NAMES } from './data/stages'
 import { EVENTS, eventOf, type EventEffect } from './data/events'
 import { POTENTIALS } from './data/potentials'
 import { MINIGAMES, minigameForLayer } from './minigames'
-import { fxBlockShield, fxRecallWater, fxStrongBeat, fxResonanceBadge } from './systems/characterFx'
+import {
+  fxBlockShield, fxBlockParry, fxRecallWater, fxStrongBeat, fxResonanceBadge, fxExecute, fxWatergun,
+} from './systems/characterFx'
 import { TRIALS, type TrialDef } from './data/trials'
 import { ALTAR, MYSTERY_OUTCOMES } from './data/altar'
 import { EventState } from './systems/eventState'
@@ -2620,7 +2622,7 @@ export class Game {
         if (Math.hypot(g.x - p.x, g.z - p.z) > 3.2 + g.radius) continue
         const killed = g.hit(1e9, 0, 0)
         this.onCombatHit(g, 0, false, killed)
-        this.burstVfx(g.x, g.z, 0xffd166)
+        if (this.scene) fxExecute(this.scene, g.x, g.z)
         n += 1
       }
       if (n === 0) {
@@ -2674,7 +2676,10 @@ export class Game {
     if (performance.now() < this.fSkillCdUntil) return
     if (this.run.character === 'murasame') {
       this.blockUntil = performance.now() + 800
-      if (this.scene) fxBlockShield(this.scene, p.x, p.z, this.rig.yaw)
+      if (this.scene) {
+        fxBlockShield(this.scene, p.x, p.z, this.rig.yaw)
+        fxBlockParry(this.scene, p.x, p.z, p.x + Math.sin(this.rig.yaw), p.z - Math.cos(this.rig.yaw))
+      }
       this.fSkillCdUntil = performance.now() + 8000
       this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '格挡！', 'crit')
       audio.play('block', { volume: 0.7 })
@@ -2688,6 +2693,7 @@ export class Game {
       return
     }
     this.combat.setRapidFire(10)
+    if (this.scene) fxWatergun(this.scene, p.x, p.z, Math.sin(this.rig.yaw), -Math.cos(this.rig.yaw), 10)
     this.fSkillCdUntil = performance.now() + 20000
     audio.play('watergun', { volume: 0.7 })
       this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '水枪扫射 10s', 'crit')
