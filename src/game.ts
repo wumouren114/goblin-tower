@@ -2461,7 +2461,7 @@ export class Game {
         return
       }
       finish(12)
-      audio.play('mark_settle', { volume: 0.8 })
+      audio.play('execute', { volume: 0.8 })
       this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), `处决 ×${n}`, 'crit')
       return
     }
@@ -2481,7 +2481,7 @@ export class Game {
       this.vfx.ring(p.x, p.z, { color: 0xff9fd0, radius: 2.2, life: 0.35, grow: 2.6 })
       this.rig.shake(0.15)
       finish(10)
-      audio.play('crit', { volume: 0.5 })
+      audio.play('push', { volume: 0.7 })
       this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '推开！', 'crit')
       void pushed
       return
@@ -2495,7 +2495,7 @@ export class Game {
     const gold = n * 15
     this.addGold(gold)
     finish(10)
-    audio.play('coin', { volume: 0.7 })
+    audio.play('recall', { volume: 0.7 })
     this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), `回收 +${gold} 金`, 'gold')
   }
 
@@ -2508,7 +2508,7 @@ export class Game {
       this.blockUntil = performance.now() + 800
       this.fSkillCdUntil = performance.now() + 8000
       this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '格挡！', 'crit')
-      audio.play('mark_settle', { volume: 0.6 })
+      audio.play('block', { volume: 0.7 })
       return
     }
     if (this.run.character === 'mutsumi') {
@@ -2519,7 +2519,8 @@ export class Game {
     }
     this.combat.setRapidFire(10)
     this.fSkillCdUntil = performance.now() + 20000
-    this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '水枪扫射 10s', 'crit')
+    audio.play('watergun', { volume: 0.7 })
+      this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), '水枪扫射 10s', 'crit')
   }
 
   /** 交易·祭坛：四档献祭（献卡 / 献血 / 双重 / 神秘） */

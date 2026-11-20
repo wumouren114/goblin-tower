@@ -43,6 +43,11 @@ export type SfxName =
   | 'enemy_bomber_fuse'
   | 'potential_pick'
   | 'mark_settle'
+  | 'execute'
+  | 'block'
+  | 'recall'
+  | 'push'
+  | 'watergun'
 
 export type AudioState = 'idle' | 'loading' | 'ready' | 'unavailable'
 
