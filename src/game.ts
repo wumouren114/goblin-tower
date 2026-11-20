@@ -835,7 +835,10 @@ export class Game {
 
     // 节奏分支：把节拍相位推给 HUD（没有节拍环，玩家没法踩拍）
     const beatPhase = this.combat?.beatPhase ?? null
-    if (beatPhase !== null) this.hud.updateBeat(beatPhase, this.combat?.beatJudge ?? null)
+    if (beatPhase !== null) {
+      this.hud.updateBeat(beatPhase, this.combat?.beatJudge ?? null)
+      this.hud.updateCombo(this.combat?.combo ?? 0)
+    }
 
     // 持续伤害区域结算（封路原型）
     const hazardTick = this.hazards.update(dt, { x: p.x, z: p.z })

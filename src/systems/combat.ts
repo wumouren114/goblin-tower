@@ -192,6 +192,10 @@ export class Combat {
   private lockedLeft = 0
   /** Mortis 变身剩余时间 */
   private transformTime = 0
+  /** 同化节点本次变身累计延长（上限 3s） */
+  private potentialTransformExtra = 0
+  /** 节奏分支的连击数 */
+  private rhythmCombo = 0
   private pulseLeft = 0
   private mods = { ...IDENTITY_MODS }
   private readonly rice: RiceDrop[] = []
@@ -272,6 +276,11 @@ export class Combat {
   /** 重新对齐节拍网格（进层 / 换曲时调） */
   resetBeat(nowMs: number = performance.now()): void {
     this.beat.reset(nowMs)
+  }
+
+  /** 节奏分支当前连击数（非节奏分支为 0） */
+  get combo(): number {
+    return this.potentialBranch === 'rhythm' ? this.rhythmCombo : 0
   }
 
   /** 当前节拍相位 0..1（HUD 节拍环用；非节奏分支返回 null） */
@@ -445,6 +454,14 @@ export class Combat {
         if (lust >= 3) this.meter.add(5)
       }
     }
+    // 双重人格·同化：变身期每击杀延长 0.2s（每次变身最多 +3s）
+    if (this.potentialBranch === 'duet' && this.transformActive && this.hasNode('mutsumi-duet-core')) {
+      if (this.potentialTransformExtra < 3) {
+        const add = Math.min(0.2, 3 - this.potentialTransformExtra)
+        this.transformTime += add
+        this.potentialTransformExtra += add
+      }
+    }
     // 睦·安可：Mortis 期间击杀概率延长变身并回充能
     if (this.charId === 'mutsumi' && this.transformActive) {
       const encore = this.al('mutsumi-duet-encore')
@@ -501,7 +518,19 @@ export class Combat {
       : attackInterval(this.stats.stamina, def.attack.minInterval) * this.styleAttackIntervalMul()
     this.cooldownLeft = Math.max(0.01, interval)
     const judge = rhythm ? this.beat.judge(performance.now()) : null
-    const rhythmMul = judge === 'perfect' ? 1.25 : judge === 'good' ? 1.1 : judge === 'miss' ? 0.85 : 1
+    let rhythmMul = judge === 'perfect' ? 1.25 : judge === 'good' ? 1.1 : judge === 'miss' ? 0.85 : 1
+    if (rhythm) {
+      if (judge === 'miss') {
+        // 宽容节点：连击到 20 后，第一次失误只掉到 20
+        this.rhythmCombo =
+          this.hasNode('mutsumi-rhythm-mercy') && this.rhythmCombo >= 20 ? 20 : 0
+      } else {
+        this.rhythmCombo += 1
+      }
+      if (this.rhythmCombo >= 60) rhythmMul *= 1.2
+      else if (this.rhythmCombo >= 40) rhythmMul *= 1.2
+      else if (this.rhythmCombo >= 20) rhythmMul *= 1.1
+    }
     if (judge === 'perfect') this.hooks.onSfx('crit')
     const dir = this.dirFromAim(px, pz, aimX, aimZ)
     const tier = getWeaponTier(this.charId, this.lv)
@@ -796,6 +825,7 @@ export class Combat {
     const p = def.skill.params
     const baseDuration = def.skill.duration ?? 8
     this.transformTime = Math.max(2, baseDuration - (this.style.id === 'mutsumi-solo' ? 2 : 0))
+    this.potentialTransformExtra = 0
     this.encoreExtension = 0
     this.pulseLeft = p.pulseInterval ?? 0.5
     this.mods = {

@@ -1306,6 +1306,36 @@ class HudImpl implements HudV3 {
     this.beatEl.style.opacity = String(0.18 + 0.72 * near * near)
   }
 
+  private comboEl: HTMLDivElement | null = null
+
+  /** 节奏分支的连击数：显示在节拍环下方，20/40/60 换色 */
+  updateCombo(count: number): void {
+    if (!this.comboEl) {
+      const el = document.createElement('div')
+      el.style.cssText = [
+        'position:fixed',
+        'left:50%',
+        'bottom:70px',
+        'transform:translateX(-50%)',
+        'font:700 18px/1 system-ui,sans-serif',
+        'letter-spacing:.06em',
+        'pointer-events:none',
+        'z-index:61',
+        'text-shadow:0 2px 6px rgba(0,0,0,.7)',
+        'opacity:0',
+      ].join(';')
+      document.body.appendChild(el)
+      this.comboEl = el
+    }
+    if (count <= 0) {
+      this.comboEl.style.opacity = '0'
+      return
+    }
+    this.comboEl.textContent = `${count} COMBO`
+    this.comboEl.style.opacity = '1'
+    this.comboEl.style.color = count >= 60 ? '#ffd479' : count >= 40 ? '#ff9fd0' : count >= 20 ? '#9fd8ff' : '#cfd8ee'
+  }
+
   setMuted(muted: boolean): void {
     this.muted = muted
     this.muteChipEl.hidden = !muted

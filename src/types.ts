@@ -426,6 +426,8 @@ export interface HudV3 {
   setMuted(muted: boolean): void
   /** 节奏分支的节拍环：phase 0..1，judge 用于闪色（非节奏分支不调用） */
   updateBeat(phase: number, judge: 'perfect' | 'good' | 'miss' | null): void
+  /** 节奏分支连击数（0 表示隐藏） */
+  updateCombo(count: number): void
   destroy(): void
 }
 
