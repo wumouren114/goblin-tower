@@ -958,6 +958,10 @@ export class Game {
     this.rig.addYaw(drag.x * 0.005)
     this.rig.zoom(this.input.consumeWheel() * 0.9)
 
+    // 状态效果必须逐帧推进，否则 stun 永不过期：被击晕的敌人会永久冻结，
+    // 且「死在眩晕里」的敌人会被 updateEnemies 的 stun 分支 continue 掉、
+    // 永远走不到尸体剔除，goblins.length 不为 0 → 整层无法清空（软锁）。
+    this.statusField.update(dt * 1000)
     this.updateSpawner(dt)
     this.updateRoomWave(dt)
     this.updatePendingSpawns(dt)
@@ -1677,6 +1681,23 @@ export class Game {
     for (let i = this.goblins.length - 1; i >= 0; i -= 1) {
       const g = this.goblins[i]
       const kind = this.goblinKinds.get(g) ?? 'small'
+      // 先处理尸体：死在眩晕里的敌人如果先撞上下面的 stun 分支 continue，
+      // 就永远移除不了，goblins.length 卡在非 0，整层永远清不掉。
+      if (!g.alive) {
+        this.mobMoves.delete(g)
+        this.mobMoveCd.delete(g)
+        if (g.canRemove) {
+          g.dispose()
+          this.goblins.splice(i, 1)
+          this.goblinKinds.delete(g)
+          this.contactCd.delete(g)
+          this.casterCd.delete(g)
+          this.casterVolleys.delete(g)
+        }
+        // 死亡动画照常推进（updateDeath），所以仍然调一次 update
+        g.update(dt, g.x, g.z, [], (this.floor?.halfSize ?? 15) - 0.6)
+        continue
+      }
       if (this.statusField.has('stun', g.uid)) {
         g.update(dt, g.x, g.z, this.floor?.propColliders ?? [], (this.floor?.halfSize ?? 15) - 0.6)
         continue
@@ -2203,7 +2224,11 @@ export class Game {
     // Boss 层：先清完 60% 小怪，再由 onLayerCleared 打开三扇首领门；
     // Boss 本体只在首领房生成，由 onBossDefeated 结算。
     if (this.boss) return
-    if (this.layerKilled >= this.layerTotal && this.goblins.length === 0) this.onLayerCleared()
+    // 清层判定：击杀数达标，或「本层怪已刷完且场上无怪」都算清完。
+    // 原因：部分伤害源（Mortis 变身爆发 / 处决等）不走 hooks.onHit，击杀不会计入
+    // layerKilled，只按击杀数判定会出现「怪清光了但差 1 只数」→ 整层永远不过（软锁）。
+    const allSpawned = this.layerSpawned >= this.layerTotal
+    if (this.goblins.length === 0 && (this.layerKilled >= this.layerTotal || allSpawned)) this.onLayerCleared()
   }
 
   /**
@@ -3453,11 +3478,10 @@ export class Game {
       this.win()
       return
     }
-    // 选门即进层：层数在「进入时空隧道」时 +1，房间完成后开下一轮三扇门
-    this.run.layer = next
-    this.run.stage = stageOfLayer(this.run.difficulty, next)
-    this.pushSnapshot()
-    this.openTunnels()
+    // 每层一场战斗：房间/商店结束后重建楼层（配额 / 场景 / BGM / 层快照）。
+    // 0211f23 曾把这里换成「只 +1 层再开三扇门」，导致第 2 层起没有层内清怪、
+    // 场景不切换、Boss 层不再先清 60% 小怪（见 docs/21-试玩评估报告.md §3.1）。
+    this.enterLayer(next)
   }
 
   // ---------- 背包 ----------

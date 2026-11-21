@@ -1,0 +1,124 @@
+{
+  "head": "34923b0",
+  "generatedAt": "2026-11-21T04:23:48.791Z",
+  "note": "HEAD 基线：P0 未修（每局只有第 1 层有层内清怪）。G1 修复后用同一命令复跑并与此文件对比。",
+  "aggregateByDifficulty": {
+    "easy": {
+      "runs": 6,
+      "wins": 6,
+      "avgLayer": 9,
+      "avgGameTime": 161.5,
+      "avgDamage": 107.5,
+      "avgRooms": 12.5,
+      "avgQuotaBattles": 1
+    },
+    "normal": {
+      "runs": 6,
+      "wins": 0,
+      "avgLayer": 11,
+      "avgGameTime": 276.3,
+      "avgDamage": 846.2,
+      "avgRooms": 13.67,
+      "avgQuotaBattles": 1
+    },
+    "hard": {
+      "runs": 6,
+      "wins": 0,
+      "avgLayer": 6,
+      "avgGameTime": 150.7,
+      "avgDamage": 365.7,
+      "avgRooms": 8.33,
+      "avgQuotaBattles": 1
+    }
+  },
+  "aggregateByChar": {
+    "mutsumi": {
+      "runs": 6,
+      "wins": 2,
+      "avgLayer": 7,
+      "avgGameTime": 181.8,
+      "avgDamage": 206.7,
+      "avgRooms": 10.5,
+      "avgQuotaBattles": 1
+    },
+    "murasame": {
+      "runs": 6,
+      "wins": 2,
+      "avgLayer": 9.33,
+      "avgGameTime": 246.2,
+      "avgDamage": 866.3,
+      "avgRooms": 12,
+      "avgQuotaBattles": 1
+    },
+    "fish": {
+      "runs": 6,
+      "wins": 2,
+      "avgLayer": 9.67,
+      "avgGameTime": 160.5,
+      "avgDamage": 246.3,
+      "avgRooms": 12,
+      "avgQuotaBattles": 1
+    }
+  },
+  "flowAssert": {
+    "total": 3,
+    "pass": 0,
+    "fail": 3,
+    "detail": [
+      {
+        "tag": "mutsumi-normal-1",
+        "reached": 11,
+        "quotaBattleLayers": 1,
+        "scenes": [
+          "云上花庭 · 风起",
+          "云上花庭 · 风起",
+          "云上花庭 · 风起",
+          "云上花庭 · 风起",
+          "云上花庭 · 风起",
+          "云上花庭 · 风起",
+          "云上花庭 · 风起",
+          "云上花庭 · 风起",
+          "云上花庭 · 风起",
+          "云上花庭 · 风起",
+          "云上花庭 · 风起"
+        ]
+      },
+      {
+        "tag": "murasame-normal-1",
+        "reached": 8,
+        "quotaBattleLayers": 1,
+        "scenes": [
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光"
+        ]
+      },
+      {
+        "tag": "fish-normal-1",
+        "reached": 9,
+        "quotaBattleLayers": 1,
+        "scenes": [
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光",
+          "云上花庭 · 晨光"
+        ]
+      }
+    ]
+  },
+  "commands": {
+    "matrix": "node sim/playtest-matrix.mjs --shots",
+    "flow": "node sim/playtest-matrix.mjs --assert-flow --only normal-1",
+    "baseline": "node sim/playtest-matrix.mjs --assert-flow"
+  }
+}

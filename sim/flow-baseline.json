@@ -1,0 +1,938 @@
+[
+  {
+    "char": "mutsumi",
+    "charName": "若叶睦",
+    "style": "mutsumi-solo",
+    "diff": "normal",
+    "diffName": "普通",
+    "runIndex": 1,
+    "seed": 2126,
+    "branchIndex": 0,
+    "tag": "mutsumi-normal-1",
+    "outcome": "dead",
+    "error": null,
+    "layer": 11,
+    "hp": 0,
+    "maxHp": 135,
+    "gold": 1083,
+    "kills": 308,
+    "gameTime": 189,
+    "wallMs": 14593,
+    "dmgTaken": 274,
+    "hits": 32,
+    "maxHit": 19,
+    "events": 5,
+    "shopVisits": 0,
+    "skippedMinigame": 0,
+    "potentialLog": [
+      "branch:节奏（第 1 分支）",
+      "node:连击（节奏）",
+      "node:宽容（节奏）",
+      "node:音符追击（节奏）"
+    ],
+    "branch": "mutsumi-rhythm",
+    "nodes": 3,
+    "rooms": [
+      {
+        "layer": 1,
+        "room": "chest",
+        "title": "宝藏密室",
+        "hpBefore": 110,
+        "goldBefore": 18,
+        "hpAfter": 135,
+        "goldAfter": 18,
+        "secs": 0
+      },
+      {
+        "layer": 2,
+        "room": "mob-wave",
+        "title": "战斗 · 潜能",
+        "hpBefore": 135,
+        "goldBefore": 18,
+        "hpAfter": 135,
+        "goldAfter": 45,
+        "secs": 16.2
+      },
+      {
+        "layer": 2,
+        "room": "mob-wave",
+        "title": "战斗 · 金币",
+        "hpBefore": 135,
+        "goldBefore": 45,
+        "hpAfter": 135,
+        "goldAfter": 297,
+        "secs": 16.1
+      },
+      {
+        "layer": 3,
+        "room": "mob-wave",
+        "title": "战斗 · 道具",
+        "hpBefore": 135,
+        "goldBefore": 297,
+        "hpAfter": 133,
+        "goldAfter": 339,
+        "secs": 18.3
+      },
+      {
+        "layer": 4,
+        "room": "elite-fight",
+        "title": "精英伏击 · 潜能",
+        "hpBefore": 133,
+        "goldBefore": 339,
+        "hpAfter": 135,
+        "goldAfter": 390,
+        "secs": 6.3
+      },
+      {
+        "layer": 4,
+        "room": "mob-wave",
+        "title": "战斗 · 道具",
+        "hpBefore": 135,
+        "goldBefore": 390,
+        "hpAfter": 126,
+        "goldAfter": 439,
+        "secs": 22.8
+      },
+      {
+        "layer": 5,
+        "room": "chest",
+        "title": "宝藏密室",
+        "hpBefore": 126,
+        "goldBefore": 439,
+        "hpAfter": 126,
+        "goldAfter": 439,
+        "secs": 0
+      },
+      {
+        "layer": 6,
+        "room": "mob-wave",
+        "title": "战斗 · 潜能",
+        "hpBefore": 126,
+        "goldBefore": 439,
+        "hpAfter": 125,
+        "goldAfter": 557,
+        "secs": 26.4
+      },
+      {
+        "layer": 6,
+        "room": "skill-card",
+        "title": "技能圣所",
+        "hpBefore": 125,
+        "goldBefore": 557,
+        "hpAfter": 125,
+        "goldAfter": 557,
+        "secs": 0
+      },
+      {
+        "layer": 7,
+        "room": "boss",
+        "title": "Boss 房间",
+        "hpBefore": 125,
+        "goldBefore": 557,
+        "hpAfter": 42,
+        "goldAfter": 1001,
+        "secs": 6.1
+      },
+      {
+        "layer": 8,
+        "room": "chest",
+        "title": "宝藏密室",
+        "hpBefore": 42,
+        "goldBefore": 1001,
+        "hpAfter": 42,
+        "goldAfter": 1001,
+        "secs": 0
+      },
+      {
+        "layer": 9,
+        "room": "rest",
+        "title": "休憩营地",
+        "hpBefore": 42,
+        "goldBefore": 1001,
+        "hpAfter": 80,
+        "goldAfter": 1001,
+        "secs": 0
+      },
+      {
+        "layer": 10,
+        "room": "chest",
+        "title": "宝藏密室",
+        "hpBefore": 80,
+        "goldBefore": 1001,
+        "hpAfter": 80,
+        "goldAfter": 1001,
+        "secs": 0
+      },
+      {
+        "layer": 11,
+        "room": "mob-wave",
+        "title": "战斗 · 潜能",
+        "hpBefore": 80,
+        "goldBefore": 1001,
+        "hpAfter": 0,
+        "goldAfter": 1083,
+        "secs": 24.5
+      }
+    ],
+    "battles": [
+      {
+        "layer": 1,
+        "total": 45,
+        "killed": 45,
+        "start": 0,
+        "end": 52
+      }
+    ],
+    "layers": [
+      [
+        1,
+        110,
+        110,
+        0,
+        0,
+        0
+      ],
+      [
+        2,
+        135,
+        135,
+        18,
+        45,
+        52
+      ],
+      [
+        3,
+        135,
+        135,
+        297,
+        111,
+        84
+      ],
+      [
+        4,
+        133,
+        135,
+        339,
+        150,
+        103
+      ],
+      [
+        5,
+        126,
+        135,
+        439,
+        202,
+        132
+      ],
+      [
+        6,
+        126,
+        135,
+        439,
+        202,
+        132
+      ],
+      [
+        7,
+        125,
+        135,
+        557,
+        257,
+        158
+      ],
+      [
+        8,
+        42,
+        135,
+        1001,
+        263,
+        164
+      ],
+      [
+        9,
+        42,
+        135,
+        1001,
+        263,
+        164
+      ],
+      [
+        10,
+        80,
+        135,
+        1001,
+        263,
+        164
+      ],
+      [
+        11,
+        80,
+        135,
+        1001,
+        263,
+        164
+      ]
+    ],
+    "scenes": [
+      [
+        1,
+        "云上花庭 · 风起"
+      ],
+      [
+        2,
+        "云上花庭 · 风起"
+      ],
+      [
+        3,
+        "云上花庭 · 风起"
+      ],
+      [
+        4,
+        "云上花庭 · 风起"
+      ],
+      [
+        5,
+        "云上花庭 · 风起"
+      ],
+      [
+        6,
+        "云上花庭 · 风起"
+      ],
+      [
+        7,
+        "云上花庭 · 风起"
+      ],
+      [
+        8,
+        "云上花庭 · 风起"
+      ],
+      [
+        9,
+        "云上花庭 · 风起"
+      ],
+      [
+        10,
+        "云上花庭 · 风起"
+      ],
+      [
+        11,
+        "云上花庭 · 风起"
+      ]
+    ],
+    "inventory": [
+      "蓝·生命结晶",
+      "金·魔力药剂",
+      "蓝·疾影护符",
+      "蓝·铁鳞甲片",
+      "蓝·智力药剂"
+    ],
+    "cards": {
+      "magic": 66,
+      "stamina": 0,
+      "intelligence": 12,
+      "hp": 25,
+      "moveSpeed": 0,
+      "chargeMax": 0,
+      "chargeGain": 0,
+      "dodge": 0.06,
+      "armor": 0.05,
+      "crit": 0
+    },
+    "trial": null,
+    "boons": null,
+    "hpCapPenalty": 0,
+    "training": {},
+    "trainingBuys": 0,
+    "boot": {
+      "phase": "playing",
+      "layer": 1,
+      "hp": 110,
+      "maxHp": 110,
+      "style": "mutsumi-solo"
+    },
+    "consoleErrors": [],
+    "wallSeconds": 16.2
+  },
+  {
+    "char": "murasame",
+    "charName": "丛雨",
+    "style": "murasame-iai",
+    "diff": "normal",
+    "diffName": "普通",
+    "runIndex": 1,
+    "seed": 2204,
+    "branchIndex": 0,
+    "tag": "murasame-normal-1",
+    "outcome": "dead",
+    "error": null,
+    "layer": 8,
+    "hp": 0,
+    "maxHp": 261,
+    "gold": 717,
+    "kills": 123,
+    "gameTime": 108,
+    "wallMs": 6894,
+    "dmgTaken": 297,
+    "hits": 21,
+    "maxHit": 19,
+    "events": 5,
+    "shopVisits": 0,
+    "skippedMinigame": 0,
+    "potentialLog": [
+      "branch:流殇（第 1 分支）"
+    ],
+    "branch": "murasame-liushang",
+    "nodes": 0,
+    "rooms": [
+      {
+        "layer": 1,
+        "room": "mob-wave",
+        "title": "战斗 · 金币",
+        "hpBefore": 236,
+        "goldBefore": 6,
+        "hpAfter": 236,
+        "goldAfter": 206,
+        "secs": 13.1
+      },
+      {
+        "layer": 2,
+        "room": "chest",
+        "title": "宝藏密室",
+        "hpBefore": 236,
+        "goldBefore": 206,
+        "hpAfter": 236,
+        "goldAfter": 206,
+        "secs": 0
+      },
+      {
+        "layer": 3,
+        "room": "chest",
+        "title": "宝藏密室",
+        "hpBefore": 236,
+        "goldBefore": 206,
+        "hpAfter": 261,
+        "goldAfter": 206,
+        "secs": 0
+      },
+      {
+        "layer": 4,
+        "room": "chest",
+        "title": "宝藏密室",
+        "hpBefore": 261,
+        "goldBefore": 206,
+        "hpAfter": 261,
+        "goldAfter": 206,
+        "secs": 0
+      },
+      {
+        "layer": 5,
+        "room": "chest",
+        "title": "宝藏密室",
+        "hpBefore": 261,
+        "goldBefore": 206,
+        "hpAfter": 261,
+        "goldAfter": 206,
+        "secs": 0
+      },
+      {
+        "layer": 6,
+        "room": "chest",
+        "title": "宝藏密室",
+        "hpBefore": 261,
+        "goldBefore": 206,
+        "hpAfter": 261,
+        "goldAfter": 206,
+        "secs": 0
+      },
+      {
+        "layer": 7,
+        "room": "boss",
+        "title": "Boss 房间",
+        "hpBefore": 261,
+        "goldBefore": 206,
+        "hpAfter": 70,
+        "goldAfter": 659,
+        "secs": 14.1
+      },
+      {
+        "layer": 8,
+        "room": "mob-wave",
+        "title": "战斗 · 潜能",
+        "hpBefore": 70,
+        "goldBefore": 659,
+        "hpAfter": 0,
+        "goldAfter": 717,
+        "secs": 27.7
+      }
+    ],
+    "battles": [
+      {
+        "layer": 1,
+        "total": 45,
+        "killed": 45,
+        "start": 0,
+        "end": 53
+      }
+    ],
+    "layers": [
+      [
+        1,
+        236,
+        236,
+        0,
+        0,
+        0
+      ],
+      [
+        2,
+        236,
+        236,
+        206,
+        72,
+        66
+      ],
+      [
+        3,
+        236,
+        236,
+        206,
+        72,
+        66
+      ],
+      [
+        4,
+        261,
+        261,
+        206,
+        72,
+        66
+      ],
+      [
+        5,
+        261,
+        261,
+        206,
+        72,
+        66
+      ],
+      [
+        6,
+        261,
+        261,
+        206,
+        72,
+        66
+      ],
+      [
+        7,
+        261,
+        261,
+        206,
+        72,
+        66
+      ],
+      [
+        8,
+        70,
+        261,
+        659,
+        78,
+        81
+      ]
+    ],
+    "scenes": [
+      [
+        1,
+        "云上花庭 · 晨光"
+      ],
+      [
+        2,
+        "云上花庭 · 晨光"
+      ],
+      [
+        3,
+        "云上花庭 · 晨光"
+      ],
+      [
+        4,
+        "云上花庭 · 晨光"
+      ],
+      [
+        5,
+        "云上花庭 · 晨光"
+      ],
+      [
+        6,
+        "云上花庭 · 晨光"
+      ],
+      [
+        7,
+        "云上花庭 · 晨光"
+      ],
+      [
+        8,
+        "云上花庭 · 晨光"
+      ]
+    ],
+    "inventory": [
+      "紫·锐利符石",
+      "蓝·生命结晶",
+      "紫·智力药剂"
+    ],
+    "cards": {
+      "magic": 0,
+      "stamina": 0,
+      "intelligence": 24,
+      "hp": 25,
+      "moveSpeed": 0,
+      "chargeMax": 0,
+      "chargeGain": 0,
+      "dodge": 0,
+      "armor": 0,
+      "crit": 0.08
+    },
+    "trial": null,
+    "boons": null,
+    "hpCapPenalty": 0,
+    "training": {},
+    "trainingBuys": 0,
+    "boot": {
+      "phase": "playing",
+      "layer": 1,
+      "hp": 236,
+      "maxHp": 236,
+      "style": "murasame-iai"
+    },
+    "consoleErrors": [],
+    "wallSeconds": 7.5
+  },
+  {
+    "char": "fish",
+    "charName": "大肥鱼",
+    "style": "fish-school",
+    "diff": "normal",
+    "diffName": "普通",
+    "runIndex": 1,
+    "seed": 2282,
+    "branchIndex": 0,
+    "tag": "fish-normal-1",
+    "outcome": "dead",
+    "error": null,
+    "layer": 9,
+    "hp": 0,
+    "maxHp": 172,
+    "gold": 2932,
+    "kills": 338,
+    "gameTime": 200,
+    "wallMs": 18599,
+    "dmgTaken": 237,
+    "hits": 29,
+    "maxHit": 15,
+    "events": 2,
+    "shopVisits": 0,
+    "skippedMinigame": 0,
+    "potentialLog": [
+      "branch:哦，鲸鲸？（第 1 分支）",
+      "node:共鸣回路（哦，鲸鲸？）",
+      "node:帮手（哦，鲸鲸？）",
+      "node:同频（哦，鲸鲸？）"
+    ],
+    "branch": "fish-clone",
+    "nodes": 3,
+    "rooms": [
+      {
+        "layer": 1,
+        "room": "mob-wave",
+        "title": "战斗 · 潜能",
+        "hpBefore": 133,
+        "goldBefore": 16,
+        "hpAfter": 133,
+        "goldAfter": 32,
+        "secs": 13
+      },
+      {
+        "layer": 1,
+        "room": "mob-wave",
+        "title": "战斗 · 潜能",
+        "hpBefore": 133,
+        "goldBefore": 32,
+        "hpAfter": 141,
+        "goldAfter": 50,
+        "secs": 13.5
+      },
+      {
+        "layer": 1,
+        "room": "mob-wave",
+        "title": "战斗 · 道具",
+        "hpBefore": 141,
+        "goldBefore": 50,
+        "hpAfter": 141,
+        "goldAfter": 217,
+        "secs": 11.5
+      },
+      {
+        "layer": 2,
+        "room": "mob-wave",
+        "title": "战斗 · 道具",
+        "hpBefore": 141,
+        "goldBefore": 217,
+        "hpAfter": 149,
+        "goldAfter": 321,
+        "secs": 15.2
+      },
+      {
+        "layer": 3,
+        "room": "mob-wave",
+        "title": "战斗 · 潜能",
+        "hpBefore": 149,
+        "goldBefore": 321,
+        "hpAfter": 164,
+        "goldAfter": 519,
+        "secs": 17.3
+      },
+      {
+        "layer": 3,
+        "room": "mob-wave",
+        "title": "战斗 · 潜能",
+        "hpBefore": 164,
+        "goldBefore": 519,
+        "hpAfter": 164,
+        "goldAfter": 643,
+        "secs": 16.1
+      },
+      {
+        "layer": 3,
+        "room": "chest",
+        "title": "宝藏密室",
+        "hpBefore": 164,
+        "goldBefore": 643,
+        "hpAfter": 164,
+        "goldAfter": 643,
+        "secs": 0
+      },
+      {
+        "layer": 4,
+        "room": "elite-fight",
+        "title": "精英伏击 · 潜能",
+        "hpBefore": 164,
+        "goldBefore": 643,
+        "hpAfter": 172,
+        "goldAfter": 780,
+        "secs": 5.3
+      },
+      {
+        "layer": 4,
+        "room": "elite-fight",
+        "title": "精英伏击 · 道具",
+        "hpBefore": 172,
+        "goldBefore": 780,
+        "hpAfter": 172,
+        "goldAfter": 849,
+        "secs": 5.1
+      },
+      {
+        "layer": 5,
+        "room": "elite-fight",
+        "title": "精英伏击 · 金币",
+        "hpBefore": 172,
+        "goldBefore": 849,
+        "hpAfter": 172,
+        "goldAfter": 1454,
+        "secs": 6.7
+      },
+      {
+        "layer": 6,
+        "room": "elite-fight",
+        "title": "精英伏击 · 金币",
+        "hpBefore": 172,
+        "goldBefore": 1454,
+        "hpAfter": 159,
+        "goldAfter": 2096,
+        "secs": 5
+      },
+      {
+        "layer": 7,
+        "room": "boss",
+        "title": "Boss 房间",
+        "hpBefore": 159,
+        "goldBefore": 2096,
+        "hpAfter": 131,
+        "goldAfter": 2610,
+        "secs": 6.7
+      },
+      {
+        "layer": 8,
+        "room": "chest",
+        "title": "宝藏密室",
+        "hpBefore": 131,
+        "goldBefore": 2610,
+        "hpAfter": 131,
+        "goldAfter": 2610,
+        "secs": 0
+      },
+      {
+        "layer": 9,
+        "room": "mob-wave",
+        "title": "战斗 · 道具",
+        "hpBefore": 131,
+        "goldBefore": 2610,
+        "hpAfter": 0,
+        "goldAfter": 2932,
+        "secs": 33.9
+      }
+    ],
+    "battles": [
+      {
+        "layer": 1,
+        "total": 45,
+        "killed": 45,
+        "start": 0,
+        "end": 51
+      }
+    ],
+    "layers": [
+      [
+        1,
+        110,
+        110,
+        0,
+        0,
+        0
+      ],
+      [
+        2,
+        141,
+        141,
+        217,
+        126,
+        89
+      ],
+      [
+        3,
+        149,
+        149,
+        321,
+        159,
+        104
+      ],
+      [
+        4,
+        164,
+        164,
+        643,
+        237,
+        137
+      ],
+      [
+        5,
+        172,
+        172,
+        849,
+        251,
+        148
+      ],
+      [
+        6,
+        172,
+        172,
+        1454,
+        258,
+        154
+      ],
+      [
+        7,
+        159,
+        172,
+        2096,
+        265,
+        159
+      ],
+      [
+        8,
+        131,
+        172,
+        2610,
+        271,
+        166
+      ],
+      [
+        9,
+        131,
+        172,
+        2610,
+        271,
+        166
+      ]
+    ],
+    "scenes": [
+      [
+        1,
+        "云上花庭 · 晨光"
+      ],
+      [
+        2,
+        "云上花庭 · 晨光"
+      ],
+      [
+        3,
+        "云上花庭 · 晨光"
+      ],
+      [
+        4,
+        "云上花庭 · 晨光"
+      ],
+      [
+        5,
+        "云上花庭 · 晨光"
+      ],
+      [
+        6,
+        "云上花庭 · 晨光"
+      ],
+      [
+        7,
+        "云上花庭 · 晨光"
+      ],
+      [
+        8,
+        "云上花庭 · 晨光"
+      ],
+      [
+        9,
+        "云上花庭 · 晨光"
+      ]
+    ],
+    "inventory": [
+      "紫·耐力药剂",
+      "蓝·铁鳞甲片",
+      "蓝·锐利符石",
+      "蓝·智力药剂"
+    ],
+    "cards": {
+      "magic": 0,
+      "stamina": 32,
+      "intelligence": 12,
+      "hp": 0,
+      "moveSpeed": 0,
+      "chargeMax": 0,
+      "chargeGain": 0,
+      "dodge": 0,
+      "armor": 0.05,
+      "crit": 0.04
+    },
+    "trial": null,
+    "boons": null,
+    "hpCapPenalty": 0,
+    "training": {},
+    "trainingBuys": 0,
+    "boot": {
+      "phase": "playing",
+      "layer": 1,
+      "hp": 110,
+      "maxHp": 110,
+      "style": "fish-school"
+    },
+    "consoleErrors": [],
+    "wallSeconds": 19.3
+  }
+]

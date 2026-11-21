@@ -1,0 +1,80 @@
+{
+  "head": "34923b0 + G1/G1b/G1c（未提交）",
+  "generatedAt": "2026-11-21T05:19:37.818Z",
+  "note": "G1 修复后基线：每层都有层内清怪、场景随阶段切换。用于 G8 调参对照（sim/baseline-head.json 是修复前）。",
+  "aggregateByDifficulty": {
+    "easy": {
+      "runs": 6,
+      "wins": 6,
+      "avgLayer": 9,
+      "avgGameTime": 608.8,
+      "medianGameTime": 634,
+      "avgDamage": 235.8,
+      "avgKills": 701.3,
+      "avgAssists": 86.7,
+      "avgQuotaBattles": 9
+    },
+    "normal": {
+      "runs": 6,
+      "wins": 2,
+      "avgLayer": 10.5,
+      "avgGameTime": 1244.2,
+      "medianGameTime": 727,
+      "avgDamage": 1531.5,
+      "avgKills": 1391.2,
+      "avgAssists": 172.7,
+      "avgQuotaBattles": 10.5
+    },
+    "hard": {
+      "runs": 6,
+      "wins": 0,
+      "avgLayer": 5.67,
+      "avgGameTime": 363.7,
+      "medianGameTime": 445,
+      "avgDamage": 563.2,
+      "avgKills": 473.5,
+      "avgAssists": 59.2,
+      "avgQuotaBattles": 5.67
+    }
+  },
+  "aggregateByChar": {
+    "mutsumi": {
+      "runs": 6,
+      "wins": 2,
+      "avgLayer": 6.83,
+      "avgGameTime": 455.8,
+      "medianGameTime": 551,
+      "avgDamage": 290,
+      "avgKills": 558,
+      "avgAssists": 72.5,
+      "avgQuotaBattles": 6.83
+    },
+    "murasame": {
+      "runs": 6,
+      "wins": 3,
+      "avgLayer": 8.83,
+      "avgGameTime": 1046.2,
+      "medianGameTime": 638,
+      "avgDamage": 1688.8,
+      "avgKills": 954.8,
+      "avgAssists": 135.7,
+      "avgQuotaBattles": 8.83
+    },
+    "fish": {
+      "runs": 6,
+      "wins": 3,
+      "avgLayer": 9.5,
+      "avgGameTime": 714.7,
+      "medianGameTime": 544,
+      "avgDamage": 351.7,
+      "avgKills": 1053.2,
+      "avgAssists": 110.3,
+      "avgQuotaBattles": 9.5
+    }
+  },
+  "flowAssert": {
+    "total": 18,
+    "pass": 18,
+    "fail": 0
+  }
+}
