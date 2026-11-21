@@ -319,7 +319,7 @@ const mutsumi: PotentialSet = {
       accent: '#ff70a6',
       identity: '变身强化 · 爆发',
       root: '技能范围 +25%，变身期间伤害 +15%',
-      cost: '技能所需充能 +20%（80→96）',
+      cost: '技能所需充能 +20%（100→120）',
       nodes: [
         { id: 'mutsumi-duet-stun', name: '压场', effect: '变身瞬间晕眩周围小怪 1 秒（Boss 除外）', tags: ['aoe', 'shield'] },
         { id: 'mutsumi-duet-range', name: '扩张', effect: '音波半径 +15%，变身期间普攻弹幕增大 30%', tags: ['aoe'] },

@@ -55,6 +55,7 @@ const server = await createServer({
 })
 
 const { CHARACTERS } = await server.ssrLoadModule('/src/data/characters.ts')
+const { POTENTIALS } = await server.ssrLoadModule('/src/data/potentials.ts')
 const { cardOf, cardRuntimeValueAt } = await server.ssrLoadModule('/src/data/cards.ts')
 const { Combat } = await server.ssrLoadModule('/src/systems/combat.ts')
 const { Rng } = await server.ssrLoadModule('/src/core/rng.ts')
@@ -93,6 +94,8 @@ try {
   {
     const noDoubleInvert = !gameSrc.includes("branch === 'shunshan'") && !gameSrc.includes("branch === 'mutsumi-duet' ? 0.8")
     check('2a game.ts 不再对 chargeMax 乘 0.8（避免与 combat 双重取反）', noDoubleInvert)
+    const duetBranch = POTENTIALS.mutsumi.branches.find((b) => b.id === 'mutsumi-duet')
+    check('2a 双重人格卡片文案已修正为 100→120（睦基础充能 100）', duetBranch?.cost.includes('100→120') && !duetBranch?.cost.includes('80→96'), duetBranch?.cost)
 
     // 睦·双重人格：原始 chargeMax = 100 → combat 有效上限与技能需求均为 120
     const cDuet = new Combat(new THREE.Scene(), { onHit() {}, onSfx() {} })
