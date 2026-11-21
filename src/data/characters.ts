@@ -90,7 +90,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     title: '双形态 · 远近切换',
     role: '远程单体起手，按右键 变身 Mortis 打范围音波爆发',
     chargeGainMul: 0.55,
-    base: { hp: 110, chargeMax: 100, stamina: 135, magic: 100, intelligence: 100, moveSpeed: 6.2 },
+    base: { hp: 110, chargeMax: 100, stamina: 135, magic: 100, intelligence: 100, moveSpeed: 6.7 },
     attack: {
       name: '小黄瓜',
       baseDamage: 16,
@@ -133,7 +133,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     title: '近战 · 拔刀三流派',
     role: '扇形拔刀贴脸清群；流血灼尽生命 / 自动回能突进 / 收刀居合引爆标记',
     chargeGainMul: 1,
-    base: { hp: 236, chargeMax: 80, stamina: 145, magic: 95, intelligence: 70, moveSpeed: 7.5 },
+    base: { hp: 236, chargeMax: 80, stamina: 145, magic: 95, intelligence: 70, moveSpeed: 8.0 },
     attack: {
       name: '拔刀斩',
       baseDamage: 19,
@@ -172,7 +172,7 @@ export const CHARACTERS: Record<CharacterId, CharacterDef> = {
     title: '远程 · 召唤',
     role: '高频泡泡风筝，右键 召唤 3 只小肥鱼一起打',
     chargeGainMul: 1.25,
-    base: { hp: 110, chargeMax: 90, stamina: 180, magic: 80, intelligence: 110, moveSpeed: 6.6 },
+    base: { hp: 110, chargeMax: 90, stamina: 180, magic: 80, intelligence: 110, moveSpeed: 7.1 },
     attack: {
       name: '泡泡水枪',
       baseDamage: 12,

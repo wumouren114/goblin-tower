@@ -13,9 +13,9 @@
       ],
       "hpMul": 0.6,
       "damageMul": 0.4,
-      "countMul": 0.8,
+      "countMul": 0.95,
       "spawnMul": 0.85,
-      "goldMul": 1.2,
+      "goldMul": 1.35,
       "xpMul": 1.2,
       "note": "一届 7 层，轻松娱乐：更低的怪伤/血量/密度"
     },
@@ -27,9 +27,9 @@
       ],
       "hpMul": 0.95,
       "damageMul": 0.85,
-      "countMul": 1.2,
+      "countMul": 1.35,
       "spawnMul": 1,
-      "goldMul": 1,
+      "goldMul": 1.15,
       "xpMul": 1,
       "note": "两阶段 5+7，难度阶梯上升"
     },
@@ -42,9 +42,9 @@
       ],
       "hpMul": 1.45,
       "damageMul": 1.4,
-      "countMul": 1.2,
+      "countMul": 1.35,
       "spawnMul": 1.2,
-      "goldMul": 1.05,
+      "goldMul": 1.2,
       "xpMul": 0.95,
       "note": "三阶段 5+5+5，节奏更快"
     }
@@ -87,8 +87,8 @@
     ]
   },
   "layerCurve": {
-    "mobHpBase": 24,
-    "mobHpPerLayer": 0.36,
+    "mobHpBase": 20,
+    "mobHpPerLayer": 0.3,
     "mobDamageBase": 5,
     "mobDamagePerLayer": 0.16,
     "quotaBase": 33,
@@ -107,7 +107,7 @@
     "clearGoldBase": 72,
     "clearGoldPerLayer": 15,
     "goldPerKillBase": 1,
-    "goldPerKillEveryLayers": 3,
+    "goldPerKillEveryLayers": 2,
     "xpPerKillBase": 3,
     "xpPerKillPerLayer": 0.5,
     "bossHpBase": 480,

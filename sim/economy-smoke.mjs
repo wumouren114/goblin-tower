@@ -121,7 +121,7 @@ check('击杀金按 goldPerKillBase + floor((layer-1)/everyLayers) 增长', () =
   eq(economy.killGold(1, 'small'), goldPerKillFor(1), 'L1 small')
   eq(economy.killGold(4, 'small'), goldPerKillFor(4), 'L4 small')
   eq(economy.killGold(5, 'small'), goldPerKillFor(5), 'L5 small')
-  eq(goldPerKillFor(5), goldPerKillFor(1) + 1, 'L5 应比 L1 高 1 金')
+  eq(goldPerKillFor(5), goldPerKillFor(1) + Math.floor(4 / BALANCE.layerCurve.goldPerKillEveryLayers), 'L5 击杀金符合 goldPerKillEveryLayers 曲线')
   eq(economy.killGold(1, 'brute'), 3, 'L1 brute')
   eq(economy.killGold(1, 'elite'), 12, 'L1 elite')
   eq(economy.killGold(1, 'boss'), 60, 'L1 boss')
