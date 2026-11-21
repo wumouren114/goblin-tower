@@ -258,14 +258,19 @@ try {
   await cdp.send('Page.navigate', { url: result.url })
   await waitFor(() => cdp.eval('!!window.__goblinTower && !!window.__audioProbe'), 20000, '游戏 + 探针')
 
-  const readDebug = async () => {
-    const text = await cdp.eval(`document.querySelector('#debug-overlay')?.textContent ?? ''`)
-    try {
-      return JSON.parse(text)
-    } catch {
-      return null
-    }
-  }
+  // 优先读 main.ts 在 ?debug=1 下挂出的实时只读句柄 window.__audio.status()，避免 #debug-overlay 500ms 刷新延迟
+  const readAudioStatus = async () =>
+    cdp.eval(`(() => {
+      if (window.__audio && typeof window.__audio.status === 'function') {
+        return window.__audio.status()
+      }
+      try {
+        const parsed = JSON.parse(document.querySelector('#debug-overlay')?.textContent ?? '')
+        return parsed?.audio ?? null
+      } catch {
+        return null
+      }
+    })()`)
 
   const readState = async () =>
     cdp.eval(`(() => {
@@ -291,7 +296,7 @@ try {
 
   const record = async (name, extra = {}) => {
     const state = await readState()
-    const dbg = await readDebug()
+    const audioSt = await readAudioStatus()
     const row = {
       name,
       ...extra,
@@ -302,8 +307,8 @@ try {
       pauseMuteText: state.pauseMuteText,
       pauseOpen: state.pauseOpen,
       activeElement: state.activeElement,
-      audioMuted: dbg?.audio?.muted ?? null,
-      audioState: dbg?.audio?.state ?? null,
+      audioMuted: audioSt?.muted ?? null,
+      audioState: audioSt?.state ?? null,
       gainCount: state.gainCount,
       gains: state.gains,
       starts: state.starts,
@@ -320,8 +325,8 @@ try {
 
   // 等待音频素材 ready
   await waitFor(async () => {
-    const dbg = await readDebug()
-    return dbg?.audio?.state === 'ready' && (dbg?.audio?.loaded?.length ?? 0) > 0
+    const audioSt = await readAudioStatus()
+    return audioSt?.state === 'ready' && (audioSt?.loaded?.length ?? 0) > 0
   }, 20000, '音频素材 ready')
 
   // 点击页面中心模拟用户手势解锁 AudioContext
@@ -332,11 +337,11 @@ try {
   // ── A. M 热键最小三连复现（标题页 / 局内 / 焦点在按钮）──────────────
   const runMProbe = async (label) => {
     const before = await readState()
-    const dbgBefore = await readDebug()
+    const audioBefore = await readAudioStatus()
     await cdp.keyM()
     await sleep(400)
     const after = await readState()
-    const dbgAfter = await readDebug()
+    const audioAfter = await readAudioStatus()
     const newKeys = after.keyLogTail.slice(-(after.keyLogLen - before.keyLogLen))
     const keydownArrivedWindow = newKeys.some((k) => k.code === 'KeyM')
     const gainDiff = diffGains(before.gains, after.gains)
@@ -346,8 +351,8 @@ try {
       activeElementBefore: before.activeElement,
       keydownArrivedWindow,
       newKeys,
-      audioMutedBefore: dbgBefore?.audio?.muted ?? null,
-      audioMutedAfter: dbgAfter?.audio?.muted ?? null,
+      audioMutedBefore: audioBefore?.muted ?? null,
+      audioMutedAfter: audioAfter?.muted ?? null,
       hudMutedBefore: before.hudMuted,
       hudMutedAfter: after.hudMuted,
       pauseMuteTextAfter: after.pauseMuteText,
@@ -494,8 +499,8 @@ try {
   await waitFor(() => cdp2.eval('!!window.__goblinTower && !!window.__audioProbe'), 20000, '新页面游戏 + 探针')
   cdp = cdp2
   await waitFor(async () => {
-    const dbg = await readDebug()
-    return dbg?.audio?.state === 'ready' && (dbg?.audio?.loaded?.length ?? 0) > 0
+    const audioSt = await readAudioStatus()
+    return audioSt?.state === 'ready' && (audioSt?.loaded?.length ?? 0) > 0
   }, 20000, '新页面音频 ready').catch(() => null)
   await sleep(300)
   const afterReload = await record('after-reload')

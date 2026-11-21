@@ -138,6 +138,10 @@ async function boot(): Promise<void> {
     }
   }
   if (params.get('debug') === '1') {
+    // 仅 debug 模式暴露实时只读音频状态句柄，避免测试脚本读 500ms 刷新的 #debug-overlay 产生采样延迟假阳性
+    ;(window as unknown as { __audio?: { status: () => ReturnType<typeof audio.status> } }).__audio = {
+      status: () => audio.status(),
+    }
     const box = document.createElement('pre')
     box.id = 'debug-overlay'
     box.style.cssText = 'position:fixed;left:8px;bottom:60px;z-index:99999;color:#0f0;font:11px monospace;background:#000a;padding:6px;max-width:520px;white-space:pre-wrap'
