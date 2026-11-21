@@ -439,6 +439,21 @@ const DRIVER = String.raw`
         S.battle.end = Math.round(S.t)
       }
     }
+    // Boss 战前 15 秒的 NDC 采样：客观验证「首帧 Boss 是否在画面内」（G3 判据）
+    if (g.boss?.group) {
+      if (!S.bossFrames) S.bossFrames = []
+      const last = S.bossFrames[S.bossFrames.length - 1]
+      if (S.bossFrames.length < 30 && (!last || S.t - last.t > 0.5)) {
+        try {
+          const v = g.boss.group.position.clone()
+          v.y = 1.6
+          v.project(g.camera)
+          S.bossFrames.push({ t: Math.round(S.t), x: Number(v.x.toFixed(2)), y: Number(v.y.toFixed(2)) })
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     return p
   }
 
@@ -684,6 +699,18 @@ const DRIVER = String.raw`
             d: Math.round(Math.hypot((x.x ?? 0) - (p?.x ?? 0), (x.z ?? 0) - (p?.z ?? 0))),
           })),
         boss: g?.boss ? { hp: Math.round(g.boss.hp), maxHp: Math.round(g.boss.maxHp), title: g.boss.title } : null,
+        // Boss 是否真的在画面里（NDC 绝对值 <1 即可见）：G3 的客观判据，不靠肉眼
+        bossNdc: (() => {
+          if (!g?.boss?.group) return null
+          try {
+            const v = g.boss.group.position.clone()
+            v.y = 1.6
+            v.project(g.camera)
+            return { x: Number(v.x.toFixed(2)), y: Number(v.y.toFixed(2)) }
+          } catch {
+            return null
+          }
+        })(),
         room: g?.roomMap ? { room: g.roomMap.offer?.room, resolved: g.roomMap.resolved, active: g.roomActive } : null,
         layerTotal: g?.layerTotal ?? 0,
         layerKilled: g?.layerKilled ?? 0,
@@ -728,6 +755,7 @@ const DRIVER = String.raw`
         battles: S.battles,
         layers: S.layers,
         scenes: S.scenes,
+        bossFrames: S.bossFrames ?? [],
         inventory: (g?.inventory?.items || []).map((i) => i.name),
         cards: g?.cards ?? null,
         trial: g?.run?.trial ?? null,

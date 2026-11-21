@@ -680,6 +680,12 @@ export class Game {
 
   private update(dt: number): void {
     if (this.paused) {
+      // 暂停时 update 会提前 return，handleHotkeys 不执行；这里单独保留 M 静音热键，
+      // 否则「暂停面板有静音按钮、但 M 失灵」会让人以为音频坏了。
+      if (this.input.justPressed('KeyM')) {
+        const mutedNow = audio.toggleMute()
+        this.hud.setMuted(mutedNow)
+      }
       this.input.consumeDrag()
       this.input.consumeWheel()
       this.input.endFrame()
