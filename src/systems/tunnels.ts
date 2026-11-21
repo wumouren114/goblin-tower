@@ -249,7 +249,10 @@ function rollRoomType(rng: Rng, layer: number, used: Set<TunnelRoom>): TunnelRoo
       return candidates.includes(prefer) ? prefer : candidates[0]
     }
     if (kind === 'trade') {
-      const prefer = rng.chance(PORTALS.trade.merchant) ? 'merchant' : 'altar'
+      // merchant / altar / trial 三池按权重抽（trial 曾只在兜底出现，0.33% 几乎绝迹）
+      const r = rng.next()
+      const merchantW = PORTALS.trade.merchant
+      const prefer: TunnelRoom = r < merchantW ? 'merchant' : r < merchantW + 0.25 ? 'trial' : 'altar'
       return candidates.includes(prefer) ? prefer : candidates[0]
     }
     if (kind === 'battle') {

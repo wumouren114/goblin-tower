@@ -87,7 +87,8 @@ const COMBOS = [
 ]
 
 function maxBranchesFor(difficulty) {
-  return difficulty === 'hard' ? 3 : 2
+  void difficulty
+  return 1
 }
 
 function applyPotentialPick(current, choice) {
@@ -124,13 +125,12 @@ const gameSrc = readFileSync('src/game.ts', 'utf-8')
 const typesSrc = readFileSync('src/types.ts', 'utf-8')
 
 check('types.ts RunState.potential 包含 branch3?: string', /branch3\?:\s*string/.test(typesSrc))
-check("game.ts 困难难度 maxBranches = 3、普通/简单 = 2", gameSrc.includes("const maxBranches = this.run.difficulty === 'hard' ? 3 : 2"))
+check('game.ts 分支上限已下线为 1（跨枝反应待新规则）', gameSrc.includes('const maxBranches = 1') && gameSrc.includes('resonancesEnabled = false'))
 check('game.ts syncPotential 传递 [branch, branch2, branch3]', gameSrc.includes('[this.run.potential?.branch, this.run.potential?.branch2, this.run.potential?.branch3]'))
 check('game.ts activateResonances 合并三分支并同步 combat.setResonances', gameSrc.includes('new Set([pot.branch, pot.branch2, pot.branch3].filter(Boolean))') && gameSrc.includes('this.combat?.setResonances(pot.resonances)'))
 
 // ── 2. 难度分支位与跨枝反应状态流转 ──────────────────────────────────────
-check('普通与简单难度仍为 2 分支位', maxBranchesFor('normal') === 2 && maxBranchesFor('easy') === 2)
-check('困难难度开放 3 分支位', maxBranchesFor('hard') === 3)
+check('全难度统一 1 分支位（跨枝反应下线）', maxBranchesFor('normal') === 1 && maxBranchesFor('easy') === 1 && maxBranchesFor('hard') === 1)
 
 {
   // 普通难度：选 2 条分支 → 最多 1 组反应，无第 3 分支空位
@@ -276,8 +276,8 @@ const threeBranchTwoResNoFull = runMurasameScenario(
 )
 
 check(
-  'Combat 第 3 分支（shunshan）在 potentialBranch3 生效（普攻倍率叠加 ×0.85）',
-  Math.abs(threeBranchNoRes.basicDmg / twoBranchNoRes.basicDmg - 0.85) < 1e-3,
+  'Combat 第 3 分支已停用（分支上限 1，第 3 分支不影响数值）',
+  Math.abs(threeBranchNoRes.basicDmg / twoBranchNoRes.basicDmg - 1) < 1e-3,
   `2-branch=${twoBranchNoRes.basicDmg.toFixed(2)}, 3-branch=${threeBranchNoRes.basicDmg.toFixed(2)}`,
 )
 check(
@@ -286,13 +286,13 @@ check(
   `base=${threeBranchNoRes.bleedTickDmg.toFixed(3)}, res=${threeBranchAllRes.bleedTickDmg.toFixed(3)}`,
 )
 check(
-  '三组反应同时生效 ② 回潮：技能命中带流血目标返还 25% 充能',
-  threeBranchAllRes.castOk && threeBranchAllRes.chargeAfterSkill > threeBranchNoRes.chargeAfterSkill + 15,
+  '跨枝反应已下线：回潮不返还充能',
+  threeBranchAllRes.castOk && Math.abs(threeBranchAllRes.chargeAfterSkill - threeBranchNoRes.chargeAfterSkill) < 1e-6,
   `noRes=${threeBranchNoRes.chargeAfterSkill.toFixed(1)}, allRes=${threeBranchAllRes.chargeAfterSkill.toFixed(1)}`,
 )
 check(
-  '三组反应同时生效 ③ 满弦：技能结算标记伤害受充能增幅',
-  threeBranchAllRes.skillTotalDmg > threeBranchTwoResNoFull.skillTotalDmg + 0.1,
+  '跨枝反应已下线：满弦不提供充能增幅',
+  Math.abs(threeBranchAllRes.skillTotalDmg - threeBranchTwoResNoFull.skillTotalDmg) < 1e-6,
   `without=${threeBranchTwoResNoFull.skillTotalDmg.toFixed(2)}, with=${threeBranchAllRes.skillTotalDmg.toFixed(2)}`,
 )
 

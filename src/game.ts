@@ -2745,7 +2745,7 @@ export class Game {
     this.altarActive = true
     this.phase = 'tunnel'
     audio.duck(false)
-    this.hud.showTunnelOffers(offers, this.run.layer, 'potential')
+    this.hud.showTunnelOffers(offers, this.run.layer, 'altar')
     audio.click()
   }
 

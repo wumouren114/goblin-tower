@@ -311,7 +311,7 @@ export function generateOffers(
   const offers: ShopOffer[] = []
   if (total === 0) return offers
 
-  // 旧专武升级已在潜能系统上线后退役；货架第 1 格改为「潜能节点」
+  // 专武已彻底退役；货架第 1 格「潜能节点」（脆皮生存问题由药水保底+数值补偿解决）
   offers.push(makePotentialOffer(layer))
 
   // 固定塞一格金币训练：不占背包，是后期金币的主要去向。
@@ -320,11 +320,15 @@ export function generateOffers(
 
   const heldMap = normalizeHeldTiers(held)
   const usedIds = new Set<string>()
+  let hasConsumable = false
   while (offers.length < total) {
     const cardCount = offers.filter((offer) => offer.kind === 'buff-card').length
-    const useConsumable = cardCount >= CONSUMABLE_SLOTS && rng.chance(CONSUMABLE_CHANCE)
+    // BUG-02：治疗药水出货率恒 0%——最后一个空格强制出消耗品
+    const lastSlot = offers.length === total - 1 && !hasConsumable
+    const useConsumable = lastSlot || (cardCount >= 1 && rng.chance(CONSUMABLE_CHANCE))
     if (useConsumable) {
       offers.push(makeConsumableOffer(clampLayer(layer), rng, offers.length))
+      hasConsumable = true
       continue
     }
     const buffOffer = makeBuffOffer(clampLayer(layer), rng, offers.length, usedIds, heldMap)
