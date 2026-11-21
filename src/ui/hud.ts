@@ -1058,7 +1058,7 @@ class HudImpl implements HudV3 {
     this.tunnelEl.dataset.mode = mode
     this.tunnelEl.setAttribute(
       'aria-label',
-      isAltar ? '献祭三选一' : isTrial ? '立约' : isAwakening ? '专武方向选择' : isPotential ? '潜能三选一' : isBonus ? '清层奖励三选一' : '时空隧道路线选择',
+      isAltar ? '献祭四档选择' : isTrial ? '立约' : isAwakening ? '专武方向选择' : isPotential ? '潜能三选一' : isBonus ? '清层奖励三选一' : '时空隧道路线选择',
     )
     setText(this.tunnelModeMarkEl, isAltar ? '🕯️' : isAwakening ? '✦' : isPotential ? '✦' : isBonus ? '🎁' : '🧭')
     setText(
@@ -1077,7 +1077,7 @@ class HudImpl implements HudV3 {
     )
     setText(
       this.tunnelTitleEl,
-      isAltar ? '献祭 · 三选一' : isTrial ? '立约 · 接受或婉拒' : isAwakening ? '专武 · 强化方向' : isPotential ? '潜能 · 三选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道',
+      isAltar ? '献祭 · 四档祭坛' : isTrial ? '立约 · 接受或婉拒' : isAwakening ? '专武 · 强化方向' : isPotential ? '潜能 · 三选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道',
     )
     setText(
       this.tunnelSubEl,
@@ -1835,7 +1835,7 @@ class HudImpl implements HudV3 {
     this.tunnelSubEl = this.q('.js-tunnel-sub')
     this.tunnelHintEl = this.q('.js-tunnel-hint')
     this.tunnelCardsEl = this.q('.js-tunnel-cards')
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       const card = el('button', 'tunnel-card')
       card.type = 'button'
       const band = span('tc-band', '奖励')
