@@ -36,10 +36,17 @@ function projectNdc(cam, x, y, z) {
 
 try {
   const gameSrc = readFileSync('src/game.ts', 'utf8')
+  const bossFnStart = gameSrc.indexOf('private startRoomBossBattle()')
+  const bossFnBody = bossFnStart >= 0 ? gameSrc.slice(bossFnStart, bossFnStart + 900) : ''
   check(
-    'game.ts startRoomBossBattle 已改为中心偏北出生并调用 rig.focusIntro',
-    gameSrc.includes('const bossZ = -Math.min(4.0, floor.halfSize * 0.18)') &&
-      gameSrc.includes('this.rig.focusIntro(boss.x, boss.z, 0.75)'),
+    'game.ts startRoomBossBattle 用 -halfSize*0.32 避开地标且不再瞬移玩家',
+    bossFnBody.includes('const bossZ = -floor.halfSize * 0.32') &&
+      bossFnBody.includes('this.rig.focusIntro(boss.x, boss.z, 0.75)') &&
+      !bossFnBody.includes('p.z ='),
+  )
+  check(
+    'game.ts enterRoomMap 统一设定玩家进房站位 p.z = half * 0.42',
+    gameSrc.includes('p.z = half * 0.42'),
   )
 
   for (const halfSize of [15, 18, 22]) {
@@ -50,7 +57,13 @@ try {
     rig.fitForArena(halfSize)
 
     const playerZ = halfSize * 0.42
-    const bossZ = -Math.min(4.0, halfSize * 0.18)
+    const bossZ = -halfSize * 0.32
+    const landmarkR = Math.min(3.2, halfSize * 0.2)
+    check(
+      `halfSize=${halfSize} Boss 出生点避开中央地标碰撞（|bossZ| >= landmarkR + 1.5）`,
+      Math.abs(bossZ) >= landmarkR + 1.5,
+      `|bossZ|=${Math.abs(bossZ).toFixed(2)}, minClear=${(landmarkR + 1.5).toFixed(2)}`,
+    )
     rig.focusIntro(0, bossZ, 0.75)
     rig.update(0.016, 0, playerZ, 0, 0)
     cam.updateMatrixWorld(true)

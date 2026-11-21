@@ -3011,7 +3011,7 @@ export class Game {
 
     const half = floor.halfSize
     p.x = 0
-    p.z = half * 0.56
+    p.z = half * 0.42
     p.grantInvuln(0.9)
     const npcZ = Math.min(4.2, half * 0.22)
     const restRoom = offer.room === 'rest'
@@ -3277,10 +3277,8 @@ export class Game {
     this.roomSpawnTimer = 0
     audio.startBgm('boss')
     audio.setBgmIntensity(2)
-    // Boss 生成在中心偏北 3~4m，同时将南侧过远的玩家略微前收，确保首帧完整看见 Boss 本体
-    const bossZ = -Math.min(4.0, floor.halfSize * 0.18)
-    const p = this.player
-    if (p && p.z > floor.halfSize * 0.42) p.z = floor.halfSize * 0.42
+    // Boss 生成在 -halfSize*0.32（避开中央地标碰撞半径 2.6~3.2 + Boss 半径 ~1.5），玩家站位已在 enterRoomMap 固定
+    const bossZ = -floor.halfSize * 0.32
     const boss = this.createBoss(0, bossZ, this.bossKindForStage(), false, 1)
     this.rig.focusIntro(boss.x, boss.z, 0.75)
     this.hud.toast(`首领房：${boss.title}苏醒了！`, 'bad')
