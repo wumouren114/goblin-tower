@@ -8,7 +8,6 @@ import {
   skillRange,
 } from '../data/characters'
 import { BASE_STATS } from '../data/gameConfig'
-import { getWeaponTier, tierNum, MAX_WEAPON_LV, type WeaponTier } from '../data/characterRuntime'
 import { rng } from '../core/rng'
 import { ChargeMeter } from './charge'
 import { ProjectileSystem, type ProjectileBurstContext, type ProjectileHitContext } from './projectiles'
@@ -219,7 +218,6 @@ export class Combat {
   private readonly scene: THREE.Scene
   private readonly hooks: CombatHooks
   private charId: CharacterId = 'mutsumi'
-  private lv = 1
   private stats: PlayerStats = baseStatsFor('mutsumi')
   private readonly meter = new ChargeMeter()
   private readonly projectiles: ProjectileSystem
@@ -327,7 +325,6 @@ export class Combat {
 
   setCharacter(id: CharacterId): void {
     this.charId = id
-    this.lv = 1
     this.stats = baseStatsFor(id)
     this.meter.reset(this.stats.chargeMax, 0)
     this.transformTime = 0
@@ -566,14 +563,6 @@ export class Combat {
     return 1
   }
 
-  setWeaponLv(level: number): void {
-    this.lv = Math.max(1, Math.min(MAX_WEAPON_LV, Math.floor(level)))
-  }
-
-  get weaponLv(): number {
-    return this.lv
-  }
-
   get characterId(): CharacterId {
     return this.charId
   }
@@ -740,17 +729,16 @@ export class Combat {
     }
     if (judge === 'perfect') this.hooks.onSfx('crit')
     const dir = this.dirFromAim(px, pz, aimX, aimZ)
-    const tier = getWeaponTier(this.charId, this.lv)
     this.hooks.onSfx('attack')
     if (this.charId === 'murasame') {
-      this.attackMurasame(px, pz, dir, tier, world)
+      this.attackMurasame(px, pz, dir, world)
       return true
     }
     if (this.charId === 'fish') {
-      this.attackFish(px, pz, dir, tier, world)
+      this.attackFish(px, pz, dir, world)
       return true
     }
-    this.attackMutsumi(px, pz, dir, tier, world, rhythmMul)
+    this.attackMutsumi(px, pz, dir, world, rhythmMul)
     return true
   }
 
@@ -758,7 +746,6 @@ export class Combat {
     px: number,
     pz: number,
     dir: { x: number; z: number },
-    tier: WeaponTier,
     world: CombatWorld,
     rhythmMul = 1,
   ): void {
@@ -766,9 +753,9 @@ export class Combat {
     const def = CHARACTERS.mutsumi
     const magic = this.stats.magic
     const baseRange = skillRange(def.attack.baseRange, this.stats.intelligence)
-    const baseDamage = hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), magic) * rhythmMul
-    const sizeMul = tierNum(tier, 'sizeMul', 1)
-    const hitMul = tierNum(tier, 'hitRadiusMul', 1)
+    const baseDamage = hitDamage(def.attack.baseDamage, magic) * rhythmMul
+    const sizeMul = 1
+    const hitMul = 1
 
     const requiem = this.style.id === 'mutsumi-requiem'
     const chord = this.resourceValue >= this.resourceMax
@@ -787,37 +774,10 @@ export class Combat {
     const chordColor = chord ? 0xffe6ad : undefined
     this.characterFx.mutsumiShot(px, pz, dir.x, dir.z, chord)
 
-    // lv4/5 变身期：普攻改为向前音波剑气
-    if (this.transformActive && tierNum(tier, 'mortisWave', 0) > 0) {
-      const bounce = tierNum(tier, 'waveBounce', 0)
-      this.projectiles.spawn({
-        kind: 'wave',
-        x: px + dir.x * 0.6,
-        z: pz + dir.z * 0.6,
-        y: 0.8,
-        dirX: dir.x,
-        dirZ: dir.z,
-        speed: 15,
-        damage: damage * tierNum(tier, 'mortisWave', 1),
-        range: baseRange * 1.25 * rangeMul,
-        hitRadius: 0.9 * (chord ? 1.25 : 1),
-        pierce: chord ? chordPierce : bounce > 0 ? 0 : 99,
-        bounce,
-        bounceMul: 0.8,
-        bounceRange: 5,
-        canCrit: true,
-        chord,
-        color: chordColor,
-        wallBounce: !chord && this.hasBranch('symphony') && this.hasNode('mutsumi-symphony-bounce') ? 1 : 0,
-      })
-      if (!chord) this.gainResource(1)
-      return
-    }
-
-    const count = chord ? 1 : Math.max(1, Math.floor(tierNum(tier, 'projectiles', 1)))
-    const spread = (tierNum(tier, 'spread', 0) * Math.PI) / 180
-    const bounce = chord ? 0 : Math.floor(tierNum(tier, 'bounce', 0))
-    const bounceMul = tierNum(tier, 'bounceMul', 0.6)
+    const count = 1
+    const spread = 0
+    const bounce = 0
+    const bounceMul = 0.6
     const speed = def.attack.projectileSpeed ?? 18
     for (let i = 0; i < count; i++) {
       const t = count === 1 ? 0 : i / (count - 1) - 0.5
@@ -879,29 +839,28 @@ export class Combat {
     px: number,
     pz: number,
     dir: { x: number; z: number },
-    tier: WeaponTier,
     world: CombatWorld,
   ): void {
     const def = CHARACTERS.murasame
     this.murasameAttackCount += 1
     if (this.style.id === 'murasame-iai' && this.murasameAttackCount % 3 === 0) {
-      this.attackMurasameIai(px, pz, dir, tier, world)
+      this.attackMurasameIai(px, pz, dir, world)
       return
     }
     const range =
       skillRange(def.attack.baseRange, this.stats.intelligence) *
-      tierNum(tier, 'radiusMul', 1) *
+      (def.skill.params.radiusMul ?? 1) *
       (this.style.id === 'murasame-iai' ? 0.9 : 1)
     const baseDamage =
-      hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), this.stats.magic) *
+      hitDamage(def.attack.baseDamage, this.stats.magic) *
       this.bloodDamageMul() *
       this.potentialAtkMul()
     const targets = pickConeTargets(world.enemies, px, pz, dir.x, dir.z, range, def.attack.angle ?? 110, 8)
     const crit = rng.chance(this.stats.critChance)
     const amount = crit ? baseDamage * this.stats.critMultiplier : baseDamage
     if (crit) this.hooks.onSfx('crit')
-    const gather = tierNum(tier, 'gatherOnHit', 0)
-    let lifesteal = tierNum(tier, 'lifesteal', 0)
+    const gather = 0
+    let lifesteal = def.skill.params.lifesteal ?? 0
     if (this.style.id === 'murasame-blood') lifesteal += 0.06
     if (this.style.id === 'murasame-blood') lifesteal += [0, 0.03, 0.05, 0.08][this.al('murasame-blood-price')]
     let leeched = 0
@@ -921,13 +880,6 @@ export class Combat {
     if (lifesteal > 0 && leeched > 0) world.heal(leeched)
     if (targets.length > 0) this.gainResource(1)
     this.characterFx.murasameSlash(px, pz, dir.x, dir.z, range, this.style.id, targets.length > 0, this.murasameFxBranch())
-    // lv4+ 普攻带前冲
-    const stepLen = tierNum(tier, 'stepOnAttack', 0)
-    if (stepLen > 0) {
-      const ext = world as CombatWorldExt
-      if (typeof ext.movePlayer === 'function') ext.movePlayer(dir.x, dir.z, stepLen, 0.12)
-      else world.dashPlayer(dir.x, dir.z, stepLen, 0.12)
-    }
   }
 
   /** 居合：第 3 次普攻变成 6m 直线拔刀，可命中路径上的敌人 */
@@ -935,14 +887,13 @@ export class Combat {
     px: number,
     pz: number,
     dir: { x: number; z: number },
-    tier: WeaponTier,
     world: CombatWorld,
   ): void {
     const def = CHARACTERS.murasame
     const range = skillRange(6, this.stats.intelligence)
     const width = 1.4
     const damage =
-      hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), this.stats.magic) *
+      hitDamage(def.attack.baseDamage, this.stats.magic) *
       1.4 *
       this.bloodDamageMul() *
       this.potentialAtkMul()
@@ -982,13 +933,12 @@ export class Combat {
     px: number,
     pz: number,
     dir: { x: number; z: number },
-    tier: WeaponTier,
     world: CombatWorld,
   ): void {
     void world
     const def = CHARACTERS.fish
-    const baseDamage = hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), this.stats.magic)
-    const pierce = Math.floor(tierNum(tier, 'pierce', 0))
+    const baseDamage = hitDamage(def.attack.baseDamage, this.stats.magic)
+    const pierce = 0
     const big = this.resourceValue >= this.resourceMax
     if (big) this.spendResource(this.resourceMax)
     const damage = baseDamage * (big ? 1.6 : 1)
@@ -1018,8 +968,7 @@ export class Combat {
   trySkill(px: number, pz: number, aimX: number, aimZ: number, world: CombatWorld, dashDir?: { x: number; z: number }): boolean {
     if (this.transformActive) return false
     const def = CHARACTERS[this.charId]
-    const tier = getWeaponTier(this.charId, this.lv)
-    const rawCost = this.skillCost(tier, def.skill.chargeCost)
+    const rawCost = this.skillCost(def.skill.chargeCost)
     // 兜底：任何专武档位的消耗都不能超过当前充能上限，否则会出现「满了却放不出」
     const cost = Math.min(this.meter.max, Math.max(20, rawCost))
     // 分身·共鸣回路：攒满后下一次技能不耗充能
@@ -1035,7 +984,7 @@ export class Combat {
     }
     if (this.charId === 'mutsumi') {
       if (!spend()) return false
-      this.startTransform(px, pz, tier, world)
+      this.startTransform(px, pz, world)
       return true
     }
     if (this.charId === 'murasame') {
@@ -1046,17 +995,17 @@ export class Combat {
         if (!hasReadyMark) return false
       }
       if (!spend()) return false
-      this.skillDash(px, pz, dir, tier, world)
+      this.skillDash(px, pz, dir, world)
       return true
     }
     if (!spend()) return false
-    this.skillSummon(px, pz, tier, world)
+    this.skillSummon(px, pz, world)
     return true
   }
 
-  private skillCost(tier: WeaponTier, fallback: number): number {
+  private skillCost(fallback: number): number {
     if (this.charId === 'murasame') {
-      const base = Math.max(20, tierNum(tier, 'skillCharge', fallback))
+      const base = Math.max(20, fallback)
       if (this.hasBranch('shunshan')) return Math.max(20, Math.round(base * 0.85))
       if (this.hasBranch('jianyi')) return Math.max(20, Math.round(base * 0.75))
       return base
@@ -1070,7 +1019,6 @@ export class Combat {
   private startTransform(
     px: number,
     pz: number,
-    tier: WeaponTier,
     world: CombatWorld,
   ): void {
     const def = CHARACTERS.mutsumi
@@ -1095,7 +1043,7 @@ export class Combat {
     const radius =
       (p.pulseBaseRadius ?? 4.3) *
       (this.stats.intelligence / 100) *
-      tierNum(tier, 'mortisRadiusMul', 1) *
+      (p.mortisRadiusMul ?? 1) *
       (this.hasBranch('duet') ? 1.25 : 1)
     const amount = hitDamage(p.burstDamage ?? 40, this.stats.magic)
     const knocked = p.burstKnockback ?? 3
@@ -1116,14 +1064,13 @@ export class Combat {
     px: number,
     pz: number,
     dir: { x: number; z: number },
-    tier: WeaponTier,
     world: CombatWorld,
   ): void {
     const def = CHARACTERS.murasame
     const p = def.skill.params
     const empowered = this.resourceValue >= this.resourceMax
     if (empowered) this.spendResource(this.resourceMax)
-    const skillMul = tierNum(tier, 'skillDamageMul', 1)
+    const skillMul = 1
     // 居合分支：突进距离缩至 20%、本体 0 直接伤害，改为收刀横斩引爆场上标记
     if (this.hasBranch('jianyi')) {
       const distance = (p.distance ?? 7.5) * 0.2
@@ -1243,7 +1190,7 @@ export class Combat {
     if (this.hasBranch('shunshan')) {
       world.heal(this.hasNode('murasame-shunshan-heal') ? 44 : (p.heal ?? 28))
     } else {
-      const healBase = tierNum(tier, 'skillHealPerHit', 7)
+      const healBase = p.skillHealPerHit ?? 6
       world.heal(healBase * hits.length)
     }
     world.grantInvuln(p.invulnerable ?? 0.3)
@@ -1254,10 +1201,10 @@ export class Combat {
     this.hooks.onSfx('skill')
   }
 
-  private skillSummon(px: number, pz: number, tier: WeaponTier, world: CombatWorld): void {
+  private skillSummon(px: number, pz: number, world: CombatWorld): void {
     const def = CHARACTERS.fish
     const p = def.skill.params
-    const baseDamage = hitDamage(tierNum(tier, 'damage', def.attack.baseDamage), this.stats.magic)
+    const baseDamage = hitDamage(def.attack.baseDamage, this.stats.magic)
     const focus = this.style.id === 'fish-school' && this.lastFishTarget?.alive ? this.lastFishTarget : undefined
 
     // 潜能：分身 = 1 只 1.0 倍面板的「小肥鱼」 + 3 只 0.4 倍面板的小鲸子（不再套娃）
@@ -1270,7 +1217,7 @@ export class Combat {
     const styleHpMul = legacy ? ((this.style.id === 'fish-school' ? 0.85 : 1) * (this.style.id === 'fish-whale' ? 1.3 : 1)) : 1
     const styleDamageMul = legacy && this.style.id === 'fish-whale' ? 1.2 : 1
     const styleIntervalMul = legacy && this.style.id === 'fish-school' ? 1 - [0, 0.05, 0.1, 0.15][tactics] : 1
-    let count = Math.max(1, Math.floor(tierNum(tier, 'minionCount', p.count ?? 3)))
+    let count = Math.max(1, Math.floor(p.count ?? 3))
     if (this.style.id === 'fish-school') count += 1
     if (this.style.id === 'fish-burst' || this.style.id === 'fish-whale') count -= 1
     if (legacy && this.style.id === 'fish-school' && tactics >= 3) count += 1
@@ -1311,8 +1258,8 @@ export class Combat {
         scale: legacy && this.style.id === 'fish-whale' ? scale * 1.18 : scale,
         variant,
         bubbleScale,
-        taunt: tierNum(tier, 'minionTaunt', 0) > 0,
-        slow: tierNum(tier, 'minionSlow', 0) > 0 ? tierNum(tier, 'minionSlow', 0) : undefined,
+        taunt: (p.minionTaunt ?? 0) > 0,
+        slow: (p.minionSlow ?? 0) > 0 ? p.minionSlow : undefined,
         focus,
         ...opts,
       })
@@ -1375,9 +1322,8 @@ export class Combat {
       }
     }
 
-    // 肥鱼专武 lv3 起：每 10s 掉一份白米饭
-    const tier = getWeaponTier(this.charId, this.lv)
-    const riceInterval = this.charId === 'fish' ? tierNum(tier, 'riceInterval', 0) : 0
+    // 肥鱼基础特性：每 10s 掉一份白米饭
+    const riceInterval = this.charId === 'fish' ? (CHARACTERS.fish.skill.params.riceInterval ?? 0) : 0
     if (riceInterval > 0) {
       this.riceTimer -= step
       if (this.riceTimer <= 0) {
@@ -1396,7 +1342,6 @@ export class Combat {
       awakenings: this.awakenings,
       resourceRatio: this.resourceMax > 0 ? this.resourceValue / this.resourceMax : 0,
       transformActive: this.transformActive,
-      weaponLv: this.lv,
     })
     this.flushBursts(world)
   }
@@ -1552,24 +1497,23 @@ export class Combat {
 
   private pulse(px: number, pz: number, world: CombatWorld): void {
     const p = CHARACTERS.mutsumi.skill.params
-    const tier = getWeaponTier(this.charId, this.lv)
     const requiem = this.style.id === 'mutsumi-requiem'
     const chord = this.resourceValue >= this.resourceMax
     if (chord) this.spendResource(this.resourceMax)
     const radius =
       (p.pulseBaseRadius ?? 4.3) *
       (this.stats.intelligence / 100) *
-      tierNum(tier, 'mortisRadiusMul', 1) *
+      (p.mortisRadiusMul ?? 1) *
       (chord ? (requiem ? 1.4 : 1.2) : 1) *
       (this.hasBranch('duet') ? 1.25 : 1) *
       (this.hasBranch('duet') && this.hasNode('mutsumi-duet-range') ? 1.15 : 1)
     const symphonyPulseMul = this.hasBranch('symphony') ? 0.75 : 1
     const baseAmount =
       hitDamage(p.pulseBaseDamage ?? 11, this.stats.magic) *
-      tierNum(tier, 'mortisPulseMul', 1) *
+      (p.mortisPulseMul ?? 1) *
       symphonyPulseMul
     const amount = baseAmount * (chord ? (requiem ? 2.2 : 1.6) : 1)
-    const lifesteal = tierNum(tier, 'mortisLifesteal', 0)
+    const lifesteal = p.mortisLifesteal ?? 0
     let drained = 0
     for (const t of world.enemies) {
       if (!t.alive) continue

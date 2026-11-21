@@ -13,7 +13,6 @@ import type { CardStat, CharacterId, InventoryItem, ShopOffer } from '../types'
 import type { Rng } from '../core/rng'
 import type { CardTierNum, ItemCardDef } from '../data/cards'
 import { BALANCE } from '../data/balance'
-import { MAX_WEAPON_LV } from '../data/characterRuntime'
 import { ITEM_CARDS, cardBasePrice, cardIdOfItem, nextTierNum } from '../data/cards'
 import { makeCardItem, priceOf, tierPriceMul } from './economy'
 import type { Inventory } from './inventory'
@@ -47,18 +46,12 @@ interface ShopCfg {
   consumables: { heal: ConsumableCfg; charge: ConsumableCfg }
 }
 
-interface WeaponLite {
-  name: string
-  tiers: { lv: number; desc: string; price?: number }[]
-}
-
 export type HeldCardsInput =
   | Inventory
   | Partial<Record<string, 1 | 2 | 3>>
   | readonly InventoryItem[]
 
 const SHOP = (BALANCE as unknown as { shop: ShopCfg }).shop
-const WEAPONS = (BALANCE as unknown as { weapons: Record<CharacterId, WeaponLite> }).weapons
 
 /** 商店重掷费用（balance.shop.rerollCost） */
 export const REFRESH_COST: number = SHOP.rerollCost
@@ -208,26 +201,6 @@ function makePotentialOffer(layer: number): ShopOffer {
   }
 }
 
-function makeWeaponUpgradeOffer(charId: CharacterId, weaponLv: number): ShopOffer | null {
-  const current = Math.round(weaponLv)
-  const next = current + 1
-  if (next > MAX_WEAPON_LV || next < 2) return null
-  const weapon = WEAPONS[charId]
-  const def = weapon.tiers[next - 1]
-  if (!def) return null
-  return {
-    id: `weapon-${charId}-${next}`,
-    kind: 'weapon',
-    name: `${weapon.name}·Lv${next}`,
-    desc: def.desc,
-    icon: '⚔️',
-    // 专武价格 = balance.weapons.<char>.tiers[level].price，不随层数涨价
-    price: Math.max(1, Math.round(def.price ?? 0)),
-    tier: next <= 2 ? 1 : next === 3 ? 2 : 3,
-    weaponLevel: next,
-  }
-}
-
 function makeBuffOffer(
   layer: number,
   rng: Rng,
@@ -293,7 +266,7 @@ function makeConsumableOffer(layer: number, rng: Rng, seq: number): ShopOffer {
 }
 
 /**
- * 生成货架。gold 不筛货（只用于 HUD 是否买得起）；weaponLv 为角色当前专武等级，
+ * 生成货架。gold 不筛货（只用于 HUD 是否买得起）；
  * trainingBuys 为已购买训练次数，held 为玩家当前已持有的道具卡档位（不传则按未持有处理）。
  */
 export function generateOffers(
@@ -302,7 +275,6 @@ export function generateOffers(
   gold: number,
   rng: Rng,
   count: number = SHOP.slots,
-  weaponLv = 1,
   trainingBuys = 0,
   held?: HeldCardsInput,
 ): ShopOffer[] {
@@ -347,11 +319,10 @@ export function refreshOffers(
   layer: number,
   charId: CharacterId,
   rng: Rng,
-  weaponLv = 1,
   trainingBuys = 0,
   held?: HeldCardsInput,
 ): ShopOffer[] {
-  return generateOffers(layer, charId, 0, rng, SHOP.slots, weaponLv, trainingBuys, held)
+  return generateOffers(layer, charId, 0, rng, SHOP.slots, trainingBuys, held)
 }
 
 /* ================================================================== */

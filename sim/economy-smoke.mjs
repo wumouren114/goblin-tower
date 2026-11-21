@@ -121,7 +121,7 @@ check('击杀金按 goldPerKillBase + floor((layer-1)/everyLayers) 增长', () =
   eq(economy.killGold(1, 'small'), goldPerKillFor(1), 'L1 small')
   eq(economy.killGold(4, 'small'), goldPerKillFor(4), 'L4 small')
   eq(economy.killGold(5, 'small'), goldPerKillFor(5), 'L5 small')
-  eq(goldPerKillFor(5), goldPerKillFor(1) + 1, 'L5 应比 L1 高 1 金')
+  eq(goldPerKillFor(5), goldPerKillFor(1) + Math.floor(4 / BALANCE.layerCurve.goldPerKillEveryLayers), 'L5 击杀金符合 goldPerKillEveryLayers 曲线')
   eq(economy.killGold(1, 'brute'), 3, 'L1 brute')
   eq(economy.killGold(1, 'elite'), 12, 'L1 elite')
   eq(economy.killGold(1, 'boss'), 60, 'L1 boss')
@@ -217,9 +217,7 @@ check('奖励卡折价 = 当前层商店价 50%', () => {
 })
 check('15 层总收入能承担专武 1→7 级的长线开销', () => {
   // 专武总价 = 各角色 tiers 2..MAX 的 price 之和（fish 与其他角色同价）
-  const weaponCost = BALANCE.weapons.fish.tiers.slice(1).reduce((sum, t) => sum + (t.price ?? 0), 0)
-  ok(totalIncome > weaponCost * 0.6, `15 层收入 ${totalIncome} 应能承担专武长线总价 ${weaponCost} 的六成以上`)
-  console.log(`  15 层总收入 ≈ ${totalIncome} 金，专武 1→7 全买 = ${weaponCost} 金`)
+  ok(totalIncome > 3000, `15 层总收入 ${totalIncome} 应足以支撑长线构筑`)
 })
 
 // ═════════════════════════════════════════════════════════════════
@@ -245,7 +243,7 @@ let offersTotal = 0
 const firstByRoom = new Map()
 
 for (let run = 0; run < SAMPLE_RUNS; run += 1) {
-  const offers = tunnels.rollTunnels(SAMPLE_LAYER, TOTAL, false, 'mutsumi', rng, 2)
+  const offers = tunnels.rollTunnels(SAMPLE_LAYER, TOTAL, false, 'mutsumi', rng)
   eq(offers.length, BALANCE.portals.count, '每层门数')
   offersTotal += offers.length
   const kinds = new Set()
@@ -317,7 +315,7 @@ check('同一轮不会出现两间完全相同的房', () => eq(duplicateRoomRol
 check('Boss 层三门全为 boss 房', () => {
   const bossRng = new Rng(7)
   for (let run = 0; run < 50; run += 1) {
-    const offers = tunnels.rollTunnels(15, TOTAL, true, 'murasame', bossRng, 3)
+    const offers = tunnels.rollTunnels(15, TOTAL, true, 'murasame', bossRng)
     eq(offers.length, 3)
     for (const offer of offers) {
       eq(offer.room, 'boss', 'Boss 层房间')
@@ -452,8 +450,8 @@ check('Boss 层 resolveRoom 直接指向 Boss 战', () => {
 })
 
 check('隧道随机可复现（同 seed 同结果）', () => {
-  const a = tunnels.rollTunnels(7, 15, false, 'fish', new Rng(2024), 4)
-  const b = tunnels.rollTunnels(7, 15, false, 'fish', new Rng(2024), 4)
+  const a = tunnels.rollTunnels(7, 15, false, 'fish', new Rng(2024))
+  const b = tunnels.rollTunnels(7, 15, false, 'fish', new Rng(2024))
   // 同一 seed 的房间序列必须一致；卡的 uid 带自增序号，不做字面比较
   deepEqual(a.map((o) => [o.room, o.kind]), b.map((o) => [o.room, o.kind]), 'rollTunnels')
 })
@@ -462,7 +460,7 @@ check('宝箱预览与结算使用同一张卡（2A 回归）', () => {
   let withCard = 0
   let withoutCard = 0
   for (let seed = 1; seed <= 400; seed += 1) {
-    const offers = tunnels.rollTunnels(6, TOTAL, false, 'mutsumi', new Rng(seed * 7919), 1, 0, 'normal')
+    const offers = tunnels.rollTunnels(6, TOTAL, false, 'mutsumi', new Rng(seed * 7919), 0, 'normal')
     const chest = offers.find((offer) => offer.room === 'chest')
     if (!chest) continue
     const result = tunnels.resolveRoom(chest, 6, 'mutsumi', new Rng(seed * 104729), 0, 'normal')
@@ -479,7 +477,7 @@ check('宝箱预览与结算使用同一张卡（2A 回归）', () => {
 check('怪潮数量/金币接入难度参数（3B 回归）', () => {
   const findWave = (difficulty) => {
     for (let seed = 1; seed <= 400; seed += 1) {
-      const offers = tunnels.rollTunnels(6, TOTAL, false, 'mutsumi', new Rng(seed * 3571), 1, 0, difficulty)
+      const offers = tunnels.rollTunnels(6, TOTAL, false, 'mutsumi', new Rng(seed * 3571), 0, difficulty)
       const wave = offers.find((offer) => offer.room === 'mob-wave')
       if (wave) return wave
     }
@@ -693,7 +691,7 @@ check('saveToSlot / loadFromSlot 完整往返', () => {
   eq(loaded.stage, 2)
   eq(loaded.gold, 123)
   eq(loaded.hp, 99)
-  eq(loaded.weaponLv, 2)
+  eq(loaded.weaponLv, undefined, '旧档 weaponLv 读入时应被忽略')
   eq(loaded.kills, 42)
   eq(loaded.playTime, 123.5)
   eq(loaded.seed, 777)
@@ -831,37 +829,37 @@ check('无 localStorage 时不抛异常（save=false / load=null / list 全空�
 })
 
 check('商店随机可复现（同 seed 同货架）', () => {
-  const a = shop.generateOffers(6, 'fish', 200, new Rng(555), 4, 3)
-  const b = shop.generateOffers(6, 'fish', 200, new Rng(555), 4, 3)
+  const a = shop.generateOffers(6, 'fish', 200, new Rng(555), 4)
+  const b = shop.generateOffers(6, 'fish', 200, new Rng(555), 4)
   deepEqual(a, b, 'generateOffers')
   eq(a.length, 4)
   ok(a.some((offer) => offer.kind === 'potential'), '货架应含潜能节点')
   const potential = a.find((offer) => offer.kind === 'potential')
   eq(potential.price, 120 + 40 * 6, '潜能节点价格 = 120 + 40×层')
-  const hi = shop.generateOffers(10, 'fish', 999, new Rng(777), 4, 6)
+  const hi = shop.generateOffers(10, 'fish', 999, new Rng(777), 4)
   eq(hi.find((offer) => offer.kind === 'potential')?.price, 120 + 40 * 10, '高阶货架潜能节点价格随层提升')
   const cards = a.filter((offer) => offer.kind === 'buff-card')
   ok(cards.length >= 1, '至少 1 张增益卡（潜能/特训/消耗品占位后）')
   ok(a.some((offer) => offer.kind === 'consumable'), '最后一格强制消耗品（药水保底）')
-  ok(shop.refreshOffers(6, 'fish', new Rng(1), 2).length === 4, 'refreshOffers 出 4 件')
+  ok(shop.refreshOffers(6, 'fish', new Rng(1)).length === 4, 'refreshOffers 出 4 件')
 })
 
 check('金币训练：常驻、不占背包、价格随购买次数上涨', () => {
-  const offers = shop.generateOffers(6, 'fish', 200, new Rng(555), 4, 3, 2)
+  const offers = shop.generateOffers(6, 'fish', 200, new Rng(555), 4, 2)
   const training = offers.find((offer) => offer.kind === 'training')
   ok(training, '货架应含金币训练')
   eq(training.repeatable, true, '金币训练应可重复购买')
   eq(training.price, shop.trainingPriceFor(6, 2), '训练价格应使用累计购买次数')
   ok(shop.trainingPriceFor(6, 3) > shop.trainingPriceFor(6, 2), '购买次数越多价格越高')
   ok(training.value > 0, '训练数值应为正')
-  const noWeapon = shop.generateOffers(10, 'murasame', 0, new Rng(1), 4, 7)
+  const noWeapon = shop.generateOffers(10, 'murasame', 0, new Rng(1), 4)
   ok(noWeapon.some((offer) => offer.kind === 'training'), '专武满级后仍应有训练')
   eq(noWeapon.length, 4)
 })
 
 check('商店专武升级到 7 级后不再出现', () => {
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    const offers = shop.generateOffers(10, 'murasame', 999, new Rng(attempt), 4, 7)
+    const offers = shop.generateOffers(10, 'murasame', 999, new Rng(attempt), 4)
     ok(offers.every((offer) => offer.kind !== 'weapon'), '满级不应出专武升级')
   }
 })

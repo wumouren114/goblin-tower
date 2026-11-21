@@ -47,7 +47,7 @@ import { HazardField, type HazardState } from './systems/hazardZone'
 import { StatusField } from './systems/statusEffects'
 import { cardIdOfItem, ITEM_CARDS } from './data/cards'
 import { CHARACTERS, CHARGE_FLOOR_START_RATIO, skillRange } from './data/characters'
-import { getWeaponTier, charTakeDamageMul, tierNum, MAX_WEAPON_LV } from './data/characterRuntime'
+import { charTakeDamageMul } from './data/characterRuntime'
 import {
   DIFFICULTIES,
   layerCount,
@@ -185,7 +185,6 @@ function makeRunState(character: CharacterId, difficulty: DifficultyId): RunStat
     gold: 0,
     hp: 100,
     maxHp: 100,
-    weaponLv: 1,
     cards: emptyCards(),
     inventory: [],
     kills: 0,
@@ -277,8 +276,6 @@ export class Game {
   private currentDoor: TunnelOffer | null = null
   private cardRewardOffers: TunnelOffer[] = []
   private cardRewardActive = false
-  private weaponRewardOffers: TunnelOffer[] = []
-  private weaponRewardActive = false
   private altarOffers: TunnelOffer[] = []
   private altarActive = false
   private trialOffers: TunnelOffer[] = []
@@ -379,7 +376,6 @@ export class Game {
     this.rng = new Rng(this.run.seed)
     this.inventory = new Inventory()
     this.cards = emptyCards()
-    this.run.weaponLv = 1
     this.player = new Player(this.scene, 0, 0, character)
     this.player.setHp(CHARACTERS[character].base.hp)
     this.run.hp = CHARACTERS[character].base.hp
@@ -398,7 +394,6 @@ export class Game {
     this.combat.setCharacter(character)
     this.combat.setBuild(style.id, this.run.awakenings)
     this.syncPotential()
-    this.combat.setWeaponLv(1)
     this.rig.reset()
     this.hud.hideTitle()
     this.hud.hideCharacterSelect()
@@ -449,7 +444,6 @@ export class Game {
     this.combat.setCharacter(state.character)
     this.combat.setBuild(this.run.style, this.run.awakenings)
     this.syncPotential()
-    this.combat.setWeaponLv(state.weaponLv)
     this.rig.reset()
     this.hud.hideTitle()
     this.hud.hideEnd()
@@ -801,7 +795,6 @@ export class Game {
       this.combat.setCharacter(this.run.character)
       this.combat.setBuild(this.run.style, this.run.awakenings)
     this.syncPotential()
-      this.combat.setWeaponLv(this.run.weaponLv)
     }
     this.player.setHp(Math.max(1, Math.min(this.player.stats.maxHp, snap.hp || this.player.stats.maxHp)))
     this.run.hp = this.player.hp
@@ -2334,7 +2327,6 @@ export class Game {
       kills: this.run.kills,
       gold: this.run.gold,
       time: this.run.playTime,
-      weaponLv: this.run.weaponLv,
       cardCount: this.inventory.count,
       reason,
     }
@@ -2507,7 +2499,6 @@ export class Game {
       bossDoor,
       this.run.character,
       this.rng,
-      this.run.weaponLv,
       this.run.trainingBuys ?? 0,
       this.run.difficulty,
     )
@@ -2522,7 +2513,7 @@ export class Game {
       this.hud.hideTunnels()
       audio.click()
       this.commitAltar(id)
-      if (this.weaponRewardActive) return
+      if (this.potentialActive) return
       this.completeRoomMap('你离开了祭坛')
       return
     }
@@ -2554,24 +2545,6 @@ export class Game {
       this.grantRewardItem(pick.payload.card)
       this.hud.toast(`获得「${pick.payload.card.name}」`, 'good')
       this.advanceToNextLayer()
-      return
-    }
-    if (this.weaponRewardActive) {
-      const pick = this.weaponRewardOffers.find((o) => o.id === id)
-      const choice = pick?.payload.awakening
-      if (!choice) return
-      this.weaponRewardActive = false
-      this.weaponRewardOffers = []
-      this.hud.hideTunnels()
-      audio.click()
-      const next = normalizeAwakenings(choice.styleId, this.run.awakenings)
-      next[choice.id] = choice.level
-      this.run.awakenings = next
-      this.combat?.setBuild(this.run.style ?? choice.styleId, next)
-      this.hud.toast(`专武：${choice.name} Lv${choice.level}`, 'good')
-      audio.levelUp()
-      if (this.roomMap) this.completeRoomMap('祭坛的契约已履行')
-      else this.advanceToNextLayer()
       return
     }
     if (this.potentialActive) {
@@ -2781,13 +2754,7 @@ export class Game {
       }
       this.inventory.remove(card.uid)
       this.run.hpCapPenalty = Math.min(0.7, penalty + 0.1)
-      this.weaponRewardOffers = this.buildWeaponOffers()
-      if (this.weaponRewardOffers.length === 0) {
-        this.hud.toast('专武已至顶，祭坛只收下了代价', 'bad')
-        return
-      }
-      this.weaponRewardActive = true
-      this.hud.showTunnelOffers(this.weaponRewardOffers, this.run.layer, 'weapon')
+      this.openPotential()
       return
     } else if (id === 'altar-mystery') {
       const pulls = this.run.mysteryPulls ?? 0
@@ -2986,55 +2953,6 @@ export class Game {
     audio.duck(false)
     this.hud.showTunnelOffers(offers, this.run.layer, 'bonus')
     audio.levelUp()
-  }
-
-  /** 战后三选一：专武升级方向（复用旧觉醒数据） */
-  private openWeaponReward(): void {
-    const offers = this.buildWeaponOffers()
-    if (offers.length === 0) {
-      this.advanceToNextLayer()
-      return
-    }
-    this.weaponRewardOffers = offers
-    this.weaponRewardActive = true
-    this.phase = 'tunnel'
-    audio.duck(false)
-    this.hud.showTunnelOffers(offers, this.run.layer, 'awakening')
-    audio.levelUp()
-  }
-
-  /** 组装专武选项（祭坛「双重」也会复用） */
-  private buildWeaponOffers(): TunnelOffer[] {
-    const style = styleForCharacter(this.run.character, this.run.style)
-    const current = normalizeAwakenings(style.id, this.run.awakenings)
-    const offers: TunnelOffer[] = []
-    for (const awakening of style.awakenings) {
-      const level = current[awakening.id] ?? 0
-      if (level >= 3) continue
-      const next = level + 1
-      offers.push({
-        id: `weapon-${awakening.id}`,
-        kind: 'battle',
-        room: 'skill-card',
-        title: `${awakening.name} · Lv${next}`,
-        desc: awakening.levels[next - 1],
-        icon: awakening.icon,
-        payload: {
-          awakening: {
-            id: awakening.id,
-            styleId: style.id,
-            name: awakening.name,
-            icon: awakening.icon,
-            styleName: style.name,
-            action: level === 0 ? 'acquire' : 'upgrade',
-            level: next,
-            desc: awakening.levels[next - 1],
-            currentDesc: level > 0 ? awakening.levels[level - 1] : undefined,
-          },
-        },
-      })
-    }
-    return offers
   }
 
   /** 选完路线后真正进入房间地图：玩家可以走动，找到 NPC 按 E 开启房间内容 */
@@ -3386,7 +3304,6 @@ export class Game {
       this.run.gold,
       this.rng,
       4,
-      this.run.weaponLv,
       this.run.trainingBuys ?? 0,
     )
     this.shopMode = 'standard'
@@ -3433,18 +3350,7 @@ export class Game {
       audio.levelUp()
       return
     }
-    if (offer.kind === 'weapon') {
-      if (offer.weaponLevel !== this.run.weaponLv + 1) {
-        this.hud.toast('只能购买下一级专武', 'bad')
-        return
-      }
-      this.run.gold -= offer.price
-      this.run.weaponLv += 1
-      this.combat?.setWeaponLv(this.run.weaponLv)
-      this.recalcStats()
-      this.shopOffers.splice(idx, 1)
-      this.hud.toast(`专武升级到 Lv${this.run.weaponLv}`, 'good')
-    } else if (offer.kind === 'training') {
+    if (offer.kind === 'training') {
       if (!offer.stat || typeof offer.value !== 'number') return
       const training = { ...(this.run.training ?? {}) }
       training[offer.stat] = Number(((training[offer.stat] ?? 0) + offer.value).toFixed(3))
@@ -3495,7 +3401,6 @@ export class Game {
       this.run.gold,
       this.rng,
       4,
-      this.run.weaponLv,
       this.run.trainingBuys ?? 0,
     )
     audio.coin()
@@ -3668,8 +3573,7 @@ export class Game {
     const p = this.player
     if (!p) return
     const def = CHARACTERS[this.run.character]
-    const tier = getWeaponTier(this.run.character, this.run.weaponLv) as Record<string, number>
-    const allStat = (tier.allStatMul ?? 1) * (1 + this.riceStacks * 0.07)
+    const allStat = 1 + this.riceStacks * 0.07
     const mods = this.combat?.modifiers ?? NEUTRAL_MODS
     const c = this.cards
     const styleHpMul = this.run.style === 'murasame-blood' ? 0.9 : 1
@@ -3689,7 +3593,7 @@ export class Game {
       moveSpeed:
         (def.base.moveSpeed + (c.moveSpeed ?? 0)) * mods.moveSpeedMul * (giant ? 0.85 : 1) * this.trialMul('moveSpeed'),
       damage:
-        (tier.damage ?? 10) *
+        def.attack.baseDamage *
         allStat *
         (giant ? 1.15 : 1) *
         this.trialMul('attack') *
@@ -3709,7 +3613,7 @@ export class Game {
       chargeGain: c.chargeGain ?? 0,
       armor: 0,
       armorRate: Math.min(0.6, c.armor ?? 0),
-      dodge: Math.min(0.24, (c.dodge ?? 0) + ((tier.dodgeChance as number) ?? 0)),
+      dodge: Math.min(0.24, c.dodge ?? 0),
       critChance: Math.min(0.6, 0.08 + (c.crit ?? 0)),
       critMultiplier: 2.0,
       pickupRadius: 2.0,
@@ -3810,7 +3714,6 @@ export class Game {
       skillName: this.combat?.skillName ?? '',
       skillReady: this.combat?.skillReady ?? false,
       resource: this.combat?.resource,
-      weaponLv: this.run.weaponLv,
       cardCount: this.inventory.count,
       inventory: this.run.inventory.map((item) => ({ ...item })),
       cards: { ...(this.run.cards ?? {}) },
@@ -3845,8 +3748,6 @@ export class Game {
     for (let i = 0; i < 8; i += 1) {
       const gold = 400
       this.addGold(gold)
-      this.run.weaponLv = Math.min(MAX_WEAPON_LV, this.run.weaponLv + 1)
-      this.combat?.setWeaponLv(this.run.weaponLv)
       if (i < 5) {
         const stat = (['magic', 'stamina', 'intelligence', 'hp', 'moveSpeed'] as CardStat[])[i % 5]
         const item = makeCardItem(stat, 1)

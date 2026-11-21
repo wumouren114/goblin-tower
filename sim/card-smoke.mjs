@@ -111,7 +111,6 @@ check('生命之源（hpRegen）进背包可原地升档且不破坏存档校验
     gold: 100,
     hp: 100,
     maxHp: 100,
-    weaponLv: 1,
     cards: bag.cards,
     inventory: [...bag.items],
     kills: 10,
@@ -135,7 +134,7 @@ check('商店只出比当前持有高一档的卡，且满金卡绝不再出现'
 
   const rng = new Rng(202611)
   for (let i = 0; i < 120; i += 1) {
-    const offers = generateOffers(8, 'mutsumi', 9999, rng, 4, 7, 0, bag)
+    const offers = generateOffers(8, 'mutsumi', 9999, rng, 4, 0, bag)
     for (const offer of offers) {
       if (offer.kind !== 'buff-card') continue
       const cid = cardIdOfItem(offer)
@@ -165,7 +164,7 @@ check('一局 15 层模拟能拿到 1–2 张金卡 + 数张散卡', () => {
     const bag = new Inventory()
     // 模拟 15 层：每层在商店买 1 张卡（优先买高档升级卡）
     for (let layer = 1; layer <= 15; layer += 1) {
-      const offers = generateOffers(layer, 'murasame', 9999, rng, 4, Math.min(7, 1 + Math.floor(layer / 2)), 0, bag)
+      const offers = generateOffers(layer, 'murasame', 9999, rng, 4, 0, bag)
       const cards = offers.filter((o) => o.kind === 'buff-card').sort((a, b) => b.tier - a.tier)
       if (cards.length > 0) {
         const pick = cards[0]

@@ -105,7 +105,7 @@ export interface TunnelOffer {
 }
 
 /** 层末流程：清层奖励卡 → 时空隧道门；v4.6 在 3/6/9 层插入角色觉醒 */
-export type TunnelScreenMode = 'bonus' | 'tunnel' | 'awakening' | 'potential' | 'trial' | 'weapon' | 'altar'
+export type TunnelScreenMode = 'bonus' | 'tunnel' | 'awakening' | 'potential' | 'trial' | 'altar'
 
 /** 一次觉醒二选一：获得新觉醒，或深化已有觉醒 */
 export interface AwakeningChoice {
@@ -160,7 +160,7 @@ export interface TunnelPayload {
 
 export interface ShopOffer {
   id: string
-  kind: 'weapon' | 'buff-card' | 'consumable' | 'training' | 'potential'
+  kind: 'buff-card' | 'consumable' | 'training' | 'potential'
   name: string
   desc: string
   icon: string
@@ -168,8 +168,6 @@ export interface ShopOffer {
   tier: 1 | 2 | 3
   stat?: CardStat
   value?: number
-  /** kind==='weapon' 时，购买后专武到达的等级 */
-  weaponLevel?: number
   /** kind==='training' 时可持续购买，价格随购买次数上涨 */
   repeatable?: boolean
   /** kind==='training' 时展示用的属性名（如「魔力」） */
@@ -202,7 +200,6 @@ export interface RunState {
   gold: number
   hp: number
   maxHp: number
-  weaponLv: number
   cards: Record<CardStat, number>
   inventory: InventoryItem[]
   kills: number
@@ -279,7 +276,6 @@ export interface SaveSlotMeta {
   difficulty?: DifficultyId
   layer?: number
   stage?: number
-  weaponLv?: number
   gold?: number
   playTime?: number
   savedAt?: number
@@ -399,7 +395,6 @@ export interface HudSnapshot {
   roomObjective?: string
   charge?: number
   chargeMax?: number
-  weaponLv?: number
   skillName?: string
   skillReady?: boolean
   cardCount?: number
@@ -491,7 +486,6 @@ export interface RunStatsV3 {
   totalLayers: number
   gold: number
   kills: number
-  weaponLv: number
   cardCount: number
   time: number
   reason?: DefeatReason

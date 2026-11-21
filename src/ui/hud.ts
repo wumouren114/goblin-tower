@@ -180,13 +180,6 @@ const CARD_ART: Record<CardStat, ArtKey> = {
   crit: 'icon_card_crit',
 }
 
-/** 角色 → 专武图标 */
-const WEAPON_ART: Record<CharacterId, ArtKey> = {
-  mutsumi: 'icon_weapon_mutsumi',
-  murasame: 'icon_weapon_murasame',
-  fish: 'icon_weapon_fish',
-}
-
 /** 角色 → 立绘头像（睦为常服像，Mortis 另有 portrait_mortis） */
 const PORTRAIT_ART: Record<CharacterId, ArtKey> = {
   mutsumi: 'portrait_mutsumi',
@@ -270,7 +263,6 @@ const STAT_LABEL: Record<CardStat, string> = {
 const STAT_IS_PCT: Partial<Record<CardStat, boolean>> = { chargeGain: true, dodge: true, armor: true, crit: true }
 
 const SHOP_KIND_LABEL: Record<ShopOffer['kind'], string> = {
-  weapon: '专武升级',
   potential: '潜能节点',
   'buff-card': '增益卡',
   consumable: '消耗品',
@@ -399,10 +391,6 @@ function syncArtIcon(host: HTMLElement): boolean {
   return false
 }
 
-function weaponArtKey(character: CharacterId): ArtKey {
-  return WEAPON_ART[character] ?? 'icon_weapon_mutsumi'
-}
-
 function cardArtKey(stat: CardStat | undefined): ArtKey | null {
   return stat ? CARD_ART[stat] ?? null : null
 }
@@ -478,7 +466,6 @@ const UI_TEMPLATE = /* html */ `
         </div>
       </div>
       <div class="vital vital-skill js-skill-block">
-        <div class="skill-badge">专武 <b class="js-weapon-lv">1</b></div>
         <div class="skill-main">
           <div class="vital-head">
             <span class="vital-label js-skill-name">技能</span>
@@ -735,7 +722,6 @@ class HudImpl implements HudV3 {
   private resourceStyleEl!: HTMLElement
   private resourceNameEl!: HTMLElement
   private resourcePipsEl!: HTMLElement
-  private weaponLvEl!: HTMLElement
   private objectiveEl!: HTMLElement
   private hudPromptEl!: HTMLElement
   private hudPromptTextEl!: HTMLElement
@@ -968,7 +954,6 @@ class HudImpl implements HudV3 {
     const charge = Math.max(0, Math.min(snapshot.charge ?? 0, chargeMax))
     setText(this.chargeTextEl, `${Math.floor(charge)} / ${Math.round(chargeMax)}`)
     setText(this.skillNameEl, snapshot.skillName || '技能')
-    setText(this.weaponLvEl, String(Math.max(1, Math.floor(snapshot.weaponLv ?? 1))))
     setBarFill(this.chargeFillEl, clamp01(charge / chargeMax), this.barCache)
     this.skillBlockEl.classList.toggle('is-ready', Boolean(snapshot.skillReady))
 
@@ -1063,18 +1048,17 @@ class HudImpl implements HudV3 {
     const isAwakening = mode === 'awakening'
     const isPotential = mode === 'potential'
     const isTrial = mode === 'trial'
-    const isWeapon = mode === 'weapon'
     const isAltar = mode === 'altar'
-    const isTunnel = !isBonus && !isAwakening && !isPotential && !isTrial && !isWeapon && !isAltar
+    const isTunnel = !isBonus && !isAwakening && !isPotential && !isTrial && !isAltar
     this.tunnelMode = mode
     this.tunnelOffers = offers.slice(0, this.tunnelCardRefs.length)
     this.tunnelEl.classList.toggle('is-bonus', isBonus)
-    this.tunnelEl.classList.toggle('is-awakening', isPotential || isAwakening || isTrial || isWeapon || isAltar)
+    this.tunnelEl.classList.toggle('is-awakening', isPotential || isAwakening || isTrial || isAltar)
     this.tunnelEl.classList.toggle('is-tunnel', isTunnel)
     this.tunnelEl.dataset.mode = mode
     this.tunnelEl.setAttribute(
       'aria-label',
-      isAltar ? '献祭三选一' : isTrial ? '立约' : isWeapon ? '专武方向三选一' : isAwakening ? '专武方向选择' : isPotential ? '潜能三选一' : isBonus ? '清层奖励三选一' : '时空隧道路线选择',
+      isAltar ? '献祭四档选择' : isTrial ? '立约' : isAwakening ? '专武方向选择' : isPotential ? '潜能三选一' : isBonus ? '清层奖励三选一' : '时空隧道路线选择',
     )
     setText(this.tunnelModeMarkEl, isAltar ? '🕯️' : isAwakening ? '✦' : isPotential ? '✦' : isBonus ? '🎁' : '🧭')
     setText(
@@ -1082,11 +1066,9 @@ class HudImpl implements HudV3 {
       isAltar
         ? 'ALTAR · SACRIFICE'
         : isAwakening
-          ? 'WEAPON · UPGRADE PATH'
+          ? 'POTENTIAL · UPGRADE PATH'
           : isTrial
             ? 'TRIAL · THE OATH'
-            : isWeapon
-              ? 'WEAPON · CHOOSE A PATH'
               : isPotential
                 ? 'POTENTIAL · CHOOSE A PATH'
                 : isBonus
@@ -1095,7 +1077,7 @@ class HudImpl implements HudV3 {
     )
     setText(
       this.tunnelTitleEl,
-      isAltar ? '献祭 · 三选一' : isTrial ? '立约 · 接受或婉拒' : isWeapon ? '专武 · 三选一' : isAwakening ? '专武 · 强化方向' : isPotential ? '潜能 · 三选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道',
+      isAltar ? '献祭 · 四档祭坛' : isTrial ? '立约 · 接受或婉拒' : isAwakening ? '专武 · 强化方向' : isPotential ? '潜能 · 三选一' : isBonus ? '清层奖励 · 三选一' : '时空隧道',
     )
     setText(
       this.tunnelSubEl,
@@ -1124,8 +1106,6 @@ class HudImpl implements HudV3 {
       ? '看清献上什么、换取什么；献祭代价不可逆，也可直接离开'
       : isTrial
         ? '读清代价与收益，选「立约」或「婉拒」；拒绝没有任何惩罚'
-        : isWeapon
-          ? '选择一个专武方向，再点「确认」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>'
           : isAwakening
             ? '选中一个方向，再点「确认选择」或按 <kbd>Enter</kbd> / <kbd>E</kbd> / <kbd>空格</kbd>（<kbd>1</kbd><kbd>2</kbd> 可直接选中）'
             : isBonus
@@ -1144,7 +1124,7 @@ class HudImpl implements HudV3 {
       ref.card.className = `tunnel-card kind-${offer.kind}`
       setText(
         ref.band,
-        isAltar ? '祭坛' : isTrial ? '考验' : isWeapon ? '专武' : isAwakening ? '专武' : isPotential ? '潜能' : isBonus ? '清层奖励' : ROOM_BAND[offer.room] ?? TUNNEL_META[offer.kind]?.label ?? '未知',
+        isAltar ? '祭坛' : isTrial ? '考验' : isAwakening ? '专武' : isPotential ? '潜能' : isBonus ? '清层奖励' : ROOM_BAND[offer.room] ?? TUNNEL_META[offer.kind]?.label ?? '未知',
       )
       const potentialBranch =
         isPotential && offer.payload?.potential?.branch
@@ -1642,7 +1622,6 @@ class HudImpl implements HudV3 {
     this.resourceStyleEl = this.q('.js-resource-style')
     this.resourceNameEl = this.q('.js-resource-name')
     this.resourcePipsEl = this.q('.js-resource-pips')
-    this.weaponLvEl = this.q('.js-weapon-lv')
     this.objectiveEl = this.q('.js-objective')
     this.bossEl = this.q('.js-boss')
     this.bossNameEl = this.q('.js-boss-name')
@@ -1856,7 +1835,7 @@ class HudImpl implements HudV3 {
     this.tunnelSubEl = this.q('.js-tunnel-sub')
     this.tunnelHintEl = this.q('.js-tunnel-hint')
     this.tunnelCardsEl = this.q('.js-tunnel-cards')
-    for (let i = 0; i < 3; i += 1) {
+    for (let i = 0; i < 4; i += 1) {
       const card = el('button', 'tunnel-card')
       card.type = 'button'
       const band = span('tc-band', '奖励')
@@ -1894,7 +1873,6 @@ class HudImpl implements HudV3 {
     if (this.tunnelConfirmEl) {
       const isPotential = this.tunnelMode === 'potential'
       const isTrial = this.tunnelMode === 'trial'
-      const isWeapon = this.tunnelMode === 'weapon'
       const isAltar = this.tunnelMode === 'altar'
       this.tunnelConfirmEl.disabled = this.tunnelSelected < 0
       this.tunnelConfirmEl.textContent = this.tunnelSelected >= 0
@@ -1902,8 +1880,6 @@ class HudImpl implements HudV3 {
           ? '确认献祭'
           : isTrial
             ? '立约'
-            : isWeapon
-              ? '确认专武'
               : isAwakening
                 ? '确认选择'
                 : isPotential
@@ -1915,8 +1891,6 @@ class HudImpl implements HudV3 {
           ? '请选择一项献祭'
           : isTrial
             ? '请阅读契约'
-            : isWeapon
-              ? '请选择一个专武方向'
               : isAwakening
                 ? '请先选择一个方向'
                 : isPotential
@@ -2009,7 +1983,7 @@ class HudImpl implements HudV3 {
     this.endSubEl = this.q('.js-end-sub')
     this.endStatsEl = this.q('.js-end-stats')
 
-    const labels = ['角色', '难度', '层数', '击杀', '金币', '专武', '卡片', '用时']
+    const labels = ['角色', '难度', '层数', '击杀', '金币', '卡片', '用时']
     for (const label of labels) {
       const cell = div('end-stat')
       cell.appendChild(span('end-stat-label', label))
@@ -2243,7 +2217,6 @@ class HudImpl implements HudV3 {
 
   /** 商店条目 → 原画 key：专武按当前角色，增益卡按维度 */
   private shopOfferArt(offer: ShopOffer): ArtKey | null {
-    if (offer.kind === 'weapon') return weaponArtKey(this.runCharacter)
     if (offer.kind === 'buff-card' || offer.kind === 'training') return cardArtKey(offer.stat)
     return null
   }
@@ -2527,7 +2500,6 @@ class HudImpl implements HudV3 {
     const bits: string[] = []
     if (meta.layer != null) bits.push(`第 ${meta.layer} 层`)
     if (meta.stage != null) bits.push(`阶段 ${meta.stage}`)
-    if (meta.weaponLv != null) bits.push(`专武 Lv${meta.weaponLv}`)
     if (meta.gold != null) bits.push(`${fmtInt(meta.gold)} 金`)
     if (meta.playTime != null) bits.push(fmtTime(meta.playTime))
     main.appendChild(div('slot-meta', bits.join(' · ') || '存档记录'))
@@ -2591,7 +2563,6 @@ class HudImpl implements HudV3 {
       `第 ${stats.layer} / ${stats.totalLayers} 层`,
       fmtInt(stats.kills),
       fmtInt(stats.gold),
-      `Lv.${stats.weaponLv}`,
       `${stats.cardCount} 张`,
       fmtTime(stats.time),
     ]

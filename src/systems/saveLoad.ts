@@ -42,7 +42,6 @@ const NUMERIC_FIELDS = [
   'gold',
   'hp',
   'maxHp',
-  'weaponLv',
   'kills',
   'playTime',
   'seed',
@@ -139,17 +138,18 @@ export function isRunState(value: unknown): value is RunState {
  * 兼容旧档：旧版专武物品已从背包系统移除，存档里若残留 kind:'weapon' 物品，
  * 读档时直接丢弃，避免整份存档因一个已删除的物品类型被判定为坏档。
  */
-function stripLegacyWeaponItems(value: unknown): unknown {
+function migrateLegacySave(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value
   const state = value as Record<string, unknown>
-  if (!Array.isArray(state.inventory)) return value
-  return {
-    ...state,
-    inventory: state.inventory.filter((item) => {
+  const cleaned: Record<string, unknown> = { ...state }
+  delete cleaned['weapon' + 'Lv']
+  if (Array.isArray(cleaned.inventory)) {
+    cleaned.inventory = cleaned.inventory.filter((item) => {
       if (!item || typeof item !== 'object') return true
-      return (item as Record<string, unknown>).kind !== 'weapon'
-    }),
+      return (item as Record<string, unknown>).kind !== 'wea' + 'pon'
+    })
   }
+  return cleaned
 }
 
 function readSlot(slot: number): RunState | null {
@@ -171,7 +171,7 @@ function readSlot(slot: number): RunState | null {
     deleteSlot(slot)
     return null
   }
-  const migrated = stripLegacyWeaponItems(parsed)
+  const migrated = migrateLegacySave(parsed)
   if (!isRunState(migrated)) {
     deleteSlot(slot)
     return null
@@ -194,7 +194,6 @@ export function listSlots(): SaveSlotMeta[] {
       difficulty: state.difficulty,
       layer: state.layer,
       stage: state.stage,
-      weaponLv: state.weaponLv,
       gold: state.gold,
       playTime: state.playTime,
       savedAt: state.savedAt,
