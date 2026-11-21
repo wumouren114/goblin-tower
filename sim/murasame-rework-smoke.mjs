@@ -148,7 +148,6 @@ function createMurasame(branch, nodes = [], magicOverride = null) {
     },
   })
   combat.setCharacter('murasame')
-  combat.setWeaponLv(1)
   const base = CHARACTERS.murasame.base
   const stats = {
     maxHp: base.hp,

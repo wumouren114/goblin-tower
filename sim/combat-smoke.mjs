@@ -213,7 +213,6 @@ try {
     const world = makeWorld()
     combat.setCharacter('mutsumi')
     combat.setStats(statsFor('mutsumi'))
-    combat.setWeaponLv(3)
 
     const e = addEnemy(world, 0, -5)
     let maxProjectiles = 0
@@ -227,7 +226,7 @@ try {
     }
     check('mutsumi 20s 普攻有命中', events.hits > 0, `hits=${events.hits}`)
     check('mutsumi 普攻发射黄瓜弹道', maxProjectiles > 0, `peak projectiles=${maxProjectiles}`)
-    check('mutsumi 伤害公式 20*100/100=20', near(events.firstAmount, 20, 1e-6), `first=${events.firstAmount}`)
+    check('mutsumi 基础伤害公式 16*100/100=16', near(events.firstAmount, 16, 1e-6), `first=${events.firstAmount}`)
     check('mutsumi 攻击音效已上报', events.sfx.filter((s) => s === 'attack').length > 0)
 
     // 变身：双重人格为完整 8s 变身（独奏会 -2s）
@@ -261,16 +260,6 @@ try {
     check('8s 后变身结束', !combat.transformActive)
     check('变身结束 modifiers 归 1', combat.modifiers.magicMul === 1 && combat.modifiers.damageReduction === 0)
 
-    // lv4 变身期普攻 = 前方音波剑气
-    combat.setWeaponLv(4)
-    combat.grantCharge(1)
-    combat.trySkill(0, 0, 0, -1, world)
-    run(combat, world, 0.3, { px: 0, pz: 0 })
-    const hb = events.hits
-    const waveCast = combat.tryAttack(DT, 0, 0, 0, -1, world)
-    run(combat, world, 0.45, { px: 0, pz: 0 })
-    check('lv4 变身期普攻发射音波剑气', waveCast && combat.projectileCount > 0, `projectiles=${combat.projectileCount}`)
-    check('音波剑气命中', events.hits > hb, `delta=${events.hits - hb}`)
     combat.dispose()
   }
 
@@ -281,7 +270,6 @@ try {
     const world = makeWorld()
     combat.setCharacter('murasame')
     combat.setStats(statsFor('murasame'))
-    combat.setWeaponLv(5)
 
     // 突进路径 3 个敌人 + 终点附近 1 个
     const e1 = addEnemy(world, 0, -3)
@@ -298,12 +286,12 @@ try {
       JSON.stringify(world.dashes[0]),
     )
     check('突进路径命中 3 个', e1.taken > 0 && e2.taken > 0 && e3.taken > 0, `taken=${e1.taken},${e2.taken},${e3.taken}`)
-    check('突进伤害 45*95/100*1.25', near(e1.taken, 45 * 0.95 * 1.25, 1e-6), `taken=${e1.taken}`)
-    check('技能每命中回 8×3=24', near(world.heals - healBefore, 24, 1e-6), `heal=${world.heals - healBefore}`)
+    check('突进伤害 45*95/100=42.75', near(e1.taken, 45 * 0.95, 1e-6), `taken=${e1.taken}`)
+    check('技能每命中回 6×3=18', near(world.heals - healBefore, 18, 1e-6), `heal=${world.heals - healBefore}`)
     check('突进后 0.4s 无敌', world.invulns.includes(0.4), JSON.stringify(world.invulns))
     check('终点 2.4m 聚怪', Math.hypot(e3.x, e3.z + 7.5) <= 1.0, `d=${Math.hypot(e3.x, e3.z + 7.5).toFixed(2)}`)
     check('满充能必能释放（充能上限 >= 消耗）', combat.chargeMax >= 80, `max=${combat.chargeMax}`)
-    check('???? 64 ???lv5?', combat.charge === 16, `charge=${combat.charge}`)
+    check('突进消耗 80 充能', combat.charge === 0, `charge=${combat.charge}`)
     check('突进后 0.2s 硬直内不能普攻', !combat.tryAttack(DT, 0, 0, 0, -1, world))
 
     run(combat, world, 0.3, { px: 0, pz: 0 })
@@ -318,12 +306,6 @@ try {
     check('murasame 扇形普攻释放', swing)
     check('110° 扇形最多 8 目标', events.hits - beforeCone === 8, `hits=${events.hits - beforeCone}`)
 
-    // lv4 普攻前冲（Combat 走 world.dashPlayer 兜底）
-    combat.setWeaponLv(4)
-    run(combat, world, 0.6, { px: 0, pz: 0 })
-    const dashesBefore = world.dashes.length
-    const atk = combat.tryAttack(DT, 0, 0, 0, -1, world)
-    check('lv4 普攻带前冲 0.8m', atk && world.dashes.length === dashesBefore + 1, `dashes=${world.dashes.length - dashesBefore}`)
     check('murasame 技能音效', events.sfx.includes('dash') && events.sfx.includes('skill'))
     combat.dispose()
   }
@@ -335,30 +317,28 @@ try {
     const world = makeWorld()
     combat.setCharacter('fish')
     combat.setStats(statsFor('fish'))
-    combat.setWeaponLv(5)
     combat.grantCharge(1)
     const summoned = combat.trySkill(0, 0, 0, -1, world)
-    check('fish 鱼群风格右键召唤 5+1', summoned && combat.minionCount === 6, `minions=${combat.minionCount}`)
+    check('fish 鱼群风格右键召唤 3+1', summoned && combat.minionCount === 4, `minions=${combat.minionCount}`)
     check('召唤物继承 55% 生命 × 鱼群 85%', near(combat.minionsList[0].hp, 110 * 0.55 * 0.85, 1e-6), `hp=${combat.minionsList[0].hp}`)
     check('召唤物消耗 110 充能', combat.charge === 0, `charge=${combat.charge}`)
 
     const target = addEnemy(world, 0, -5, 100000)
     run(combat, world, 2.0, { px: 0, pz: 0 })
     check('召唤物发射泡泡并命中', events.hits > 0 && target.hits > 0, `hits=${events.hits}`)
-    check('召唤物伤害 10*0.4*(魔力80/100)=3.2', near(events.lastAmount, 6.24, 1e-6), `last=${events.lastAmount}`)
+    check('召唤物伤害 12*0.6*(魔力80/100)=5.76', near(events.lastAmount, 5.76, 1e-6), `last=${events.lastAmount}`)
     // 重复释放刷新数量
     combat.grantCharge(1)
     combat.trySkill(0, 0, 0, -1, world)
-    check('重复召唤刷新为 6 只', combat.minionCount === 6)
+    check('重复召唤刷新为 4 只', combat.minionCount === 4)
     run(combat, world, 10.5, { px: 0, pz: 0 })
     check('召唤物 10s 后消失', combat.minionCount === 0, `minions=${combat.minionCount}`)
 
     // 白米饭：lv3 每 10s 掉一份
-    combat.setWeaponLv(3)
     const chargeBefore = combat.charge
     run(combat, world, 10.6, { px: 0, pz: 0 })
     const gotRice = combat.riceCount >= 1 || combat.charge >= chargeBefore + 20
-    check('lv3 每 10s 掉白米饭', gotRice, `riceCount=${combat.riceCount} charge=${combat.charge.toFixed(1)}`)
+    check('基础特性每 10s 掉白米饭', gotRice, `riceCount=${combat.riceCount} charge=${combat.charge.toFixed(1)}`)
     combat.dispose()
   }
 
@@ -391,36 +371,6 @@ try {
     combat.dispose()
   }
 
-  // ═════════════ E. 武器档位读取 ═════════════
-  {
-    const t1 = runtime.getWeaponTier('mutsumi', 1)
-    const t5 = runtime.getWeaponTier('mutsumi', 5)
-    check(
-      'mutsumi lv1 单发 / lv5 三发 / lv7 四发',
-      t1.projectiles === 1 &&
-        t5.projectiles === 3 &&
-        runtime.getWeaponTier('mutsumi', 7).projectiles === 4,
-      `${t1.projectiles}/${t5.projectiles}/${runtime.getWeaponTier('mutsumi', 7).projectiles}`,
-    )
-    check('mutsumi lv5 黄瓜变大', t5.sizeMul === 1.4 && t5.hitRadiusMul === 1.5, JSON.stringify({ s: t5.sizeMul, h: t5.hitRadiusMul }))
-    check(
-      'murasame lv5/lv7 突进消耗与拔刀半径',
-      runtime.getWeaponTier('murasame', 5).skillCharge === 64 &&
-        runtime.getWeaponTier('murasame', 7).radiusMul === 1.32,
-      JSON.stringify(runtime.getWeaponTier('murasame', 7)),
-    )
-    check(
-      'fish lv5 召唤 5 只 / lv7 召唤 6 只',
-      runtime.getWeaponTier('fish', 5).minionCount === 5 &&
-        runtime.getWeaponTier('fish', 7).minionCount === 6,
-      `${runtime.getWeaponTier('fish', 5).minionCount}/${runtime.getWeaponTier('fish', 7).minionCount}`,
-    )
-    check(
-      `武器等级夹到 1..${runtime.MAX_WEAPON_LV}`,
-      runtime.getWeaponTier('fish', 99).lv === runtime.MAX_WEAPON_LV && runtime.getWeaponTier('fish', -3).lv === 1,
-    )
-  }
-
   // ═════════════ F. 暴击与击杀 ═════════════
   {
     const events = { hits: 0, sfx: [], killed: 0, killList: [], firstAmount: 0, lastAmount: 0, lastCrit: false }
@@ -428,7 +378,6 @@ try {
     const world = makeWorld()
     combat.setCharacter('mutsumi')
     combat.setStats(statsFor('mutsumi', { critChance: 1 }))
-    combat.setWeaponLv(1)
     const e = addEnemy(world, 0, -4, 16, 0.42)
     for (let i = 0; i < 120 && e.alive; i++) {
       combat.tryAttack(DT, 0, 0, 0, -1, world)
@@ -447,7 +396,6 @@ try {
     const world = makeWorld()
     combat.setCharacter('mutsumi')
     combat.setStats(statsFor('mutsumi'))
-    combat.setWeaponLv(1)
     const attackOnce = (wait = 0.6) => {
       const ok = combat.tryAttack(DT, 0, 0, 0, -1, world)
       run(combat, world, wait, { px: 0, pz: 0 })
@@ -494,7 +442,6 @@ try {
     const world = makeWorld()
     combat.setCharacter('murasame')
     combat.setStats(statsFor('murasame'))
-    combat.setWeaponLv(1)
     const attackOnce = (wait = 0.6) => {
       const ok = combat.tryAttack(DT, 0, 0, 0, -1, world)
       run(combat, world, wait, { px: 0, pz: 0 })
@@ -532,7 +479,6 @@ try {
     // 守护：突进护盾 + 铁壁额外护盾
     combat.setCharacter('murasame')
     combat.setStats(statsFor('murasame'))
-    combat.setWeaponLv(1)
     combat.setBuild('murasame-guard', {})
     combat.grantCharge(1)
     combat.trySkill(0, 0, 0, -1, world)
@@ -553,7 +499,6 @@ try {
     const world = makeWorld()
     combat.setCharacter('fish')
     combat.setStats(statsFor('fish'))
-    combat.setWeaponLv(1)
     const attackOnce = (wait = 0.55) => {
       const ok = combat.tryAttack(DT, 0, 0, 0, -1, world)
       run(combat, world, wait, { px: 0, pz: 0 })
@@ -581,10 +526,9 @@ try {
 
     // 鱼群战术 Lv3：召唤数 +1（鱼群 +1、战术 +1，共 7）
     combat.setBuild('fish-school', { 'fish-school-tactics': 3 })
-    combat.setWeaponLv(5)
     combat.grantCharge(1)
     combat.trySkill(0, 0, 0, -1, world)
-    check('v4.6 鱼群战术 Lv3 召唤 7 只', combat.minionCount === 7, `minions=${combat.minionCount}`)
+    check('v4.6 鱼群战术 Lv3 召唤 5 只', combat.minionCount === 5, `minions=${combat.minionCount}`)
     combat.dispose()
   }
 

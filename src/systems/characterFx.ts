@@ -103,7 +103,6 @@ export interface StyleFxContext {
   awakenings: Partial<Record<AwakeningId, number>>
   resourceRatio: number
   transformActive: boolean
-  weaponLv: number
 }
 
 const TAU = Math.PI * 2

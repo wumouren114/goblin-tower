@@ -161,7 +161,6 @@ async function boot(): Promise<void> {
         awakeningLayers: g.run?.awakeningLayers,
         resource: g.combat?.resource,
         shield: g.shieldHp,
-        weapon: g.run?.weaponLv,
         gold: g.run?.gold,
         hp: Math.round(g.player?.hp ?? 0),
         transform: g.combat?.transformActive,

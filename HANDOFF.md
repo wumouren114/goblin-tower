@@ -38,7 +38,7 @@ node scripts/preview-boss.mjs         # → shots/boss-phases.png（Boss 三态�
 
 ### 2.1 系统分工
 - **道具卡 = 纯数值层**，机制一律不进卡。
-- **潜能（原「专武分支」）= 机制层**，承担「新增招式 / 触发 / 联动」。
+- **潜能 = 机制层**，承担「新增招式 / 触发 / 联动」（原专武等级系统已彻底删除，仅保留潜能）。
 
 ### 2.2 道具卡、背包与商人
 - 一张卡 = 一个名字 + **3 档（蓝/紫/金）**，**同名唯一**，再拿到同名 = 原地升一档；满金退池。
@@ -146,7 +146,7 @@ node scripts/preview-boss.mjs         # → shots/boss-phases.png（Boss 三态�
 
 ## 7. 踩坑备忘
 
-1. **旧系统不可硬删**：`combat.ts`、`characterFx.ts` 与 `economy-smoke.mjs` 仍引用旧 `awakenings` / `weapons` 字段，必须严格按 `docs/13-旧系统残留审计.md` 先切引用再删代码。
+1. **旧系统分步清理**：`weapons`（专武系统）已彻底删除；`awakenings` 仍被部分旧风格逻辑引用，清理时按 `docs/13-旧系统残留审计.md` 先切引用再删代码。
 2. **`RoomNpcKind` 与 `TunnelRoom` 联动**：改 `TunnelRoom` 会影响 `roomIcons.ts` / `floor.ts` / `roomNpc.ts` / `hud.ts` 四处映射；新增房间 NPC 视觉时保持 `RoomNpcKind` 枚举不变，在 `roomNpc.ts` 内扩展绘制分支即可。
 3. **新增音效必须同步 `check-audio.mjs`**：在 `scripts/make-audio.mjs` 新增 `sfx_*.wav` 后，必须在 `scripts/check-audio.mjs` 的 `DOC_SFX_RANGES` 补充对应时长区间，否则音频校验会红。
 4. **经济冒烟分布断言**：`sim/economy-smoke.mjs` 校验隧道大类与子房概率（±5% / ±6%），改 `balance.json.portals` 后必须复跑。
