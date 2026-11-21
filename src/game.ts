@@ -3277,7 +3277,12 @@ export class Game {
     this.roomSpawnTimer = 0
     audio.startBgm('boss')
     audio.setBgmIntensity(2)
-    const boss = this.createBoss(0, -floor.halfSize * 0.42, this.bossKindForStage(), false, 1)
+    // Boss 生成在中心偏北 3~4m，同时将南侧过远的玩家略微前收，确保首帧完整看见 Boss 本体
+    const bossZ = -Math.min(4.0, floor.halfSize * 0.18)
+    const p = this.player
+    if (p && p.z > floor.halfSize * 0.42) p.z = floor.halfSize * 0.42
+    const boss = this.createBoss(0, bossZ, this.bossKindForStage(), false, 1)
+    this.rig.focusIntro(boss.x, boss.z, 0.75)
     this.hud.toast(`首领房：${boss.title}苏醒了！`, 'bad')
     audio.bossRoar()
     this.rig.shake(0.5)

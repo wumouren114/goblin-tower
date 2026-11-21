@@ -23,6 +23,10 @@ export class CameraRig {
   private initialised = false
   /** 场地半边长：相机不许退到墙外 */
   private arenaHalf = 0
+  /** Boss 进场构图焦点（平滑淡出回常规跟随，确保首帧完整看见 Boss 本体） */
+  private introTarget = new THREE.Vector3()
+  private introLeft = 0
+  private introDuration = 0
 
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera
@@ -67,17 +71,30 @@ export class CameraRig {
     this.shakeAmt = Math.min(1.1, this.shakeAmt + amount)
   }
 
+  /** 首领房进场焦点：在 duration 秒内将镜头视线适度拉向 Boss 与玩家中点，随后平滑退回 */
+  focusIntro(tx: number, tz: number, duration = 0.75): void {
+    this.introTarget.set(tx, 1.35, tz)
+    this.introDuration = Math.max(0.1, duration)
+    this.introLeft = this.introDuration
+    this.initialised = false
+  }
+
   reset(): void {
     this.yaw = 0
     this.distanceMul = 1
     this.shakeAmt = 0
+    this.introLeft = 0
+    this.introDuration = 0
     this.initialised = false
   }
 
   update(dt: number, x: number, z: number, moveX: number, moveZ: number, title = false): void {
     const m = CONFIG.camera.modes[this.mode]
-    const dist = m.distance * this.distanceMul
-    const height = m.height * (0.88 + 0.12 * this.distanceMul)
+    const introW = this.introLeft > 0 && this.introDuration > 0 ? this.introLeft / this.introDuration : 0
+    if (this.introLeft > 0) this.introLeft = Math.max(0, this.introLeft - dt)
+    const effDistMul = this.distanceMul * (1 + 0.14 * introW)
+    const dist = m.distance * effDistMul
+    const height = m.height * (0.88 + 0.12 * effDistMul)
     if (title) this.titleAngle += dt * 0.045
     const yaw = this.yaw + (title ? this.titleAngle : 0)
 
@@ -98,6 +115,9 @@ export class CameraRig {
     const fx = -Math.sin(yaw)
     const fz = -Math.cos(yaw)
     this.lookTarget.set(x + fx * m.lookAhead * 0.55 + moveX * m.lookAhead * 0.45, 0.9, z + fz * m.lookAhead * 0.55 + moveZ * m.lookAhead * 0.45)
+    if (introW > 0) {
+      this.lookTarget.lerp(this.introTarget, 0.48 * introW)
+    }
     if (!this.initialised) this.look.copy(this.lookTarget)
     this.look.lerp(this.lookTarget, this.initialised ? 1 - Math.exp(-CONFIG.camera.follow * 1.3 * dt) : 1)
 
