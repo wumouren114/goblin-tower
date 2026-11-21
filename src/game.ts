@@ -45,7 +45,7 @@ import { EventPanel } from './ui/eventPanel'
 import { ExchangePanel } from './ui/exchangePanel'
 import { HazardField, type HazardState } from './systems/hazardZone'
 import { StatusField } from './systems/statusEffects'
-import { cardIdOfItem, ITEM_CARDS } from './data/cards'
+import { cardIdOfItem, cardOf, ITEM_CARDS } from './data/cards'
 import { CHARACTERS, CHARGE_FLOOR_START_RATIO, skillRange } from './data/characters'
 import { charTakeDamageMul } from './data/characterRuntime'
 import {
@@ -1474,6 +1474,7 @@ export class Game {
     if (r < eliteChance) kind = 'elite'
     else if (r < eliteChance + casterChance) kind = 'caster'
     else if (r < eliteChance + casterChance + spearChance) kind = 'spear'
+    else if (r < eliteChance + casterChance + spearChance + bomberChance) kind = 'bomber'
     else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance) kind = 'blocker'
     else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance + summonerChance) kind = 'summoner'
     else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance + summonerChance + bruteChance) kind = 'brute'
@@ -3603,17 +3604,12 @@ export class Game {
       magic: (def.base.magic + (c.magic ?? 0)) * allStat * mods.magicMul * (giant ? 1.15 : 1),
       stamina: (def.base.stamina + (c.stamina ?? 0)) * allStat * mods.staminaMul,
       intelligence: (def.base.intelligence + (c.intelligence ?? 0)) * allStat * mods.intelligenceMul,
-      // 瞬闪 / 双重人格 根被动：技能所需充能 -20%
-      chargeMax: Math.max(
-        30,
-        (def.base.chargeMax + (c.chargeMax ?? 0)) *
-          allStat *
-          (this.run.potential?.branch === 'shunshan' || this.run.potential?.branch === 'mutsumi-duet' ? 0.8 : 1),
-      ),
+      // 分支充能上限/消耗修正统一由 combat.effectiveChargeMax() 与 skillCost() 表达，避免双重取反
+      chargeMax: Math.max(30, (def.base.chargeMax + (c.chargeMax ?? 0)) * allStat),
       chargeGain: c.chargeGain ?? 0,
       armor: 0,
       armorRate: Math.min(0.6, c.armor ?? 0),
-      dodge: Math.min(0.24, c.dodge ?? 0),
+      dodge: Math.min((cardOf('dodge')?.cap ?? 40) / 100, c.dodge ?? 0),
       critChance: Math.min(0.6, 0.08 + (c.crit ?? 0)),
       critMultiplier: 2.0,
       pickupRadius: 2.0,
