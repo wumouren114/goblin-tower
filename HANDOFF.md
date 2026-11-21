@@ -48,7 +48,7 @@ node scripts/preview-boss.mjs         # → shots/boss-phases.png（Boss 三态�
 
 ### 2.3 潜能与 Q/F 通用动作
 - 3 角色 × 3 分支 × 3 节点 = **27 个节点**（全部已接入战斗），节点固定一级，不升级；9 条分支拥有独立图标与主题色。
-- 支持**双分支构筑**与 **3 组跨分支反应**（`resonances`）；分支代价必须「咬自己」，独立伤害源（流血/标记结算）不吃衰减。
+- ~~双分支构筑与 3 组跨分支反应~~ **已暂时下线**（`game.ts: resonancesEnabled=false`、`maxBranches=1`）：每角色仅 1 条分支，等新触发规则再恢复。分支代价必须「咬自己」，独立伤害源（流血/标记结算）不吃衰减。
 - **Q / F 通用动作**：选中任一潜能分支解锁 Q，任一分支点满 2 个节点解锁 F（丛雨：处决 / 格挡；睦：推敌 / 强拍闪避；大肥鱼：回收 / 水枪）。
 
 ### 2.4 关卡与九门结构
@@ -76,7 +76,7 @@ node scripts/preview-boss.mjs         # → shots/boss-phases.png（Boss 三态�
 | 模块 | 关键文件 | 当前状态 | 冒烟 / 校验 |
 | --- | --- | --- | --- |
 | 潜能系统（9 分支 27 节点 100%） | `src/data/potentials.ts`、`src/systems/combat.ts`、`src/core/beatClock.ts` | ✅ 9 分支 27 节点 100% 接入战斗；九分支独立图标与主题色已上卡 | `potential-smoke` (16) + `beat-smoke` (16) |
-| 多分支 + 3 组跨枝反应 | `src/data/potentials.ts`、`src/systems/combat.ts`、`src/game.ts` | ✅ 普通/简单 2 分支位，困难开放第 3 分支位（`branch3`）且 3 组 `resonances` 可同时成立 | `hard-branch-smoke` (15) + `preview-fx` |
+| 多分支 + 跨枝反应（**已下线**） | `src/game.ts` | ⏸ 每角色 1 分支位，`resonancesEnabled=false`；combat 层多分支能力保留（`hard-branch-smoke` 已改为断言下线态，15 项全过） | `hard-branch-smoke` (15) |
 | Q / F 通用动作 | `src/data/potentials.ts`、`src/systems/combat.ts`、`src/core/audio.ts` | ✅ 三角色 Q/F 技能文案、音效（`sfx_execute`/`sfx_block`/`sfx_push`/`sfx_recall`/`sfx_watergun`）与战斗逻辑已接通 | `combat-smoke` (77) + `check-audio` |
 | 局内键位引导条 | `src/ui/hud.ts`、`src/styles.css`、`src/game.ts` | ✅ 中下部胶囊键位条上线（未解锁灰显/解锁脉冲/冷却填充），已删底部旧静态提示栏 | `tsc` + `vite build` |
 | 九门与时空隧道 | `src/systems/tunnels.ts`、`src/game.ts`、`src/entities/roomNpc.ts` | ✅ 宝箱 / 技能卡 / 商人 / 祭坛 / 考验 / 小游戏 / 事件 / 战斗 / 休憩九门全通，含 3 种新 NPC 独立像素立绘 | `economy-smoke` (46) + `preview-npc` |
