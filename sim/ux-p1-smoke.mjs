@@ -37,8 +37,8 @@ check(
 // P1-2
 check(
   'P1-2 右上角统计条与状态栏统一宽度 248px 并去除重复的敌人/击杀/金币项',
-  css.includes('.hud-stats .stat-alive,\n.hud-stats .stat-kill {\n  display: none;\n}') &&
-    css.includes('.hud-status-bar .sb-gold {\n  display: none;\n}') &&
+  /\.hud-stats \.stat-alive,\s*\.hud-stats \.stat-kill \{\s*display: none;/m.test(css) &&
+    /\.hud-status-bar \.sb-gold \{\s*display: none;/m.test(css) &&
     css.includes('right: 278px;'),
 )
 
