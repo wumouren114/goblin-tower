@@ -798,9 +798,9 @@ body.is-modal-open .floor-banner {
 
 .boss-bar {
   position: absolute;
-  top: 18px;
+  top: 14px;
   left: 50%;
-  width: min(42vw, 560px);
+  width: min(40vw, 480px);
   z-index: 18;
   opacity: 0;
   visibility: hidden;
@@ -4287,7 +4287,22 @@ body.is-modal-open .floor-banner {
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  width: min(48vw, 640px);
+  width: min(40vw, 480px);
+}
+
+/* 1280×720 下收紧左上层信息宽度，保证与居中 Boss 血条左右留白 >= 60px、绝不压叠 */
+@media (max-width: 1366px) {
+  .hud-floor {
+    max-width: 300px;
+    padding: 9px 13px 10px;
+  }
+  .boss-bar {
+    width: min(38vw, 460px);
+  }
+  .boss-portrait {
+    width: 54px;
+    height: 54px;
+  }
 }
 
 .boss-main {
