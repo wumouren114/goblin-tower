@@ -678,6 +678,14 @@ const UI_TEMPLATE = /* html */ `
 /* 实现                                                                */
 /* ------------------------------------------------------------------ */
 
+/** 提示条队列参数：同屏最多 2 条，新顶旧，重要提示（good）停留更久 */
+export const TOAST_MAX_VISIBLE = 2
+export const TOAST_DURATION_MS: Record<'info' | 'good' | 'bad', number> = {
+  info: 2200,
+  bad: 2400,
+  good: 3200,
+}
+
 class HudImpl implements HudV3 {
   private readonly handlers: HudV3Handlers
   private readonly shell: HTMLDivElement
@@ -842,6 +850,7 @@ class HudImpl implements HudV3 {
   private bossRatio = -1
   private resourcePipMax = -1
   private bannerTimer: number | null = null
+  private toastTimers = new WeakMap<Element, number>()
   private artPollTimer: number | null = null
   private artPollTries = 0
   private muted = false
@@ -1358,12 +1367,26 @@ class HudImpl implements HudV3 {
 
   toast(text: string, kind: 'info' | 'good' | 'bad' = 'info'): void {
     if (this.destroyed || !text) return
-    while (this.toastLayerEl.childElementCount >= 4) {
-      this.toastLayerEl.firstElementChild?.remove()
+    while (this.toastLayerEl.childElementCount >= TOAST_MAX_VISIBLE) {
+      const oldest = this.toastLayerEl.firstElementChild
+      if (!oldest) break
+      const oldTimer = this.toastTimers.get(oldest)
+      if (oldTimer !== undefined) {
+        window.clearTimeout(oldTimer)
+        this.toastTimers.delete(oldest)
+      }
+      oldest.remove()
     }
+    const duration = TOAST_DURATION_MS[kind]
+    const outDelaySec = Math.max(0.4, (duration - 350) / 1000).toFixed(2)
     const node = div(`toast kind-${kind}`, text)
+    node.style.setProperty('--toast-out-delay', `${outDelaySec}s`)
     this.toastLayerEl.appendChild(node)
-    window.setTimeout(() => node.remove(), 2150)
+    const timer = window.setTimeout(() => {
+      this.toastTimers.delete(node)
+      node.remove()
+    }, duration)
+    this.toastTimers.set(node, timer)
   }
 
   setPaused(paused: boolean): void {
