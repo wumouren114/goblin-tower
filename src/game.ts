@@ -509,7 +509,7 @@ export class Game {
 
   // ---------- 楼层 ----------
 
-  private enterLayer(layer: number, restoring = false): void {
+  private enterLayer(layer: number, restoring = false, opts?: { withQuota?: boolean }): void {
     // 进层先把 Boss 血条/狂暴色调清掉，避免调试跳层时残留
     this.hud.hideBoss()
     this.fx.setBossMode(false)
@@ -555,18 +555,18 @@ export class Game {
     }
     this.rig.reset()
 
-    this.layerTotal = quotaFor(this.run.difficulty, layer)
+    // 选门即进层（新流程）：普通层只切场景不刷怪，房间是主体；
+    // Boss 层恢复 60% 配额门槛战（报告 P0-1：否则 Boss 层直接开首领门）
+    const withQuota = opts?.withQuota ?? true
+    this.layerTotal = !withQuota ? 0 : bossLayer
+      ? Math.round(quotaFor(this.run.difficulty, layer) * 0.6)
+      : quotaFor(this.run.difficulty, layer)
     this.layerSpawned = 0
     this.layerKilled = 0
     this.clearEnemyShots()
     this.casterCd.clear()
-    this.spawnTimer = bossLayer ? 2.0 : 0.4
+    this.spawnTimer = !withQuota ? Number.MAX_SAFE_INTEGER : bossLayer ? 2.0 : 0.4
     this.combat?.resetLayer(CHARGE_FLOOR_START_RATIO)
-
-    if (bossLayer) {
-      // Boss 层先清 60% 小怪，再开三扇首领门；Boss 本体只在首领房生成
-      this.layerTotal = Math.round(quotaFor(this.run.difficulty, layer) * 0.6)
-    }
 
     this.hud.hideTunnels()
     this.hud.hideShop()
@@ -576,7 +576,9 @@ export class Game {
       this.hud.toast(
         bossLayer
           ? `Boss 层：清完 ${this.layerTotal} 只小怪，开启首领门挑战${bossTitle}`
-          : `第 ${layer} 层 · 清完 ${this.layerTotal} 只哥布林`,
+          : !withQuota
+            ? `第 ${layer} 层 · 选择一扇时空门`
+            : `第 ${layer} 层 · 清完 ${this.layerTotal} 只哥布林`,
         'info',
       )
     }
@@ -3092,7 +3094,16 @@ export class Game {
     }
     if (res.shopOffers && res.shopOffers.length > 0) {
       room.resolved = true
-      this.shopOffers = res.shopOffers
+      // 报告 P1-3：标准商店在选门即进层流程里不可达 → 商人房直接给全量货架
+      //（潜能节点 / 特训 / 消耗品 / 增益卡，5 格），交换台照旧
+      this.shopOffers = generateOffers(
+        this.run.layer,
+        this.run.character,
+        this.run.gold,
+        this.rng,
+        5,
+        this.run.trainingBuys ?? 0,
+      )
       this.shopMode = 'room'
       this.merchantExchange.reset()
       this.phase = 'shop'
@@ -3459,11 +3470,13 @@ export class Game {
       this.win()
       return
     }
-    // 选门即进层：层数在「进入时空隧道」时 +1，房间完成后开下一轮三扇门
+    // 选门即进层：普通层切场景+开三扇门；Boss 层先刷 60% 配额门槛战
     this.run.layer = next
     this.run.stage = stageOfLayer(this.run.difficulty, next)
+    const bossLayer = isBossLayer(this.run.difficulty, next)
+    this.enterLayer(next, false, { withQuota: bossLayer })
     this.pushSnapshot()
-    this.openTunnels()
+    if (!bossLayer) this.openTunnels()
   }
 
   // ---------- 背包 ----------
