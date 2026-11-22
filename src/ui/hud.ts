@@ -530,7 +530,7 @@ const UI_TEMPLATE = /* html */ `
         <h1 class="title-cn">残响高塔</h1>
         <p class="title-en">Echoes never die</p>
       </header>
-      <div class="title-tagline">一局约 8–12 分钟 · 清空每层 · 在血尽前登顶</div>
+      <div class="title-tagline">清空每层敌人 · 三扇门抉择 · 在血尽前登顶</div>
 
       <div class="title-lower">
         <div class="title-row">

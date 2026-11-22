@@ -1474,6 +1474,7 @@ export class Game {
     if (r < eliteChance) kind = 'elite'
     else if (r < eliteChance + casterChance) kind = 'caster'
     else if (r < eliteChance + casterChance + spearChance) kind = 'spear'
+    else if (r < eliteChance + casterChance + spearChance + bomberChance) kind = 'bomber'
     else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance) kind = 'blocker'
     else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance + summonerChance) kind = 'summoner'
     else if (r < eliteChance + casterChance + spearChance + bomberChance + blockerChance + summonerChance + bruteChance) kind = 'brute'
@@ -2358,6 +2359,11 @@ export class Game {
     }
     const claimed = this.run.awakeningLayers ?? []
     if (layer === 1 && !claimed.includes(layer)) {
+      this.openPotential()
+      return
+    }
+    // 首个 Boss 前保底一次潜能（报告 P1-5：9/18 局到死没解锁 F）
+    if (layer === 4 && this.run.difficulty !== 'easy' && !claimed.includes(layer)) {
       this.openPotential()
       return
     }
@@ -3477,7 +3483,7 @@ export class Game {
   /** 把物品放进背包（v5 同名唯一、满档退池；不再有合成） */
   private grantItem(item: InventoryItem, notifyFull = true): boolean {
     if (this.inventory.isFull) {
-      if (notifyFull) this.hud.toast('背包已满：先丢弃一张再买', 'bad')
+      if (notifyFull) this.hud.toast('背包已满：先丢弃一张再买（奖励卡满金会自动折算金币）', 'bad')
       return false
     }
     if (!this.inventory.add(item)) return false
@@ -3603,17 +3609,18 @@ export class Game {
       magic: (def.base.magic + (c.magic ?? 0)) * allStat * mods.magicMul * (giant ? 1.15 : 1),
       stamina: (def.base.stamina + (c.stamina ?? 0)) * allStat * mods.staminaMul,
       intelligence: (def.base.intelligence + (c.intelligence ?? 0)) * allStat * mods.intelligenceMul,
-      // 瞬闪 / 双重人格 根被动：技能所需充能 -20%
+      // 瞬闪根被动：技能所需充能 -15%（旧 id 'shunshan' 永不命中导致失效，已修）；
+      // 双重人格的 +20% 代价由 combat 层统一 ×1.2，这里不再乘，避免双重取反
       chargeMax: Math.max(
         30,
         (def.base.chargeMax + (c.chargeMax ?? 0)) *
           allStat *
-          (this.run.potential?.branch === 'shunshan' || this.run.potential?.branch === 'mutsumi-duet' ? 0.8 : 1),
+          (this.run.potential?.branch === 'murasame-shunshan' ? 0.85 : 1),
       ),
       chargeGain: c.chargeGain ?? 0,
       armor: 0,
       armorRate: Math.min(0.6, c.armor ?? 0),
-      dodge: Math.min(0.24, c.dodge ?? 0),
+      dodge: Math.min(0.4, c.dodge ?? 0),
       critChance: Math.min(0.6, 0.08 + (c.crit ?? 0)),
       critMultiplier: 2.0,
       pickupRadius: 2.0,
