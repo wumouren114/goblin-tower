@@ -361,18 +361,26 @@ body.is-modal-open .floor-banner {
 
 .hud-right {
   position: absolute;
-  top: 20px;
-  right: 24px;
+  top: 16px;
+  right: 20px;
+  width: 248px;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  gap: 7px;
+  align-items: stretch;
+  gap: 6px;
 }
 
 .hud-stats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(112px, auto));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+  width: 100%;
+}
+
+/* 场上敌人与累计击杀已在左上层卡与下方状态栏展示，右上统计条只保留金币 + 难度，避免 720p 重复与拥挤 */
+.hud-stats .stat-alive,
+.hud-stats .stat-kill {
+  display: none;
 }
 
 .stat {
@@ -4965,17 +4973,23 @@ body.is-modal-open .floor-banner {
 
 /* ── 右上角第二状态栏（层数/阶段、金币、已穿戴道具速览） ─────────────────── */
 .hud-status-bar {
-  margin-top: 6px;
-  padding: 6px 8px;
-  min-width: 210px;
-  max-width: 270px;
+  margin-top: 0;
+  padding: 5px 8px;
+  width: 100%;
+  min-width: 0;
+  max-width: 248px;
   background: rgba(14, 18, 28, 0.84);
   border: 1.5px solid rgba(112, 136, 178, 0.48);
   box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.55);
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  pointer-events: none;
+  gap: 4px;
+  pointer-events: auto;
+}
+
+/* 金币已在上方 .hud-stats 突出展示，状态栏不再重复显示金币 */
+.hud-status-bar .sb-gold {
+  display: none;
 }
 
 .sb-meta {
@@ -5055,7 +5069,7 @@ body.is-modal-open .floor-banner {
 .sb-more-hint { display: block; font-size: 9px; color: #8e9ab8; margin-top: 3px; }
 .hud-status-bar { cursor: pointer; }
 .sb-detail {
-  position: fixed; top: 14px; right: 14px; width: 300px; max-height: 62vh; overflow-y: auto;
+  position: fixed; top: 16px; right: 278px; width: 290px; max-height: 62vh; overflow-y: auto;
   z-index: 200; padding: 10px 12px; border: 2px solid #7c8bb5;
   background: linear-gradient(160deg, rgba(18, 22, 38, .97), rgba(26, 30, 52, .97));
   box-shadow: 0 8px 30px rgba(0, 0, 0, .6); font-family: inherit;
