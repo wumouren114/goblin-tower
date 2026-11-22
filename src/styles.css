@@ -1046,28 +1046,32 @@ body.is-modal-open .floor-banner {
 
 .toast-layer {
   position: absolute;
-  top: 96px;
+  top: 86px;
   left: 50%;
   z-index: 40;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  max-width: min(460px, 56vw);
   transform: translateX(-50%);
   pointer-events: none;
 }
 
 .toast {
-  padding: 6px 16px;
-  font-size: 12.5px;
+  padding: 5px 14px;
+  font-size: 12px;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   color: #f4ead6;
   background: rgba(10, 17, 14, 0.92);
   border: 2px solid rgba(232, 178, 90, 0.5);
   box-shadow: var(--shadow-hard-sm);
   white-space: nowrap;
-  animation: toastIn 0.2s ease, toastOut 0.35s ease 1.65s forwards;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  animation: toastIn 0.18s ease, toastOut 0.35s ease var(--toast-out-delay, 1.85s) forwards;
 }
 
 .toast.kind-good {
