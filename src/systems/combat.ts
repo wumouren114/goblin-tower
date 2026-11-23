@@ -688,14 +688,19 @@ export class Combat {
     const def = CHARACTERS[this.charId]
     const rhythm = this.hasBranch('rhythm')
     // 节奏分支：攻击间隔由节拍网格锁定，攻速加成（耐力/誓约/水枪等）对其无效
-    const interval = rhythm
+    // 大招/变身期间：以正常攻速公式计算，但不慢于节拍网格（爆发期更快更有感）
+    const freeInterval =
+      attackInterval(this.stats.stamina, def.attack.minInterval) *
+      this.styleAttackIntervalMul() *
+      (this.hasBranch('bubble') ? 1.15 : 1) *
+      (this.combatTime < this.rapidUntil ? 0.55 : 1) *
+      (1 - Math.min(0.3, this.trialAttackSpeed)) *
+      (this.hasBranch('bubble') && this.hasNode('fish-bubble-giant') ? 1.1 : 1)
+    const interval = rhythm && !this.transformActive
       ? this.beat.gridMs / 1000
-      : attackInterval(this.stats.stamina, def.attack.minInterval) *
-          this.styleAttackIntervalMul() *
-          (this.hasBranch('bubble') ? 1.15 : 1) *
-          (this.combatTime < this.rapidUntil ? 0.55 : 1) *
-          (1 - Math.min(0.3, this.trialAttackSpeed)) *
-          (this.hasBranch('bubble') && this.hasNode('fish-bubble-giant') ? 1.1 : 1)
+      : rhythm
+        ? Math.min(freeInterval, this.beat.gridMs / 1000)
+        : freeInterval
     this.cooldownLeft = Math.max(0.01, interval)
     const forced = this.combatTime < this.forcePerfectUntil
     let judge: 'perfect' | 'good' | 'miss' | null = null

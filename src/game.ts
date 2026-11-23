@@ -940,8 +940,8 @@ export class Game {
     // 节奏分支：把节拍相位推给 HUD（没有节拍环，玩家没法踩拍）
     const beatPhase = this.combat?.beatPhase ?? null
     if (beatPhase !== null) {
-      // 过拍点：播一记节拍器音（音量低，不盖住战斗音效）
-      if (beatPhase < this.lastBeatPhase) audio.beatTick()
+      // 过拍点：播一记节拍器音（音量低，不盖住战斗音效）；大招期间不打点（脱离节拍）
+      if (beatPhase < this.lastBeatPhase && !this.combat?.transformActive) audio.beatTick()
       this.lastBeatPhase = beatPhase
       this.hud.updateBeat(beatPhase, this.combat?.beatJudge ?? null)
       this.hud.updateCombo(this.combat?.combo ?? 0)
