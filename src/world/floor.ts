@@ -12,6 +12,26 @@ import { BillboardBatch } from '../art/billboardBatch'
 const UP = new THREE.Vector3(0, 1, 0)
 const ZERO_BANNER = new THREE.Matrix4().makeScale(0, 0, 0)
 
+/** 模块级像素画布缓存：宝箱/祭坛等细节贴图仅绘制一次，CanvasTexture 仍随层独立释放 */
+const FLOOR_PIXEL_CACHE = new Map<string, HTMLCanvasElement>()
+
+function cachedFloorPixelCanvas(
+  key: string,
+  size: number,
+  draw: (ctx: CanvasRenderingContext2D, s: number) => void,
+): HTMLCanvasElement {
+  const hit = FLOOR_PIXEL_CACHE.get(key)
+  if (hit) return hit
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.imageSmoothingEnabled = false
+  draw(ctx, size)
+  FLOOR_PIXEL_CACHE.set(key, canvas)
+  return canvas
+}
+
 /** 火把运行时状态 */
 interface TorchEntry {
   flameIndex: number
@@ -307,8 +327,9 @@ export class TowerFloor implements WorldV3 {
   private dadoSides: ('south' | 'north' | 'east' | 'west')[] = []
   private dadoBaseMatrices: THREE.Matrix4[] = []
   private dadoTrimBaseMatrices: THREE.Matrix4[] = []
+  private lightPatchMesh: THREE.InstancedMesh | null = null
   private lightPatchMat: THREE.MeshBasicMaterial | null = null
-  private lightPatchBaseOpacity = 0.24
+  private lightPatchBaseOpacity = 0.11
 
   private altarRune: THREE.Mesh | null = null
   private crystal: THREE.Mesh | null = null
@@ -472,9 +493,9 @@ export class TowerFloor implements WorldV3 {
     this.root.add(fill)
 
     /* ---------------- 地面 ---------------- */
-    tex.floor.repeat.set(floorSize / 7.5, floorSize / 7.5)
-    // 保持 TextureBook 的 16x 各向异性，斜视地面更稳，不再降回 8x
-    tex.floor.anisotropy = 16
+    // 32×32 沙盒像素地砖：按 4.2m 一块平铺，确保近景像素颗粒与 1px 描边清晰可读
+    tex.floor.repeat.set(floorSize / 4.2, floorSize / 4.2)
+    tex.floor.anisotropy = 1
     const floorMat = new THREE.MeshStandardMaterial({
       map: tex.floor,
       roughness: 0.95,
@@ -501,7 +522,7 @@ export class TowerFloor implements WorldV3 {
       // 偏白的暖色，避免在熔火/霜蚀主题里被同色地面吃掉；加法混合只提亮不投影。
       color: mixHex(theme.accentColor, 0xfff3d6, 0.6),
       transparent: true,
-      opacity: 0.34,
+      opacity: 0.24,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false,
@@ -547,8 +568,8 @@ export class TowerFloor implements WorldV3 {
     const thick = 1.6
     tex.wall.wrapS = THREE.RepeatWrapping
     tex.wall.wrapT = THREE.RepeatWrapping
-    tex.wall.repeat.set(Math.max(2, Math.round(size / 3.4)), Math.max(1, Math.round(wallH / 3)))
-    tex.wall.anisotropy = 8
+    tex.wall.repeat.set(Math.max(2, Math.round(size / 3.2)), Math.max(1, Math.round(wallH / 2.4)))
+    tex.wall.anisotropy = 1
     // 墙色必须跟主题走：早先为了提亮写死成纯白 (1.08,1.08,1.08)，
     // 结果第二阶段靛蓝地面配白墙，场景直接割裂。这里取主题墙色向白提 42%，
     // 再乘 1.04 保持原来的轻微过曝。
@@ -716,43 +737,12 @@ export class TowerFloor implements WorldV3 {
   }
 
   /* ---------------- 祭坛 ---------------- */
-  /** 生成 64×64 祭坛玄武岩刻纹贴图（石块倒角 + 刻槽符文 + 细裂纹） */
-  private makeAltarStoneTexture(baseHex: number): THREE.CanvasTexture {
-    const canvas = document.createElement('canvas')
-    canvas.width = 64
-    canvas.height = 64
-    const ctx = canvas.getContext('2d')!
-    ctx.imageSmoothingEnabled = false
-    const toCss = (h: number, a = 1) => `rgba(${(h >> 16) & 255},${(h >> 8) & 255},${h & 255},${a})`
-    ctx.fillStyle = toCss(baseHex)
-    ctx.fillRect(0, 0, 64, 64)
-    // 石台横向刻缝与顶沿高光
-    for (const y of [0, 21, 42]) {
-      ctx.fillStyle = toCss(mixHex(baseHex, 0xffffff, 0.22), 0.8)
-      ctx.fillRect(0, y, 64, 1)
-      ctx.fillStyle = toCss(mixHex(baseHex, 0x000000, 0.45), 0.9)
-      ctx.fillRect(0, Math.min(63, y + 20), 64, 1)
-    }
-    // 竖向凿刻符文凹线（微亮紫灰描边）
-    ctx.fillStyle = toCss(mixHex(baseHex, 0xc98eff, 0.45), 0.55)
-    for (let x = 8; x < 64; x += 16) {
-      ctx.fillRect(x, 6, 2, 10)
-      ctx.fillRect(x + 4, 27, 2, 10)
-      ctx.fillRect(x, 48, 2, 10)
-    }
-    // 细裂纹磨损
-    ctx.strokeStyle = toCss(mixHex(baseHex, 0x000000, 0.55), 0.7)
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.moveTo(14, 12)
-    ctx.lineTo(20, 20)
-    ctx.lineTo(17, 28)
-    ctx.moveTo(46, 34)
-    ctx.lineTo(52, 46)
-    ctx.stroke()
+  /** 将缓存的像素画布包装为严格 NearestFilter（无 mipmap）纹理并登记释放 */
+  private wrapPixelTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
     const tex = new THREE.CanvasTexture(canvas)
     tex.magFilter = THREE.NearestFilter
-    tex.minFilter = THREE.NearestMipmapLinearFilter
+    tex.minFilter = THREE.NearestFilter
+    tex.generateMipmaps = false
     tex.wrapS = THREE.RepeatWrapping
     tex.wrapT = THREE.RepeatWrapping
     tex.colorSpace = THREE.SRGBColorSpace
@@ -761,11 +751,94 @@ export class TowerFloor implements WorldV3 {
     return tex
   }
 
+  /** 生成 16×16 祭坛玄武岩像素石砖贴图（1px 暗描边 + 离散色阶 + 像素刻纹，无渐变） */
+  private makeAltarStoneTexture(baseHex: number): THREE.CanvasTexture {
+    const canvas = cachedFloorPixelCanvas(`altar-stone:${baseHex.toString(16)}`, 16, (ctx, S) => {
+      const css = (h: number) => `rgb(${(h >> 16) & 255},${(h >> 8) & 255},${h & 255})`
+      const px = (x: number, y: number, h: number, w = 1, hh = 1) => {
+        ctx.fillStyle = css(h)
+        ctx.fillRect(x, y, w, hh)
+      }
+      const dark = mixHex(baseHex, 0x000000, 0.5)
+      const shade = mixHex(baseHex, 0x000000, 0.24)
+      const hi = mixHex(baseHex, 0xffffff, 0.22)
+      const runeTint = mixHex(baseHex, 0xd09aff, 0.52)
+
+      px(0, 0, baseHex, S, S)
+      // 两层错缝像素石块
+      px(0, 0, dark, S, 1)
+      px(0, 7, dark, S, 1)
+      px(0, 15, dark, S, 1)
+      px(0, 0, dark, 1, S)
+      px(8, 0, dark, 1, 8)
+      px(4, 8, dark, 1, 8)
+      px(12, 8, dark, 1, 8)
+      // 1px 顶沿高光
+      px(1, 1, hi, 7, 1)
+      px(9, 1, hi, 6, 1)
+      px(1, 8, hi, 3, 1)
+      px(5, 8, hi, 7, 1)
+      px(13, 8, hi, 3, 1)
+      // 离散石斑 + 像素符文刻点
+      for (const [sx, sy] of [[2, 4], [6, 5], [10, 3], [14, 5], [2, 12], [7, 11], [10, 13]]) {
+        px(sx, sy, shade, 2, 1)
+      }
+      for (const [rx, ry] of [[4, 3], [4, 4], [4, 5], [12, 3], [12, 4], [8, 10], [8, 11], [8, 12]]) {
+        px(rx, ry, runeTint, 1, 1)
+      }
+    })
+    return this.wrapPixelTexture(canvas)
+  }
+
+  /** 生成 16×16 像素点阵发光符文贴图（用于祭坛献祭凹槽） */
+  private makeAltarRunePixelTexture(glowHex: number): THREE.CanvasTexture {
+    const canvas = cachedFloorPixelCanvas(`altar-rune:${glowHex.toString(16)}`, 16, (ctx, S) => {
+      const css = (h: number) => `rgb(${(h >> 16) & 255},${(h >> 8) & 255},${h & 255})`
+      const px = (x: number, y: number, h: number, w = 1, hh = 1) => {
+        ctx.fillStyle = css(h)
+        ctx.fillRect(x, y, w, hh)
+      }
+      const bg = 0x1a1524
+      const dim = mixHex(glowHex, 0x2a1840, 0.55)
+      const bright = mixHex(glowHex, 0xffffff, 0.35)
+      px(0, 0, bg, S, S)
+      // 外圈 1px 虚线点阵符文框
+      for (let i = 1; i < S - 1; i += 2) {
+        px(i, 1, dim)
+        px(i, S - 2, dim)
+        px(1, i, dim)
+        px(S - 2, i, dim)
+      }
+      // 中心像素点阵菱形 + 十字符印
+      const matrix = [
+        '....11....11....',
+        '......1111......',
+        '.....122221.....',
+        '....12111121....',
+        '...121.22.121...',
+        '...1212222121...',
+        '....12111121....',
+        '.....122221.....',
+        '......1111......',
+        '....11....11....',
+      ]
+      for (let r = 0; r < matrix.length; r += 1) {
+        const row = matrix[r]
+        for (let c = 0; c < row.length; c += 1) {
+          const ch = row[c]
+          if (ch === '1') px(c, r + 3, glowHex)
+          else if (ch === '2') px(c, r + 3, bright)
+        }
+      }
+    })
+    return this.wrapPixelTexture(canvas)
+  }
+
   private buildAltar(half: number, wallH: number, tex: TextureBook): void {
     const theme = this.theme
     if (!theme) return
 
-    // 石质底座程序化刻纹贴图（玄武岩灰紫基调，贴合祭坛化身立绘风格）
+    // 16×16 像素玄武岩底座贴图
     const basaltBase = mixHex(mixHex(theme.wallColor, theme.floorAltColor, 0.32), 0x454052, 0.52)
     const altarTex = this.makeAltarStoneTexture(basaltBase)
     const stoneMat = new THREE.MeshStandardMaterial({
@@ -777,14 +850,14 @@ export class TowerFloor implements WorldV3 {
     })
     const stepR = Math.min(3.0, half * 0.2)
 
-    // 三级八边形台阶（低矮，表面带凿刻石纹与倒角高光）
+    // 三级阶梯方块石座（体素造型，占地与原八角台一致，碰撞零改动）
     const steps = [
-      { rTop: stepR * 0.82, rBot: stepR, h: 0.3, y: 0.15 },
-      { rTop: stepR * 0.64, rBot: stepR * 0.76, h: 0.26, y: 0.43 },
-      { rTop: stepR * 0.44, rBot: stepR * 0.56, h: 0.22, y: 0.67 },
+      { w: stepR * 1.9, h: 0.3, y: 0.15 },
+      { w: stepR * 1.48, h: 0.26, y: 0.43 },
+      { w: stepR * 1.04, h: 0.22, y: 0.67 },
     ]
     for (const st of steps) {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(st.rTop, st.rBot, st.h, 8, 1), stoneMat)
+      const m = new THREE.Mesh(new THREE.BoxGeometry(st.w, st.h, st.w), stoneMat)
       m.position.y = st.y
       m.castShadow = true
       m.receiveShadow = true
@@ -792,7 +865,7 @@ export class TowerFloor implements WorldV3 {
       this.altarSteps.push(m)
     }
 
-    // 顶台献祭凹槽（放卡/放血之位：暗玄武岩框 + 绯紫发光凹槽，与祭坛化身胸口凹槽呼应）
+    // 顶台献祭凹槽（像素玄武岩框 + 16×16 像素点阵发光符文板）
     const accentGlow = mixHex(this.interactAccent(), 0xff6ec7, 0.42)
     const basinMat = new THREE.MeshStandardMaterial({
       color: 0x221e2b,
@@ -800,30 +873,33 @@ export class TowerFloor implements WorldV3 {
       metalness: 0.2,
       flatShading: true,
     })
-    const basin = new THREE.Mesh(new THREE.BoxGeometry(stepR * 0.52, 0.08, stepR * 0.38), basinMat)
+    const basin = new THREE.Mesh(new THREE.BoxGeometry(stepR * 0.58, 0.08, stepR * 0.44), basinMat)
     basin.position.set(0, 0.79, 0)
     this.root.add(basin)
     this.altarSteps.push(basin)
 
+    const runePixelTex = this.makeAltarRunePixelTexture(accentGlow)
     const recessMat = new THREE.MeshStandardMaterial({
-      color: mixHex(accentGlow, 0xffffff, 0.25),
+      map: runePixelTex,
+      emissiveMap: runePixelTex,
+      color: 0xffffff,
       emissive: new THREE.Color(accentGlow),
-      emissiveIntensity: 0.85,
-      roughness: 0.25,
-      metalness: 0.2,
+      emissiveIntensity: 0.95,
+      roughness: 0.3,
+      metalness: 0.12,
       flatShading: true,
     })
     this.altarRecessMat = recessMat
-    const recess = new THREE.Mesh(new THREE.BoxGeometry(stepR * 0.36, 0.03, stepR * 0.22), recessMat)
+    const recess = new THREE.Mesh(new THREE.BoxGeometry(stepR * 0.44, 0.03, stepR * 0.3), recessMat)
     recess.position.set(0, 0.835, 0)
     this.root.add(recess)
     this.altarSteps.push(recess)
 
-    // 6 枚浮动符文微粒（合批 1 drawcall，克制体量，不喧宾夺主）
+    // 6 枚像素方块浮动符文粒子（合批 1 drawcall，克制体量，不喧宾夺主）
     const moteMat = new THREE.MeshBasicMaterial({
       color: mixHex(accentGlow, 0xffd8f0, 0.35),
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.62,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false,
@@ -837,24 +913,24 @@ export class TowerFloor implements WorldV3 {
         new THREE.Matrix4().compose(
           new THREE.Vector3(Math.cos(a) * this.altarMoteBaseR, 1.15 + (i % 3) * 0.25, Math.sin(a) * this.altarMoteBaseR),
           mq,
-          new THREE.Vector3(0.085, 0.13, 0.085),
+          new THREE.Vector3(0.11, 0.11, 0.11),
         ),
       )
     }
-    const motes = this.instanced(new THREE.OctahedronGeometry(1, 0), moteMat, moteMats, false)
+    const motes = this.instanced(new THREE.BoxGeometry(1, 1, 1), moteMat, moteMats, false)
     motes.name = 'AltarRuneMotes'
     motes.renderOrder = 3
     this.altarMotes = motes
     this.root.add(motes)
     this.altarSteps.push(motes)
 
-    // 发光符文圈
+    // 发光符文圈（降透明，战斗可读性优先）
     const accent = this.interactAccent()
     const runeMat = new THREE.MeshBasicMaterial({
       map: tex.rune,
       color: mixHex(accent, 0xffffff, 0.12),
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.48,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -890,7 +966,7 @@ export class TowerFloor implements WorldV3 {
       map: tex.beam,
       color: mixHex(accent, 0xffffff, 0.18),
       transparent: true,
-      opacity: 0.13,
+      opacity: 0.08,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -909,7 +985,7 @@ export class TowerFloor implements WorldV3 {
       map: tex.rune,
       color: mixHex(accent, 0xffffff, 0.28),
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.34,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -930,7 +1006,7 @@ export class TowerFloor implements WorldV3 {
       5.4,
       5.4,
       accent,
-      0.3,
+      0.2,
     )
 
     this.altarLight = new THREE.PointLight(accent, 11, Math.max(13, half * 0.75), 2)
@@ -1083,7 +1159,7 @@ export class TowerFloor implements WorldV3 {
     const backMat = new THREE.MeshBasicMaterial({
       color: mixHex(theme.detail.backlightColor, 0xffffff, 0.32),
       transparent: true,
-      opacity: 0.42,
+      opacity: 0.24,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       side: THREE.DoubleSide,
@@ -1109,7 +1185,7 @@ export class TowerFloor implements WorldV3 {
           rimOuter * 2.5,
           rimOuter * 2.5,
           theme.detail.backlightColor,
-          0.34,
+          0.2,
         )
       }
     }
@@ -1509,41 +1585,59 @@ export class TowerFloor implements WorldV3 {
     }
   }
 
-  /** 生成宝箱 64×64 程序化木纹与暗缝贴图（仅纯程序化 Canvas2D） */
+  /** 生成宝箱 16×16 沙盒像素木纹贴图（1px 暗板缝 + 离散木纹色阶，NearestFilter + 缓存） */
   private makeChestWoodTexture(baseHex: number): THREE.CanvasTexture {
-    const canvas = document.createElement('canvas')
-    canvas.width = 64
-    canvas.height = 64
-    const ctx = canvas.getContext('2d')!
-    ctx.imageSmoothingEnabled = false
-    const toCss = (h: number, a = 1) => `rgba(${(h >> 16) & 255},${(h >> 8) & 255},${h & 255},${a})`
-    ctx.fillStyle = toCss(baseHex)
-    ctx.fillRect(0, 0, 64, 64)
-    for (let row = 0; row < 4; row += 1) {
-      const y = row * 16
-      ctx.fillStyle = toCss(mixHex(baseHex, row % 2 === 0 ? 0xffffff : 0x000000, 0.06))
-      ctx.fillRect(0, y, 64, 15)
-      for (let g = 3; g < 14; g += 3) {
-        ctx.fillStyle = toCss(mixHex(baseHex, 0x1a0e06, 0.35), 0.45)
-        ctx.fillRect(0, y + g, 64, 1)
+    const canvas = cachedFloorPixelCanvas(`chest-wood:${baseHex.toString(16)}`, 16, (ctx, S) => {
+      const css = (h: number) => `rgb(${(h >> 16) & 255},${(h >> 8) & 255},${h & 255})`
+      const px = (x: number, y: number, h: number, w = 1, hh = 1) => {
+        ctx.fillStyle = css(h)
+        ctx.fillRect(x, y, w, hh)
       }
-      ctx.fillStyle = toCss(mixHex(baseHex, 0x000000, 0.5))
-      ctx.fillRect(0, y + 15, 64, 1)
-      ctx.fillStyle = toCss(mixHex(baseHex, 0xffe4b8, 0.25), 0.65)
-      ctx.fillRect(0, y, 64, 1)
-    }
-    const tex = new THREE.CanvasTexture(canvas)
-    tex.magFilter = THREE.NearestFilter
-    tex.minFilter = THREE.NearestMipmapLinearFilter
-    tex.wrapS = THREE.RepeatWrapping
-    tex.wrapT = THREE.RepeatWrapping
-    tex.colorSpace = THREE.SRGBColorSpace
-    tex.needsUpdate = true
-    this.detailTextures.push(tex)
-    return tex
+      const dark = mixHex(baseHex, 0x000000, 0.52)
+      const shade = mixHex(baseHex, 0x000000, 0.22)
+      const hi = mixHex(baseHex, 0xffe4b8, 0.26)
+      for (let row = 0; row < 4; row += 1) {
+        const y = row * 4
+        px(0, y, row % 2 === 0 ? baseHex : shade, S, 3)
+        px(1, y, row % 2 === 0 ? hi : baseHex, S - 2, 1)
+        for (let gx = 2 + (row % 2); gx < S - 2; gx += 4) {
+          px(gx, y + 1, row % 2 === 0 ? shade : dark, 2, 1)
+        }
+        px(0, y + 3, dark, S, 1)
+      }
+      px(0, 0, dark, S, 1)
+      px(0, S - 1, dark, S, 1)
+      px(0, 0, dark, 1, S)
+      px(S - 1, 0, dark, 1, S)
+    })
+    return this.wrapPixelTexture(canvas)
   }
 
-  /** 木箱 + 木纹 + 金属包角 + 呼吸微光锁扣 + 开启态内衬；不产生额外实时灯光 */
+  /** 生成宝箱 16×16 像素包角金属贴图（铆钉 + 1px 描边 + 高光像素点） */
+  private makeChestMetalTexture(baseHex: number): THREE.CanvasTexture {
+    const canvas = cachedFloorPixelCanvas(`chest-metal:${baseHex.toString(16)}`, 16, (ctx, S) => {
+      const css = (h: number) => `rgb(${(h >> 16) & 255},${(h >> 8) & 255},${h & 255})`
+      const px = (x: number, y: number, h: number, w = 1, hh = 1) => {
+        ctx.fillStyle = css(h)
+        ctx.fillRect(x, y, w, hh)
+      }
+      const dark = mixHex(baseHex, 0x000000, 0.48)
+      const hi = mixHex(baseHex, 0xffffff, 0.35)
+      px(0, 0, baseHex, S, S)
+      px(0, 0, dark, S, 1)
+      px(0, S - 1, dark, S, 1)
+      px(0, 0, dark, 1, S)
+      px(S - 1, 0, dark, 1, S)
+      px(1, 1, hi, S - 2, 1)
+      for (const [rx, ry] of [[2, 2], [S - 4, 2], [2, S - 4], [S - 4, S - 4]]) {
+        px(rx, ry, dark, 2, 2)
+        px(rx, ry, hi, 1, 1)
+      }
+    })
+    return this.wrapPixelTexture(canvas)
+  }
+
+  /** 像素木箱 + 16×16 木纹 + 方块金属包角 + 呼吸微光锁扣 + 开启态内衬；不产生额外实时灯光 */
   private spawnTowerCache(x: number, z: number, rot: number, index: number): void {
     const theme = this.theme
     const tex = this.tex
@@ -1554,14 +1648,17 @@ export class TowerFloor implements WorldV3 {
     const woodMat = new THREE.MeshStandardMaterial({
       map: woodTex,
       color: 0xffffff,
-      roughness: 0.84,
+      roughness: 0.86,
       metalness: 0.04,
       flatShading: true,
     })
+    const bandHex = mixHex(theme.wallTopColor, 0xb88b4a, 0.58)
+    const bandTex = this.makeChestMetalTexture(bandHex)
     const bandMat = new THREE.MeshStandardMaterial({
-      color: mixHex(theme.wallTopColor, 0xb88b4a, 0.58),
-      roughness: 0.36,
-      metalness: 0.78,
+      map: bandTex,
+      color: 0xffffff,
+      roughness: 0.38,
+      metalness: 0.72,
       flatShading: true,
     })
     const accent = this.interactAccent()
@@ -1629,7 +1726,7 @@ export class TowerFloor implements WorldV3 {
 
     // 光晕/封印走合批：坐标是世界空间，不挂在 group 上（group 只放实体箱体）
     const glowIndex = this.glowBatch?.acquire() ?? -1
-    this.glowBatch?.set(glowIndex, x, 0.42, z, 2.1, 2.1, accent, 0.3)
+    this.glowBatch?.set(glowIndex, x, 0.42, z, 2.1, 2.1, accent, 0.22)
     const sealIndex = this.sealBatch?.acquire() ?? -1
     this.sealBatch?.set(sealIndex, x, 1.05, z, 0.92, 0.92, sealColor, 0.9)
 
@@ -1800,24 +1897,31 @@ export class TowerFloor implements WorldV3 {
     this.root.add(mesh)
   }
 
-  /* ---------------- 细节层 4：地面多边形亮斑（+1 drawcall，无新点光） ---------------- */
+  /* ---------------- 细节层 4：地面柔和光斑（降透明+外圈排布，战斗可读性优先） ---------------- */
   private buildLightPatches(half: number, rng: Rng, tex: TextureBook): void {
     const theme = this.theme
     if (!theme) return
     const detail = theme.detail
-    const count = 16
+    const isStage1 = theme.stage === 1
+    // 云上花庭光斑减半（16 → 8）并退至外围避开战斗中心；二/三阶同步精简降透明
+    const count = isStage1 ? 8 : 10
+    const baseOpacity = isStage1
+      ? Math.min(0.11, detail.lightPatchOpacity * 0.45)
+      : Math.min(0.14, detail.lightPatchOpacity * 0.6)
     const mats: THREE.Matrix4[] = []
     const q = new THREE.Quaternion()
     const rotX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
     const rotY = new THREE.Quaternion()
 
     for (let i = 0; i < count; i += 1) {
-      const ring = i % 2 === 0 ? rng.range(half * 0.24, half * 0.48) : rng.range(half * 0.5, half * 0.78)
-      const angle = (i / count) * Math.PI * 2 + detail.lightPatchAngle * 0.5 + rng.range(-0.18, 0.18)
+      const ring = isStage1
+        ? rng.range(half * 0.68, half * 0.86)
+        : rng.range(half * 0.52, half * 0.82)
+      const angle = (i / count) * Math.PI * 2 + detail.lightPatchAngle * 0.5 + rng.range(-0.16, 0.16)
       const x = Math.cos(angle) * ring
       const z = Math.sin(angle) * ring
-      const w = rng.range(3.0, 5.2)
-      const l = rng.range(3.6, 6.4)
+      const w = isStage1 ? rng.range(2.2, 3.6) : rng.range(2.6, 4.4)
+      const l = isStage1 ? rng.range(2.6, 4.4) : rng.range(3.2, 5.2)
       rotY.setFromAxisAngle(UP, detail.lightPatchAngle + rng.range(-0.18, 0.18))
       q.copy(rotY).multiply(rotX)
       mats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 0.022, z), q, new THREE.Vector3(w, l, 1)))
@@ -1827,17 +1931,18 @@ export class TowerFloor implements WorldV3 {
       map: tex.lightPatch,
       color: detail.lightPatchColor,
       transparent: true,
-      opacity: detail.lightPatchOpacity,
+      opacity: baseOpacity,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false,
     })
     this.lightPatchMat = mat
-    this.lightPatchBaseOpacity = detail.lightPatchOpacity
+    this.lightPatchBaseOpacity = baseOpacity
 
     const mesh = this.instanced(new THREE.PlaneGeometry(1, 1), mat, mats, false)
     mesh.name = 'FloorLightPatches'
     mesh.renderOrder = 2
+    this.lightPatchMesh = mesh
     this.root.add(mesh)
   }
 
@@ -1861,7 +1966,7 @@ export class TowerFloor implements WorldV3 {
       const z = rng.range(-half + 1.2, half - 1.2)
       const size = secondary ? rng.range(0.11, 0.18) : rng.range(0.2, 0.32)
       const color = secondary ? detail.airColors[1] : detail.airColors[0]
-      const alpha = secondary ? rng.range(0.35, 0.56) : rng.range(0.42, 0.68)
+      const alpha = secondary ? rng.range(0.24, 0.38) : rng.range(0.28, 0.46)
       const phase = rng.range(0, Math.PI * 2)
       this.airParticles.push({ x, y, z, size, color, alpha, phase, secondary })
       const slot = this.airBatch.acquire()
@@ -1885,27 +1990,28 @@ export class TowerFloor implements WorldV3 {
       const beamMats: THREE.Matrix4[] = []
       const q = new THREE.Quaternion()
       const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.28, 0.35, -0.22))
-      for (let i = 0; i < 6; i += 1) {
-        const ang = (i / 6) * Math.PI * 2 + 0.35
-        const r = half * rng.range(0.42, 0.72)
+      // 晨光束减半（6 → 3）并退至外围，仅正面渲染降透明
+      for (let i = 0; i < 3; i += 1) {
+        const ang = (i / 3) * Math.PI * 2 + 0.45
+        const r = half * rng.range(0.74, 0.86)
         const h = wallH * 1.45
         q.copy(tilt)
-        beamMats.push(new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(ang) * r, h * 0.5, Math.sin(ang) * r), q, new THREE.Vector3(1.1, h, 1.1)))
+        beamMats.push(new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(ang) * r, h * 0.5, Math.sin(ang) * r), q, new THREE.Vector3(0.95, h, 0.95)))
       }
       const beamMat = new THREE.MeshBasicMaterial({
         color: 0xfff5cf,
         transparent: true,
-        opacity: 0.11,
+        opacity: 0.055,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
-        side: THREE.DoubleSide,
+        side: THREE.FrontSide,
         toneMapped: false,
       })
-      const beams = this.instanced(new THREE.CylinderGeometry(0.45, 1.15, 1, 8, 1, true), beamMat, beamMats, false)
+      const beams = this.instanced(new THREE.CylinderGeometry(0.42, 1.05, 1, 8, 1, true), beamMat, beamMats, false)
       beams.name = 'SigMorningBeams'
       beams.renderOrder = 3
       this.root.add(beams)
-      this.sigPulses.push({ mat: beamMat, base: 0.11, amp: 0.03, freq: 1.1 })
+      this.sigPulses.push({ mat: beamMat, base: 0.055, amp: 0.012, freq: 0.35 })
 
       // 墙檐花簇点缀
       const blossomMats: THREE.Matrix4[] = []
@@ -1929,25 +2035,25 @@ export class TowerFloor implements WorldV3 {
       blossoms.name = 'SigMorningBlossoms'
       this.root.add(blossoms)
     } else if (id === 'stage1-candle') {
-      // 云上花庭 · 风起：高空横掠风纹带 + 飘浮金色蒲公英伞冠
-      const count = 14
+      // 云上花庭 · 风起：高空横掠风纹带（减半并降透明，避免切穿战斗区）
+      const count = 7
       const items: { x: number; y: number; z: number; vx: number; vy: number; vz: number; sx: number; sy: number; sz: number; yaw: number; pitch: number }[] = []
       const mats: THREE.Matrix4[] = []
       const q = new THREE.Quaternion()
       for (let i = 0; i < count; i += 1) {
         const x = rng.range(-half + 1.5, half - 1.5)
-        const y = rng.range(wallH * 0.45, wallH + 1.4)
+        const y = rng.range(wallH * 0.68, wallH + 1.5)
         const z = rng.range(-half + 1.5, half - 1.5)
-        const len = rng.range(1.6, 3.2)
+        const len = rng.range(1.4, 2.6)
         const yaw = 0.32
-        items.push({ x, y, z, vx: 3.1, vy: 0, vz: 1.05, sx: len, sy: 0.08, sz: 0.24, yaw, pitch: 0 })
+        items.push({ x, y, z, vx: 2.2, vy: 0, vz: 0.75, sx: len, sy: 0.07, sz: 0.2, yaw, pitch: 0 })
         q.setFromEuler(new THREE.Euler(0, yaw, 0))
-        mats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(len, 0.08, 0.24)))
+        mats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(len, 0.07, 0.2)))
       }
       const windMat = new THREE.MeshBasicMaterial({
         color: 0xfff0b8,
         transparent: true,
-        opacity: 0.24,
+        opacity: 0.12,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         toneMapped: false,
@@ -1973,7 +2079,7 @@ export class TowerFloor implements WorldV3 {
       const petalMat = new THREE.MeshBasicMaterial({
         color: 0xffa4c2,
         transparent: true,
-        opacity: 0.72,
+        opacity: 0.48,
         depthWrite: false,
       })
       const carpet = this.instanced(new THREE.CircleGeometry(1, 5), petalMat, carpetMats, false)
@@ -2002,7 +2108,7 @@ export class TowerFloor implements WorldV3 {
       const ringMat = new THREE.MeshBasicMaterial({
         color: 0xffdc82,
         transparent: true,
-        opacity: 0.36,
+        opacity: 0.2,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         toneMapped: false,
@@ -2016,7 +2122,7 @@ export class TowerFloor implements WorldV3 {
       astroGroup.add(inner)
       this.root.add(astroGroup)
       this.sigSpinners.push({ obj: astroGroup, axis: 'y', speed: 0.18 })
-      this.sigPulses.push({ mat: ringMat, base: 0.36, amp: 0.08, freq: 1.4 })
+      this.sigPulses.push({ mat: ringMat, base: 0.2, amp: 0.04, freq: 0.8 })
     } else if (id === 'stage2-slag') {
       // 星砂观星台 · 砂河：贴地青白发光星砂河带 + 沿河微光砂晶
       const segMats: THREE.Matrix4[] = []
@@ -2035,7 +2141,7 @@ export class TowerFloor implements WorldV3 {
       const riverMat = new THREE.MeshBasicMaterial({
         color: 0x9cf0ff,
         transparent: true,
-        opacity: 0.18,
+        opacity: 0.12,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         toneMapped: false,
@@ -2044,7 +2150,7 @@ export class TowerFloor implements WorldV3 {
       river.name = 'SigStardustRiver'
       river.renderOrder = 2
       this.root.add(river)
-      this.sigPulses.push({ mat: riverMat, base: 0.18, amp: 0.045, freq: 1.5 })
+      this.sigPulses.push({ mat: riverMat, base: 0.12, amp: 0.025, freq: 0.85 })
     } else if (id === 'stage2-ember') {
       // 星砂观星台 · 流星：高空统一斜角划过的粉紫/银白流星拖尾光梭
       const count = 10
@@ -2063,7 +2169,7 @@ export class TowerFloor implements WorldV3 {
       const meteorMat = new THREE.MeshBasicMaterial({
         color: 0xffc2e2,
         transparent: true,
-        opacity: 0.46,
+        opacity: 0.24,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         toneMapped: false,
@@ -2102,7 +2208,7 @@ export class TowerFloor implements WorldV3 {
       const mistMat = new THREE.MeshBasicMaterial({
         color: 0x72e6c8,
         transparent: true,
-        opacity: 0.14,
+        opacity: 0.09,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         toneMapped: false,
@@ -2112,7 +2218,7 @@ export class TowerFloor implements WorldV3 {
       mist.position.y = 0.18
       mist.name = 'SigGearMist'
       this.root.add(mist)
-      this.sigPulses.push({ mat: mistMat, base: 0.14, amp: 0.04, freq: 1.2 })
+      this.sigPulses.push({ mat: mistMat, base: 0.09, amp: 0.02, freq: 0.7 })
     } else if (id === 'stage3-iron') {
       // 黄铜钟塔 · 熔金槽：外圈嵌地熔金沟槽带 + 热浪微光
       const edge = half - 2.1
@@ -2127,7 +2233,7 @@ export class TowerFloor implements WorldV3 {
       const moltenMat = new THREE.MeshBasicMaterial({
         color: 0xff8c2b,
         transparent: true,
-        opacity: 0.34,
+        opacity: 0.2,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         toneMapped: false,
@@ -2136,7 +2242,7 @@ export class TowerFloor implements WorldV3 {
       channels.name = 'SigMoltenChannels'
       channels.renderOrder = 2
       this.root.add(channels)
-      this.sigPulses.push({ mat: moltenMat, base: 0.34, amp: 0.09, freq: 1.9 })
+      this.sigPulses.push({ mat: moltenMat, base: 0.2, amp: 0.04, freq: 0.9 })
     } else if (id === 'stage3-throne') {
       // 黄铜钟塔 · 塔心：悬空紫金钟面天穹环 + 12 刻度块 + 慢转指针
       const dialGroup = new THREE.Group()
@@ -2144,7 +2250,7 @@ export class TowerFloor implements WorldV3 {
       const dialMat = new THREE.MeshBasicMaterial({
         color: 0xffd066,
         transparent: true,
-        opacity: 0.34,
+        opacity: 0.2,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         toneMapped: false,
@@ -2165,7 +2271,7 @@ export class TowerFloor implements WorldV3 {
       dialGroup.add(ticks)
       this.root.add(dialGroup)
       this.sigSpinners.push({ obj: dialGroup, axis: 'y', speed: 0.14 })
-      this.sigPulses.push({ mat: dialMat, base: 0.34, amp: 0.08, freq: 1.3 })
+      this.sigPulses.push({ mat: dialMat, base: 0.2, amp: 0.04, freq: 0.8 })
     }
   }
 
@@ -2431,10 +2537,10 @@ export class TowerFloor implements WorldV3 {
     }
     if (this.landmarkBacklight) {
       const mat = this.landmarkBacklight.material as THREE.MeshBasicMaterial
-      mat.opacity = 0.38 + Math.sin(t * 1.9) * 0.08
+      mat.opacity = 0.22 + Math.sin(t * 1.4) * 0.04
     }
     if (this.landmarkGlowIndex >= 0 && this.glowBatch && this.theme) {
-      const pulse = 6.2 + Math.sin(t * 1.5) * 0.45
+      const pulse = 6.0 + Math.sin(t * 1.2) * 0.35
       this.glowBatch.set(
         this.landmarkGlowIndex,
         0,
@@ -2443,16 +2549,21 @@ export class TowerFloor implements WorldV3 {
         pulse,
         pulse,
         this.theme.detail.backlightColor,
-        0.3 + Math.sin(t * 1.8) * 0.05,
+        0.18 + Math.sin(t * 1.4) * 0.03,
       )
     }
     if (this.lightPatchMat) {
-      const shimmer = this.theme?.detail.lightPatchKind === 'canopy' ? 0.045 : 0.02
-      this.lightPatchMat.opacity = this.lightPatchBaseOpacity + Math.sin(t * 1.3) * shimmer
+      const isStage1 = this.theme?.stage === 1
+      const shimmer = isStage1 ? 0.012 : 0.014
+      const freq = isStage1 ? 0.35 : 0.5
+      this.lightPatchMat.opacity = Math.max(0.02, this.lightPatchBaseOpacity + Math.sin(t * freq) * shimmer)
+      if (isStage1 && this.lightPatchMesh) {
+        this.lightPatchMesh.rotation.y = Math.sin(t * 0.14) * 0.06
+      }
     }
     if (this.boundaryMat) {
       // 很轻的呼吸，不抢角色；墙被隐藏时这条光带就是唯一的边界提示。
-      this.boundaryMat.opacity = 0.3 + Math.sin(t * 1.7) * 0.05
+      this.boundaryMat.opacity = 0.22 + Math.sin(t * 1.2) * 0.03
     }
     this.altarFlash = Math.max(0, this.altarFlash - dt * 0.7)
 
@@ -2463,8 +2574,8 @@ export class TowerFloor implements WorldV3 {
       this.altarRune.rotation.z = t * (roomRing ? 0.06 : this.altarUsed ? 0.18 : 0.12)
       const mat = this.altarRune.material as THREE.MeshBasicMaterial
       mat.opacity = roomRing
-        ? 0.42 + Math.sin(t * 1.2) * 0.05
-        : 0.66 + (this.altarUsed ? 0.12 : 0) + this.altarFlash * 0.18
+        ? 0.34 + Math.sin(t * 1.0) * 0.04
+        : 0.46 + (this.altarUsed ? 0.08 : 0) + this.altarFlash * 0.15
     }
     if (this.crystal) {
       this.crystal.rotation.y = t * 0.55
@@ -2476,7 +2587,7 @@ export class TowerFloor implements WorldV3 {
     if (this.altarMotes && this.altarMotes.visible) {
       const m = new THREE.Matrix4()
       const q = new THREE.Quaternion()
-      const s = new THREE.Vector3(0.085, 0.13, 0.085)
+      const s = new THREE.Vector3(0.11, 0.11, 0.11)
       for (let i = 0; i < 6; i += 1) {
         const a = (i / 6) * Math.PI * 2 + t * 0.42
         const y = 1.15 + (i % 3) * 0.22 + Math.sin(t * 1.8 + i * 1.1) * 0.12
@@ -2488,13 +2599,13 @@ export class TowerFloor implements WorldV3 {
     }
     if (this.altarBeam) {
       const mat = this.altarBeam.material as THREE.MeshBasicMaterial
-      mat.opacity = 0.1 + (this.altarUsed ? 0.07 : 0.02) + Math.sin(t * 1.4) * 0.018 + this.altarFlash * 0.24
+      mat.opacity = 0.07 + (this.altarUsed ? 0.04 : 0.01) + Math.sin(t * 1.1) * 0.012 + this.altarFlash * 0.18
       this.altarBeam.rotation.y = t * 0.14
     }
     if (this.altarHalo) {
       this.altarHalo.rotation.z = -t * (this.altarUsed ? 0.45 : 0.26)
       const mat = this.altarHalo.material as THREE.MeshBasicMaterial
-      mat.opacity = 0.46 + Math.sin(t * 1.6) * 0.08 + this.altarFlash * 0.3
+      mat.opacity = 0.32 + Math.sin(t * 1.2) * 0.05 + this.altarFlash * 0.22
     }
     if (this.altarGlowIndex >= 0 && this.glowBatch) {
       const fx = roomRing ? this.roomFocus.x : 0
@@ -2806,6 +2917,7 @@ export class TowerFloor implements WorldV3 {
     this.dadoSides.length = 0
     this.dadoBaseMatrices.length = 0
     this.dadoTrimBaseMatrices.length = 0
+    this.lightPatchMesh = null
     this.lightPatchMat = null
     this.airParticles.length = 0
     this.airAccum = 0
