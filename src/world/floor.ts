@@ -308,6 +308,7 @@ export class TowerFloor implements WorldV3 {
   private dadoBaseMatrices: THREE.Matrix4[] = []
   private dadoTrimBaseMatrices: THREE.Matrix4[] = []
   private lightPatchMat: THREE.MeshBasicMaterial | null = null
+  private lightPatchMesh: THREE.InstancedMesh | null = null
   private lightPatchBaseOpacity = 0.24
 
   private altarRune: THREE.Mesh | null = null
@@ -1805,39 +1806,47 @@ export class TowerFloor implements WorldV3 {
     const theme = this.theme
     if (!theme) return
     const detail = theme.detail
-    const count = 16
+    // 云上花庭（stage1）光效降噪：数量减半（16→8）、避开中央战斗区、透明度 <= 0.11
+    const isStage1 = theme.stage === 1
+    const count = isStage1 ? 8 : 16
     const mats: THREE.Matrix4[] = []
     const q = new THREE.Quaternion()
     const rotX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
     const rotY = new THREE.Quaternion()
 
     for (let i = 0; i < count; i += 1) {
-      const ring = i % 2 === 0 ? rng.range(half * 0.24, half * 0.48) : rng.range(half * 0.5, half * 0.78)
+      const ring = isStage1
+        ? rng.range(half * 0.68, half * 0.86)
+        : i % 2 === 0
+          ? rng.range(half * 0.24, half * 0.48)
+          : rng.range(half * 0.5, half * 0.78)
       const angle = (i / count) * Math.PI * 2 + detail.lightPatchAngle * 0.5 + rng.range(-0.18, 0.18)
       const x = Math.cos(angle) * ring
       const z = Math.sin(angle) * ring
-      const w = rng.range(3.0, 5.2)
-      const l = rng.range(3.6, 6.4)
+      const w = isStage1 ? rng.range(2.2, 3.4) : rng.range(3.0, 5.2)
+      const l = isStage1 ? rng.range(2.6, 4.0) : rng.range(3.6, 6.4)
       rotY.setFromAxisAngle(UP, detail.lightPatchAngle + rng.range(-0.18, 0.18))
       q.copy(rotY).multiply(rotX)
       mats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, 0.022, z), q, new THREE.Vector3(w, l, 1)))
     }
 
+    const baseOpacity = isStage1 ? Math.min(0.11, detail.lightPatchOpacity * 0.55) : detail.lightPatchOpacity
     const mat = new THREE.MeshBasicMaterial({
       map: tex.lightPatch,
       color: detail.lightPatchColor,
       transparent: true,
-      opacity: detail.lightPatchOpacity,
+      opacity: baseOpacity,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false,
     })
     this.lightPatchMat = mat
-    this.lightPatchBaseOpacity = detail.lightPatchOpacity
+    this.lightPatchBaseOpacity = baseOpacity
 
     const mesh = this.instanced(new THREE.PlaneGeometry(1, 1), mat, mats, false)
     mesh.name = 'FloorLightPatches'
     mesh.renderOrder = 2
+    this.lightPatchMesh = mesh
     this.root.add(mesh)
   }
 
@@ -1881,31 +1890,31 @@ export class TowerFloor implements WorldV3 {
     const rotX90 = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2)
 
     if (id === 'stage1-hall') {
-      // 云上花庭 · 晨光：斜射柔和晨光束 + 沿墙上缘晨露花蔓
+      // 云上花庭 · 晨光（降噪版）：3 束靠外缘的轻薄斜射晨光（避开中央战斗区，低透明度慢漂移）+ 墙檐花簇
       const beamMats: THREE.Matrix4[] = []
       const q = new THREE.Quaternion()
-      const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.28, 0.35, -0.22))
-      for (let i = 0; i < 6; i += 1) {
-        const ang = (i / 6) * Math.PI * 2 + 0.35
-        const r = half * rng.range(0.42, 0.72)
-        const h = wallH * 1.45
+      const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.24, 0.35, -0.2))
+      for (let i = 0; i < 3; i += 1) {
+        const ang = (i / 3) * Math.PI * 2 + 0.55
+        const r = half * rng.range(0.74, 0.86)
+        const h = wallH * 1.35
         q.copy(tilt)
-        beamMats.push(new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(ang) * r, h * 0.5, Math.sin(ang) * r), q, new THREE.Vector3(1.1, h, 1.1)))
+        beamMats.push(new THREE.Matrix4().compose(new THREE.Vector3(Math.cos(ang) * r, h * 0.5, Math.sin(ang) * r), q, new THREE.Vector3(0.72, h, 0.72)))
       }
       const beamMat = new THREE.MeshBasicMaterial({
         color: 0xfff5cf,
         transparent: true,
-        opacity: 0.11,
+        opacity: 0.055,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
-        side: THREE.DoubleSide,
+        side: THREE.FrontSide,
         toneMapped: false,
       })
-      const beams = this.instanced(new THREE.CylinderGeometry(0.45, 1.15, 1, 8, 1, true), beamMat, beamMats, false)
+      const beams = this.instanced(new THREE.CylinderGeometry(0.32, 0.72, 1, 8, 1, true), beamMat, beamMats, false)
       beams.name = 'SigMorningBeams'
       beams.renderOrder = 3
       this.root.add(beams)
-      this.sigPulses.push({ mat: beamMat, base: 0.11, amp: 0.03, freq: 1.1 })
+      this.sigPulses.push({ mat: beamMat, base: 0.055, amp: 0.012, freq: 0.35 })
 
       // 墙檐花簇点缀
       const blossomMats: THREE.Matrix4[] = []
@@ -1929,25 +1938,27 @@ export class TowerFloor implements WorldV3 {
       blossoms.name = 'SigMorningBlossoms'
       this.root.add(blossoms)
     } else if (id === 'stage1-candle') {
-      // 云上花庭 · 风起：高空横掠风纹带 + 飘浮金色蒲公英伞冠
-      const count = 14
+      // 云上花庭 · 风起（降噪版）：7 道高空缓慢轻拂的风纹带（抬高并压低透明度，不干扰战斗阅读）
+      const count = 7
       const items: { x: number; y: number; z: number; vx: number; vy: number; vz: number; sx: number; sy: number; sz: number; yaw: number; pitch: number }[] = []
       const mats: THREE.Matrix4[] = []
       const q = new THREE.Quaternion()
       for (let i = 0; i < count; i += 1) {
-        const x = rng.range(-half + 1.5, half - 1.5)
-        const y = rng.range(wallH * 0.45, wallH + 1.4)
-        const z = rng.range(-half + 1.5, half - 1.5)
-        const len = rng.range(1.6, 3.2)
+        const ang = (i / count) * Math.PI * 2 + 0.4
+        const r = half * rng.range(0.62, 0.86)
+        const x = Math.cos(ang) * r
+        const y = rng.range(wallH + 0.4, wallH + 1.45)
+        const z = Math.sin(ang) * r
+        const len = rng.range(1.4, 2.5)
         const yaw = 0.32
-        items.push({ x, y, z, vx: 3.1, vy: 0, vz: 1.05, sx: len, sy: 0.08, sz: 0.24, yaw, pitch: 0 })
+        items.push({ x, y, z, vx: 1.35, vy: 0, vz: 0.45, sx: len, sy: 0.06, sz: 0.18, yaw, pitch: 0 })
         q.setFromEuler(new THREE.Euler(0, yaw, 0))
-        mats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(len, 0.08, 0.24)))
+        mats.push(new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(len, 0.06, 0.18)))
       }
       const windMat = new THREE.MeshBasicMaterial({
         color: 0xfff0b8,
         transparent: true,
-        opacity: 0.24,
+        opacity: 0.13,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         toneMapped: false,
@@ -2447,8 +2458,14 @@ export class TowerFloor implements WorldV3 {
       )
     }
     if (this.lightPatchMat) {
-      const shimmer = this.theme?.detail.lightPatchKind === 'canopy' ? 0.045 : 0.02
-      this.lightPatchMat.opacity = this.lightPatchBaseOpacity + Math.sin(t * 1.3) * shimmer
+      if (this.theme?.stage === 1) {
+        // 云上花庭光斑改为极慢漂移与微弱呼吸，不做高频闪烁
+        this.lightPatchMat.opacity = this.lightPatchBaseOpacity + Math.sin(t * 0.32) * 0.012
+        if (this.lightPatchMesh) this.lightPatchMesh.rotation.y = Math.sin(t * 0.14) * 0.08
+      } else {
+        const shimmer = this.theme?.detail.lightPatchKind === 'canopy' ? 0.045 : 0.02
+        this.lightPatchMat.opacity = this.lightPatchBaseOpacity + Math.sin(t * 1.3) * shimmer
+      }
     }
     if (this.boundaryMat) {
       // 很轻的呼吸，不抢角色；墙被隐藏时这条光带就是唯一的边界提示。
@@ -2807,6 +2824,7 @@ export class TowerFloor implements WorldV3 {
     this.dadoBaseMatrices.length = 0
     this.dadoTrimBaseMatrices.length = 0
     this.lightPatchMat = null
+    this.lightPatchMesh = null
     this.airParticles.length = 0
     this.airAccum = 0
     this.sigSpinners.length = 0
