@@ -1606,7 +1606,8 @@ export class Combat {
           if (Math.hypot(near.x - t.x, near.z - t.z) > 2) continue
           near.hit(amount * 0.5, 0, 0)
         }
-        this.burstAt(t.x, t.z, 0xe48cff, 8)
+        this.burstAt(t.x, t.z, 0xe48cff, 16)
+        this.burstAt(t.x, t.z, 0xffd479, 8)
       }
     }
 

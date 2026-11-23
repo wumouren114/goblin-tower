@@ -548,10 +548,13 @@ export class Game {
     this.rig.fitForArena(half)
     this.sceneName = sceneDef.name
     this.player?.grantInvuln(1.0)
-    // 简单难度：每层进场回 15% 生命，降低长跑挫败感
-    if (this.run.difficulty === 'easy' && this.player) {
-      this.player.heal(this.player.stats.maxHp * 0.15)
-      this.run.hp = this.player.hp
+    // 简单难度：每层进场回 15% 生命；Boss 层全员进场回 20%（Boss 前补给窗）
+    if (this.player) {
+      const healRatio = this.run.difficulty === 'easy' ? 0.15 : bossLayer ? 0.2 : 0
+      if (healRatio > 0) {
+        this.player.heal(this.player.stats.maxHp * healRatio)
+        this.run.hp = this.player.hp
+      }
     }
     this.rig.reset()
 
@@ -559,7 +562,7 @@ export class Game {
     // Boss 层恢复 60% 配额门槛战（报告 P0-1：否则 Boss 层直接开首领门）
     const withQuota = opts?.withQuota ?? true
     this.layerTotal = !withQuota ? 0 : bossLayer
-      ? Math.round(quotaFor(this.run.difficulty, layer) * 0.6)
+      ? Math.round(quotaFor(this.run.difficulty, layer) * 0.45)
       : quotaFor(this.run.difficulty, layer)
     this.layerSpawned = 0
     this.layerKilled = 0
@@ -918,7 +921,7 @@ export class Game {
         { key: '右键', label: '技能', unlocked: true, accent },
         {
           key: 'Q',
-          label: this.run.character === 'murasame' ? '处决' : this.run.character === 'mutsumi' ? '推敌' : '回收',
+          label: this.run.character === 'murasame' ? '剑气' : this.run.character === 'mutsumi' ? '推敌' : '回收',
           unlocked: nodes >= 2,
           cooldown: cdOf(this.qSkillCdUntil, 12),
           accent,
@@ -2607,23 +2610,33 @@ export class Game {
       this.qSkillCdUntil = performance.now() + cd * 1000
     }
     if (this.run.character === 'murasame') {
+      // Q·剑气：向前 6.5m 弧形斩击（±55°），不挑血量；伤害 = 普攻 ×2.2，带小击退
+      const yaw = this.rig.yaw
+      const fx = Math.sin(yaw)
+      const fz = -Math.cos(yaw)
+      const dmg = Math.round((p.stats.damage ?? 10) * 2.2)
       let n = 0
       for (const g of this.goblins) {
-        if (!g.alive || g.elite) continue
-        if ((g.hpRatio ?? 1) >= 0.12) continue
-        if (Math.hypot(g.x - p.x, g.z - p.z) > 3.2 + g.radius) continue
-        const killed = g.hit(1e9, 0, 0)
-        this.onCombatHit(g, 0, false, killed)
+        if (!g.alive) continue
+        const dx = g.x - p.x
+        const dz = g.z - p.z
+        const d = Math.hypot(dx, dz)
+        if (d > 6.5 + g.radius) continue
+        const dot = d > 0.01 ? (dx * fx + dz * fz) / d : 1
+        if (dot < Math.cos((55 * Math.PI) / 180)) continue
+        const killed = g.hit(dmg, fx * 2, fz * 2)
+        this.onCombatHit(g, dmg, false, killed)
         if (this.scene) fxExecute(this.scene, g.x, g.z)
         n += 1
       }
       if (n === 0) {
-        this.hud.floatText(new THREE.Vector3(p.x, 1.8, p.z), '没有可处决的目标', 'normal')
-        return
+        this.hud.floatText(new THREE.Vector3(p.x, 1.8, p.z), '剑气落空', 'normal')
+      } else {
+        this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), `剑气 ×${n}`, 'crit')
       }
-      finish(12)
+      this.vfx.ring(p.x + fx * 2.2, p.z + fz * 2.2, { color: 0xe8b25a, radius: 2.6, life: 0.32, grow: 2.8 })
+      finish(8)
       audio.play('execute', { volume: 0.8 })
-      this.hud.floatText(new THREE.Vector3(p.x, 2, p.z), `处决 ×${n}`, 'crit')
       return
     }
     if (this.run.character === 'mutsumi') {
@@ -3378,6 +3391,7 @@ export class Game {
       // 可重复购买：不删格子，只更新价格与已训练次数。
       offer.price = trainingPriceFor(this.run.layer, this.run.trainingBuys)
       offer.desc = `永久 ${offer.trainingLabel ?? '属性'}强化，不占背包；可重复购买（已训练 ${this.run.trainingBuys} 次）`
+      this.hud.showShop(this.shopOffers, this.run.gold, REFRESH_COST, this.shopMode)
       this.hud.toast(`金币训练：${offer.name}`, 'good')
     } else if (offer.kind === 'buff-card') {
       const item = makeCardItem(offer.stat as CardStat, offer.tier)
@@ -3660,10 +3674,13 @@ export class Game {
     if (this.boss && this.boss.alive) enemies.push(this.boss as unknown as Hittable)
     return {
       spawnPickup: (x, z, kind) => {
-        this.pickups.spawn(kind, x, z, kind === 'gold' ? 1 : 20)
+        // 白米饭直接掉在玩家脚下：磁吸的"先向外弹"会让近身拾取物跑走（实测反馈）
+        const sx = kind === 'rice' ? (this.player?.x ?? x) : x
+        const sz = kind === 'rice' ? (this.player?.z ?? z) : z
+        this.pickups.spawn(kind, sx, sz, kind === 'gold' ? 1 : 20)
         if (kind === 'rice') {
-          this.vfx.ring(x, z, { color: 0x8fffc8, radius: 1.1, life: 0.6, grow: 1.6 })
-          this.hud.toast('白米饭出现了！拾取全属性 +7%', 'good')
+          this.vfx.ring(sx, sz, { color: 0x8fffc8, radius: 1.1, life: 0.6, grow: 1.6 })
+          this.hud.toast('白米饭掉了！踩上去全属性 +7%', 'good')
         }
       },
       enemies,
