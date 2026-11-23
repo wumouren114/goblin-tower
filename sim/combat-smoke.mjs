@@ -334,11 +334,14 @@ try {
     run(combat, world, 10.5, { px: 0, pz: 0 })
     check('召唤物 10s 后消失', combat.minionCount === 0, `minions=${combat.minionCount}`)
 
-    // 白米饭：lv3 每 10s 掉一份
+    // 白米饭：挂到潜能节点 fish-common-rice（未点节点不掉饭）
     const chargeBefore = combat.charge
     run(combat, world, 10.6, { px: 0, pz: 0 })
+    check('未点白米饭节点不掉饭', combat.riceCount === 0 && combat.charge < chargeBefore + 20, `riceCount=${combat.riceCount}`)
+    combat.setPotential(['fish-bubble'], ['fish-common-rice'])
+    run(combat, world, 10.6, { px: 0, pz: 0 })
     const gotRice = combat.riceCount >= 1 || combat.charge >= chargeBefore + 20
-    check('基础特性每 10s 掉白米饭', gotRice, `riceCount=${combat.riceCount} charge=${combat.charge.toFixed(1)}`)
+    check('点白米饭节点后每 10s 掉饭', gotRice, `riceCount=${combat.riceCount} charge=${combat.charge.toFixed(1)}`)
     combat.dispose()
   }
 

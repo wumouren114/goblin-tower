@@ -87,10 +87,10 @@
     ]
   },
   "layerCurve": {
-    "mobHpBase": 20,
-    "mobHpPerLayer": 0.3,
-    "mobDamageBase": 5,
-    "mobDamagePerLayer": 0.16,
+    "mobHpBase": 18,
+    "mobHpPerLayer": 0.25,
+    "mobDamageBase": 4.4,
+    "mobDamagePerLayer": 0.12,
     "quotaBase": 33,
     "quotaPerLayer": 7.5,
     "spawnIntervalBase": 0.9,
@@ -117,10 +117,10 @@
   "portals": {
     "count": 3,
     "weights": {
-      "reward": 0.28,
+      "reward": 0.2,
       "trade": 0.24,
-      "battle": 0.32,
-      "rest": 0.16
+      "battle": 0.36,
+      "rest": 0.2
     },
     "reward": {
       "chest": 0.8,

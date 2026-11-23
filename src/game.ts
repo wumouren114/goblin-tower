@@ -3080,6 +3080,10 @@ export class Game {
       room.resolved = true
       const baseCard =
         res.card ?? makeCardItem(this.rng.pick([...ITEM_CARDS]).id, qualityFor(this.run.layer, this.rng).tier)
+      // 奖励关出现次数下调后，单次给足：额外一笔金币（60 + 12×层）
+      const bonusGold = 60 + 12 * this.run.layer
+      this.addGold(bonusGold)
+      this.hud.toast(`宝箱附带 ${bonusGold} 金币`, 'good')
       this.openRewardRoom(room.offer.room, baseCard, room.offer.title)
       return
     }

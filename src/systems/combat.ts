@@ -369,6 +369,12 @@ export class Combat {
   }
 
   /** 节奏分支当前连击数（非节奏分支为 0） */
+  /** 每个潜能节点伤害 +5%（玩家成长主通道：节点越多越强） */
+  private potentialDamageMul(): number {
+    const nodes = this.potentialNodes?.size ?? 0
+    return 1 + 0.05 * Math.max(0, nodes)
+  }
+
   get combo(): number {
     return this.hasBranch('rhythm') ? this.rhythmCombo : 0
   }
@@ -758,7 +764,7 @@ export class Combat {
     const def = CHARACTERS.mutsumi
     const magic = this.stats.magic
     const baseRange = skillRange(def.attack.baseRange, this.stats.intelligence)
-    const baseDamage = hitDamage(def.attack.baseDamage, magic) * rhythmMul
+    const baseDamage = hitDamage(def.attack.baseDamage, magic) * rhythmMul * this.potentialDamageMul()
     const sizeMul = 1
     const hitMul = 1
 
@@ -857,7 +863,7 @@ export class Combat {
       (def.skill.params.radiusMul ?? 1) *
       (this.style.id === 'murasame-iai' ? 0.9 : 1)
     const baseDamage =
-      hitDamage(def.attack.baseDamage, this.stats.magic) *
+      hitDamage(def.attack.baseDamage, this.stats.magic) * this.potentialDamageMul() *
       this.bloodDamageMul() *
       this.potentialAtkMul()
     const targets = pickConeTargets(world.enemies, px, pz, dir.x, dir.z, range, def.attack.angle ?? 110, 8)
@@ -898,7 +904,7 @@ export class Combat {
     const range = skillRange(6, this.stats.intelligence)
     const width = 1.4
     const damage =
-      hitDamage(def.attack.baseDamage, this.stats.magic) *
+      hitDamage(def.attack.baseDamage, this.stats.magic) * this.potentialDamageMul() *
       1.4 *
       this.bloodDamageMul() *
       this.potentialAtkMul()
@@ -942,7 +948,7 @@ export class Combat {
   ): void {
     void world
     const def = CHARACTERS.fish
-    const baseDamage = hitDamage(def.attack.baseDamage, this.stats.magic)
+    const baseDamage = hitDamage(def.attack.baseDamage, this.stats.magic) * this.potentialDamageMul()
     const pierce = 0
     const big = this.resourceValue >= this.resourceMax
     if (big) this.spendResource(this.resourceMax)
@@ -1209,7 +1215,7 @@ export class Combat {
   private skillSummon(px: number, pz: number, world: CombatWorld): void {
     const def = CHARACTERS.fish
     const p = def.skill.params
-    const baseDamage = hitDamage(def.attack.baseDamage, this.stats.magic)
+    const baseDamage = hitDamage(def.attack.baseDamage, this.stats.magic) * this.potentialDamageMul()
     const focus = this.style.id === 'fish-school' && this.lastFishTarget?.alive ? this.lastFishTarget : undefined
 
     // 潜能：分身 = 1 只 1.0 倍面板的「小肥鱼」 + 3 只 0.4 倍面板的小鲸子（不再套娃）
@@ -1327,8 +1333,11 @@ export class Combat {
       }
     }
 
-    // 肥鱼基础特性：每 10s 掉一份白米饭
-    const riceInterval = this.charId === 'fish' ? (CHARACTERS.fish.skill.params.riceInterval ?? 0) : 0
+    // 白米饭属于潜能节点 fish-common-rice：未点该节点不掉饭（实测反馈：没解锁也掉饭）
+    const riceInterval =
+      this.charId === 'fish' && this.hasNode('fish-common-rice')
+        ? (CHARACTERS.fish.skill.params.riceInterval ?? 0)
+        : 0
     if (riceInterval > 0) {
       this.riceTimer -= step
       if (this.riceTimer <= 0) {
