@@ -808,19 +808,19 @@ function makeLightPatchTexture(kind: LightPatchKind): THREE.CanvasTexture {
   }
 
   if (kind === 'window') {
-    // 柔化 2×2 窗格光斑：每个窗格自身径向羽化，避免硬矩形切边
-    softSpot(42, 42, 26, 22, 0.82)
-    softSpot(86, 42, 26, 22, 0.78)
-    softSpot(42, 84, 26, 22, 0.64)
-    softSpot(86, 84, 26, 22, 0.6)
-    softSpot(64, 60, 42, 36, 0.25)
+    // 柔化 2×2 窗格光斑：降低峰值亮度，避免在浅色花庭地面泛白刺眼
+    softSpot(42, 42, 24, 20, 0.56)
+    softSpot(86, 42, 24, 20, 0.52)
+    softSpot(42, 84, 24, 20, 0.44)
+    softSpot(86, 84, 24, 20, 0.4)
+    softSpot(64, 60, 38, 32, 0.18)
   } else if (kind === 'canopy') {
-    // 树影斑驳：多枚重叠柔光椭圆
-    softSpot(44, 44, 30, 20, 0.72, 0.25)
-    softSpot(82, 48, 26, 18, 0.66, -0.2)
-    softSpot(64, 78, 34, 22, 0.7, 0.15)
-    softSpot(36, 82, 20, 16, 0.48, -0.3)
-    softSpot(92, 84, 22, 16, 0.45, 0.35)
+    // 树影斑驳：克制不透明度，保持地面砖纹与战斗弹道可读
+    softSpot(44, 44, 28, 18, 0.52, 0.25)
+    softSpot(82, 48, 24, 16, 0.46, -0.2)
+    softSpot(64, 78, 30, 20, 0.48, 0.15)
+    softSpot(36, 82, 18, 14, 0.34, -0.3)
+    softSpot(92, 84, 20, 14, 0.32, 0.35)
   } else if (kind === 'crystal') {
     // 晶光：柔和星芒 + 中心晕染，无锐利切角
     softSpot(64, 64, 42, 42, 0.62)
