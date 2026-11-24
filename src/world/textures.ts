@@ -47,7 +47,25 @@ function toneHex(hex: number, f: number): number {
   return f >= 0 ? mixHex(hex, 0xffffff, f) : mixHex(hex, 0x000000, -f)
 }
 
-/** 收尾成纹理：像素风用 Nearest，发光图用 Linear */
+/** 程序化像素画布缓存（按 key 复用，避免重复绘制与每帧生成；CanvasTexture 实例仍由调用方独立 dispose） */
+const PIXEL_CANVAS_CACHE = new Map<string, HTMLCanvasElement>()
+
+function cachedPixelCanvas(
+  key: string,
+  w: number,
+  h: number,
+  draw: (ctx: CanvasRenderingContext2D) => void,
+): HTMLCanvasElement {
+  const hit = PIXEL_CANVAS_CACHE.get(key)
+  if (hit) return hit
+  const { canvas, ctx } = makeCanvas(w, h)
+  ctx.imageSmoothingEnabled = false
+  draw(ctx)
+  PIXEL_CANVAS_CACHE.set(key, canvas)
+  return canvas
+}
+
+/** 收尾成纹理：像素风严格最近邻 NearestFilter + 关闭 mipmap 模糊 */
 function finalize(
   canvas: HTMLCanvasElement,
   opts: { nearest?: boolean; repeat?: boolean; srgb?: boolean } = {},
@@ -55,12 +73,13 @@ function finalize(
   const tex = new THREE.CanvasTexture(canvas)
   if (opts.nearest) {
     tex.magFilter = THREE.NearestFilter
-    tex.minFilter = THREE.NearestMipmapLinearFilter
+    tex.minFilter = THREE.NearestFilter
+    tex.generateMipmaps = false
   } else {
     tex.magFilter = THREE.LinearFilter
     tex.minFilter = THREE.LinearMipmapLinearFilter
+    tex.generateMipmaps = true
   }
-  tex.generateMipmaps = true
   const wrap = opts.repeat === false ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping
   tex.wrapS = wrap
   tex.wrapT = wrap
@@ -236,164 +255,184 @@ function drawTileBevel(
   }
 }
 
-/** 128×128 多拼法地砖：四象限宏观明暗变化 + 细微磨损斑块 + 主题纹样 */
-function makeFloorTexture(theme: ThemeLike, seed: number): THREE.CanvasTexture {
-  const rng = new Rng(seed)
-  const { canvas, ctx } = makeCanvas(128, 128)
-  ctx.imageSmoothingEnabled = false
+/** 2×2 离散色阶抖动填充（纯像素点阵，禁止任何渐变） */
+function ditherRect(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  colA: number,
+  colB: number,
+  density = 0.25,
+): void {
+  ctx.fillStyle = hexCss(colA)
+  ctx.fillRect(x, y, w, h)
+  ctx.fillStyle = hexCss(colB)
+  for (let py = y; py < y + h; py += 1) {
+    for (let px = x; px < x + w; px += 1) {
+      const pat = ((px & 1) << 1) | (py & 1)
+      if ((density >= 0.5 && (px + py) % 2 === 0) || (density < 0.5 && pat === 0)) {
+        ctx.fillRect(px, py, 1, 1)
+      }
+    }
+  }
+}
 
+/** 绘制带 1px 深色描边、1px 左上高光、内部离散色阶抖动的像素方块 */
+function drawPixelTileBlock(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  base: number,
+  outline: number,
+  rng: Rng,
+): void {
+  if (w < 4 || h < 4) return
+  const light = toneHex(base, 0.22)
+  const shade = toneHex(base, -0.14)
+  const dark = toneHex(base, -0.28)
+  // 1px 外描边
+  ctx.fillStyle = hexCss(outline)
+  ctx.fillRect(x, y, w, h)
+  // 内部离散色阶抖动
+  ditherRect(ctx, x + 1, y + 1, w - 2, h - 2, base, shade, 0.25)
+  // 1px 左上高光棱线
+  ctx.fillStyle = hexCss(light)
+  ctx.fillRect(x + 1, y + 1, w - 3, 1)
+  ctx.fillRect(x + 1, y + 1, 1, h - 3)
+  // 1px 右下暗棱
+  ctx.fillStyle = hexCss(dark)
+  ctx.fillRect(x + 2, y + h - 2, w - 3, 1)
+  ctx.fillRect(x + w - 2, y + 2, 1, h - 3)
+  // 少量离散像素噪点
+  const specks = Math.max(2, Math.floor((w * h) / 42))
+  for (let i = 0; i < specks; i += 1) {
+    ctx.fillStyle = hexCss(rng.chance(0.5) ? light : dark)
+    ctx.fillRect(x + rng.int(2, Math.max(2, w - 3)), y + rng.int(2, Math.max(2, h - 3)), 1, 1)
+  }
+}
+
+/** 32×32 沙盒像素风地砖（9 套主题各自独立像素 tile：1px 描边 + 离散色阶抖动，无渐变，走画布缓存） */
+function makeFloorTexture(theme: ThemeLike, seed: number): THREE.CanvasTexture {
   const detail = (theme as Partial<ThemeV3>).detail
   const pattern: FloorTilePattern = detail?.tilePattern ?? 'flagstone'
-  const inlayCol = detail?.inlayColor ?? mixHex(theme.floorColor, 0xffffff, 0.25)
-  const themeId = theme.id
+  const inlayCol = detail?.inlayColor ?? mixHex(theme.floorColor, 0xffffff, 0.22)
+  const cacheKey = `floor32:${theme.id}:${pattern}:${theme.floorColor}:${theme.floorAltColor}:${theme.accentColor}`
 
-  // 底色 = 深砖缝（压暗的主副色）
-  ctx.fillStyle = hexCss(toneHex(theme.floorAltColor, -0.48))
-  ctx.fillRect(0, 0, 128, 128)
+  const canvas = cachedPixelCanvas(cacheKey, 32, 32, (ctx) => {
+    const rng = new Rng(seed)
+    const outline = toneHex(theme.floorAltColor, -0.52)
+    ctx.fillStyle = hexCss(outline)
+    ctx.fillRect(0, 0, 32, 32)
 
-  // 四象限拼铺，每象限带轻微明暗与冷暖偏移，打破纯色重复感
-  for (let qy = 0; qy < 2; qy += 1) {
-    for (let qx = 0; qx < 2; qx += 1) {
-      const ox = qx * 64
-      const oy = qy * 64
-      const quadShift = ((qx + qy) % 2 === 0 ? 0.045 : -0.045) + rng.range(-0.025, 0.025)
-      const qFloor = toneHex(theme.floorColor, quadShift)
-      const qAlt = toneHex(theme.floorAltColor, quadShift)
-      const qInlay = toneHex(inlayCol, quadShift * 0.7)
+    // 4 阶离散主题色板（禁止渐变）
+    const c0 = theme.floorColor
+    const c1 = theme.floorAltColor
+    const c2 = mixHex(theme.floorColor, inlayCol, 0.45)
+    const c3 = toneHex(theme.floorAltColor, -0.1)
 
-      if (pattern === 'crazy') {
-        const blocks: [number, number, number, number][] = [
-          [1, 1, 22, 18], [24, 1, 17, 13], [42, 1, 21, 20],
-          [1, 20, 14, 21], [16, 15, 25, 16], [42, 22, 21, 15],
-          [1, 42, 26, 21], [28, 32, 13, 19], [42, 38, 21, 25],
-          [28, 52, 13, 11], [16, 32, 11, 9],
-        ]
-        for (let i = 0; i < blocks.length; i++) {
-          const [bx, by, w, h] = blocks[i]
-          const base =
-            (i + qx + qy) % 5 === 2
-              ? mixHex(qFloor, qInlay, 0.55)
-              : mixHex(qFloor, qAlt, rng.range(0.05, 0.95))
-          drawTileBevel(ctx, ox + bx, oy + by, w, h, base, rng)
-          if (rng.chance(0.42)) {
-            drawCrack(ctx, ox + bx + 2, oy + by + 2, rng.range(6, 14), hexCss(toneHex(base, -0.5), 0.72), rng)
-          }
-        }
-      } else if (pattern === 'inlay') {
-        drawTileBevel(ctx, ox + 1, oy + 1, 62, 11, mixHex(qAlt, qInlay, 0.36), rng)
-        drawTileBevel(ctx, ox + 1, oy + 52, 62, 11, mixHex(qAlt, qInlay, 0.36), rng)
-        drawTileBevel(ctx, ox + 1, oy + 13, 11, 38, mixHex(qFloor, qAlt, 0.5), rng)
-        drawTileBevel(ctx, ox + 52, oy + 13, 11, 38, mixHex(qFloor, qAlt, 0.5), rng)
-        drawTileBevel(ctx, ox + 13, oy + 13, 18, 18, qFloor, rng)
-        drawTileBevel(ctx, ox + 33, oy + 13, 18, 18, mixHex(qFloor, qAlt, 0.42), rng)
-        drawTileBevel(ctx, ox + 13, oy + 33, 18, 18, mixHex(qFloor, qAlt, 0.42), rng)
-        drawTileBevel(ctx, ox + 33, oy + 33, 18, 18, qFloor, rng)
-        ctx.fillStyle = hexCss(mixHex(qInlay, theme.accentColor, 0.25), 0.88)
-        ctx.beginPath()
-        ctx.moveTo(ox + 32, oy + 22)
-        ctx.lineTo(ox + 42, oy + 32)
-        ctx.lineTo(ox + 32, oy + 42)
-        ctx.lineTo(ox + 22, oy + 32)
-        ctx.closePath()
-        ctx.fill()
-        ctx.fillStyle = hexCss(mixHex(theme.accentColor, 0xffffff, 0.38), 0.82)
-        for (const [cx, cy] of [[6, 6], [56, 6], [6, 56], [56, 56]]) {
-          ctx.fillRect(ox + cx, oy + cy, 3, 3)
-        }
-      } else {
-        const tiles: [number, number, number, number, boolean][] =
-          (qx + qy) % 2 === 0
-            ? [
-                [1, 1, 38, 30, false],
-                [40, 1, 23, 30, true],
-                [1, 32, 23, 31, true],
-                [25, 32, 38, 31, false],
-              ]
-            : [
-                [1, 1, 23, 30, true],
-                [25, 1, 38, 30, false],
-                [1, 32, 38, 31, false],
-                [40, 32, 23, 31, true],
-              ]
-        for (const [bx, by, w, h, accentTile] of tiles) {
-          const base = accentTile
-            ? mixHex(qAlt, qInlay, 0.44)
-            : mixHex(qFloor, qAlt, rng.range(0, 0.74))
-          drawTileBevel(ctx, ox + bx, oy + by, w, h, base, rng)
-          ctx.strokeStyle = hexCss(toneHex(base, -0.22), 0.42)
-          ctx.strokeRect(ox + bx + 3.5, oy + by + 3.5, w - 7, h - 7)
-          if (rng.chance(0.5)) {
-            drawCrack(
-              ctx,
-              ox + bx + rng.int(2, Math.max(3, w - 8)),
-              oy + by + rng.int(2, Math.max(3, h - 8)),
-              rng.range(8, 20),
-              hexCss(toneHex(base, -0.52), 0.78),
-              rng,
-            )
-          }
-        }
+    if (pattern === 'crazy') {
+      const blocks: [number, number, number, number, number][] = [
+        [0, 0, 14, 11, c0], [14, 0, 10, 8, c1], [24, 0, 8, 12, c2],
+        [0, 11, 9, 11, c3], [9, 8, 15, 10, c0], [24, 12, 8, 10, c1],
+        [0, 22, 16, 10, c1], [16, 18, 8, 14, c2], [24, 22, 8, 10, c0],
+      ]
+      for (const [bx, by, bw, bh, col] of blocks) {
+        drawPixelTileBlock(ctx, bx, by, bw, bh, col, outline, rng)
       }
-
-      // 象限级原有主题细节（复用 64×64 坐标系平移）
-      ctx.save()
-      ctx.translate(ox, oy)
-      floorDetail(ctx, theme, rng)
-      ctx.restore()
-    }
-  }
-
-  // 宏观明暗变化：柔和暖冷光照斑块 + 轻微踩踏磨损，让整片地面有呼吸与层次
-  for (let i = 0; i < 6; i += 1) {
-    const cx = rng.range(12, 116)
-    const cy = rng.range(12, 116)
-    const r = rng.range(18, 42)
-    const bright = i % 2 === 0
-    const col = bright ? toneHex(theme.floorColor, 0.22) : toneHex(theme.floorAltColor, -0.28)
-    const grad = ctx.createRadialGradient(cx, cy, 2, cx, cy, r)
-    grad.addColorStop(0, hexCss(col, bright ? 0.16 : 0.18))
-    grad.addColorStop(1, hexCss(col, 0))
-    ctx.fillStyle = grad
-    ctx.fillRect(0, 0, 128, 128)
-  }
-
-  // 阶段专属地表细部纹样（低对比，不影响敌人/弹道可读性）
-  if (themeId.startsWith('stage1')) {
-    // 云上花庭：砖缝散落极细花瓣点与草叶碎影
-    const petal = mixHex(theme.accentColor, 0xffffff, 0.35)
-    for (let i = 0; i < 18; i += 1) {
-      ctx.fillStyle = hexCss(petal, rng.range(0.32, 0.62))
-      ctx.fillRect(rng.int(2, 124), rng.int(2, 124), rng.int(1, 2), 1)
-    }
-  } else if (themeId.startsWith('stage2')) {
-    // 星砂观星台：暗嵌星轨细弧与星砂微点
-    const lineCol = mixHex(theme.accentColor, 0xffffff, 0.28)
-    ctx.strokeStyle = hexCss(lineCol, 0.22)
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    ctx.arc(64, 64, 44, 0.2, Math.PI * 1.15)
-    ctx.stroke()
-    for (let i = 0; i < 24; i += 1) {
-      ctx.fillStyle = hexCss(lineCol, rng.range(0.28, 0.72))
-      ctx.fillRect(rng.int(1, 126), rng.int(1, 126), 1, 1)
-    }
-  } else if (themeId.startsWith('stage3')) {
-    // 黄铜钟塔：板缝铆钉高光 + 铜锈青绿磨损斑
-    const rivetHi = toneHex(theme.wallTopColor, 0.3)
-    const patina = mixHex(theme.accentColor, 0x3b7a68, 0.55)
-    for (let gy = 0; gy < 128; gy += 32) {
-      for (let gx = 0; gx < 128; gx += 32) {
-        ctx.fillStyle = hexCss(rivetHi, 0.55)
-        ctx.fillRect(gx + 3, gy + 3, 2, 2)
-        ctx.fillStyle = hexCss(toneHex(theme.floorAltColor, -0.45), 0.65)
-        ctx.fillRect(gx + 4, gy + 4, 1, 1)
+    } else if (pattern === 'inlay') {
+      drawPixelTileBlock(ctx, 0, 0, 32, 6, c2, outline, rng)
+      drawPixelTileBlock(ctx, 0, 26, 32, 6, c2, outline, rng)
+      drawPixelTileBlock(ctx, 0, 6, 6, 20, c1, outline, rng)
+      drawPixelTileBlock(ctx, 26, 6, 6, 20, c1, outline, rng)
+      drawPixelTileBlock(ctx, 6, 6, 10, 10, c0, outline, rng)
+      drawPixelTileBlock(ctx, 16, 6, 10, 10, c3, outline, rng)
+      drawPixelTileBlock(ctx, 6, 16, 10, 10, c3, outline, rng)
+      drawPixelTileBlock(ctx, 16, 16, 10, 10, c0, outline, rng)
+      // 中心像素菱形徽记 + 四角像素铆钉
+      ctx.fillStyle = hexCss(outline)
+      ctx.fillRect(13, 13, 6, 6)
+      ctx.fillStyle = hexCss(mixHex(inlayCol, theme.accentColor, 0.35))
+      ctx.fillRect(14, 14, 4, 4)
+      ctx.fillStyle = hexCss(toneHex(theme.accentColor, 0.3))
+      ctx.fillRect(15, 15, 2, 2)
+      for (const [rx, ry] of [[2, 2], [28, 2], [2, 28], [28, 28]]) {
+        ctx.fillRect(rx, ry, 2, 2)
       }
+    } else {
+      // 大方砖错缝像素拼法
+      drawPixelTileBlock(ctx, 0, 0, 19, 16, c0, outline, rng)
+      drawPixelTileBlock(ctx, 19, 0, 13, 16, c2, outline, rng)
+      drawPixelTileBlock(ctx, 0, 16, 13, 16, c1, outline, rng)
+      drawPixelTileBlock(ctx, 13, 16, 19, 16, c3, outline, rng)
     }
-    for (let i = 0; i < 14; i += 1) {
-      ctx.fillStyle = hexCss(patina, rng.range(0.16, 0.34))
-      ctx.fillRect(rng.int(0, 122), rng.int(0, 122), rng.int(2, 5), rng.int(1, 3))
+
+    // 9 套主题专属 1px/2px 像素地表细节（无模糊/无阴影）
+    const id = theme.id
+    if (id === 'stage1-hall') {
+      // 云上花庭·晨光：缝隙青苔像素簇 + 零星粉白花瓣点
+      ctx.fillStyle = hexCss(0x52884e)
+      for (const [mx, my] of [[1, 15], [2, 16], [18, 1], [19, 15], [12, 30], [29, 16]]) ctx.fillRect(mx, my, 2, 1)
+      ctx.fillStyle = hexCss(0x88c474)
+      for (const [mx, my] of [[2, 15], [19, 2], [13, 30]]) ctx.fillRect(mx, my, 1, 1)
+      ctx.fillStyle = hexCss(0xffb4c8)
+      ctx.fillRect(7, 8, 2, 1)
+      ctx.fillRect(24, 22, 1, 1)
+    } else if (id === 'stage1-candle') {
+      // 云上花庭·风起：金黄蒲公英绒点 + 浅草点缀
+      ctx.fillStyle = hexCss(0x8ea862)
+      for (const [mx, my] of [[13, 10], [23, 21], [5, 22]]) ctx.fillRect(mx, my, 2, 1)
+      ctx.fillStyle = hexCss(0xffe07d)
+      for (const [px, py] of [[6, 5], [18, 12], [27, 26], [11, 25]]) ctx.fillRect(px, py, 1, 1)
+    } else if (id === 'stage1-courtyard') {
+      // 云上花庭·花落：樱粉双像素落瓣
+      ctx.fillStyle = hexCss(0xff96b8)
+      for (const [px, py] of [[8, 9], [21, 10], [10, 21], [23, 22]]) ctx.fillRect(px, py, 2, 1)
+      ctx.fillStyle = hexCss(0xffdbe8)
+      for (const [px, py] of [[9, 8], [22, 23]]) ctx.fillRect(px, py, 1, 1)
+    } else if (id === 'stage2-forge') {
+      // 星砂观星台·暮色：星轨黄铜角点 + 星尘像素
+      ctx.fillStyle = hexCss(0xffd479)
+      for (const [px, py] of [[3, 3], [17, 3], [3, 19], [16, 19], [26, 10], [22, 26]]) ctx.fillRect(px, py, 1, 1)
+      ctx.fillStyle = hexCss(0xb8d4ff)
+      ctx.fillRect(10, 12, 1, 1)
+      ctx.fillRect(28, 28, 1, 1)
+    } else if (id === 'stage2-slag') {
+      // 星砂观星台·砂河：沿砖缝流淌的青白星砂像素线
+      ctx.fillStyle = hexCss(0x8eeeff)
+      for (const [px, py] of [[13, 2], [13, 5], [14, 8], [23, 14], [23, 18], [15, 23], [16, 27]]) ctx.fillRect(px, py, 1, 2)
+    } else if (id === 'stage2-ember') {
+      // 星砂观星台·流星：粉紫星屑点阵
+      ctx.fillStyle = hexCss(0xffb4dc)
+      for (const [px, py] of [[8, 8], [22, 9], [9, 22], [23, 23]]) ctx.fillRect(px, py, 1, 1)
+      ctx.fillStyle = hexCss(0xffffff)
+      ctx.fillRect(15, 15, 2, 2)
+    } else if (id === 'stage3-frost') {
+      // 黄铜钟塔·齿轮厅：金属地板四角铆钉 + 青绿铜锈像素
+      ctx.fillStyle = hexCss(toneHex(theme.wallTopColor, 0.3))
+      for (const [rx, ry] of [[2, 2], [16, 2], [21, 2], [29, 2], [2, 18], [15, 18], [29, 29]]) ctx.fillRect(rx, ry, 1, 1)
+      ctx.fillStyle = hexCss(0x52b89c)
+      for (const [px, py] of [[18, 14], [19, 15], [12, 17], [13, 17]]) ctx.fillRect(px, py, 2, 1)
+    } else if (id === 'stage3-iron') {
+      // 黄铜钟塔·熔金槽：暗铁板缝 + 像素熔金火花
+      ctx.fillStyle = hexCss(0xff9a3c)
+      for (const [px, py] of [[13, 8], [14, 9], [23, 15], [15, 21]]) ctx.fillRect(px, py, 2, 1)
+      ctx.fillStyle = hexCss(0xffe078)
+      ctx.fillRect(14, 8, 1, 1)
+      ctx.fillRect(23, 15, 1, 1)
+    } else if (id === 'stage3-throne') {
+      // 黄铜钟塔·塔心：紫金王座像素嵌纹
+      ctx.fillStyle = hexCss(0xffcf5c)
+      for (const [px, py] of [[7, 7], [23, 7], [7, 23], [23, 23]]) ctx.fillRect(px, py, 2, 1)
+      ctx.fillStyle = hexCss(0x9b72d4)
+      ctx.fillRect(14, 14, 4, 4)
+      ctx.fillStyle = hexCss(0xffdf80)
+      ctx.fillRect(15, 15, 2, 2)
     }
-  }
+  })
 
   return finalize(canvas, { nearest: true, repeat: true })
 }
@@ -402,121 +441,85 @@ function makeFloorTexture(theme: ThemeLike, seed: number): THREE.CanvasTexture {
 /*  墙砖                                                               */
 /* ------------------------------------------------------------------ */
 
-/** 128×128 墙砖（8 层交错石/铜砖 + 边缘高光 + 缺角磨损 + 上下湿痕/风化渐变） */
+/** 32×32 沙盒像素砖墙（每块砖独立离散色阶 + 1px 描边/高光，严禁渐变，走画布缓存） */
 function makeWallTexture(theme: ThemeLike, seed: number): THREE.CanvasTexture {
-  const rng = new Rng(seed)
-  const { canvas, ctx } = makeCanvas(128, 128)
-  ctx.imageSmoothingEnabled = false
+  const cacheKey = `wall32:${theme.id}:${theme.wallColor}:${theme.wallTopColor}:${theme.accentColor}`
 
-  const mortar = toneHex(theme.wallColor, -0.48)
-  ctx.fillStyle = hexCss(mortar)
-  ctx.fillRect(0, 0, 128, 128)
+  const canvas = cachedPixelCanvas(cacheKey, 32, 32, (ctx) => {
+    const rng = new Rng(seed)
+    const mortar = toneHex(theme.wallColor, -0.54)
+    ctx.fillStyle = hexCss(mortar)
+    ctx.fillRect(0, 0, 32, 32)
 
-  const BH = 16
-  const BW = 32
-  for (let row = 0; row < 8; row++) {
-    const offset = row % 2 === 0 ? 0 : -BW / 2
-    // 顶部受光偏亮，底部墙脚偏暗磨损
-    const rowShade = (3.5 - row) * 0.022
-    for (let col = -1; col < 5; col++) {
-      const x = col * BW + offset
-      const y = row * BH
-      const base = toneHex(mixHex(theme.wallColor, theme.wallTopColor, rng.range(0.06, 0.42)), rowShade)
-      ctx.fillStyle = hexCss(base)
-      ctx.fillRect(x + 1, y + 1, BW - 2, BH - 2)
-      // 边缘高光（顶边 + 左边受光棱线）
-      ctx.fillStyle = hexCss(toneHex(base, 0.24), 0.92)
-      ctx.fillRect(x + 1, y + 1, BW - 2, 1)
-      ctx.fillRect(x + 1, y + 1, 1, BH - 3)
-      // 凹陷阴影（底边 + 右边）
-      ctx.fillStyle = hexCss(toneHex(base, -0.34), 0.95)
-      ctx.fillRect(x + 1, y + BH - 2, BW - 2, 1)
-      ctx.fillRect(x + BW - 2, y + 2, 1, BH - 3)
-      // 砖角轻微缺口磨损
-      if (rng.chance(0.28)) {
-        ctx.fillStyle = hexCss(mortar, 0.85)
-        const cx = rng.chance(0.5) ? x + 1 : x + BW - 3
-        const cy = rng.chance(0.5) ? y + 1 : y + BH - 3
-        ctx.fillRect(cx, cy, 2, 2)
-      }
-      // 砖面细颗粒与横向凿痕
-      for (let i = 0; i < 8; i++) {
-        ctx.fillStyle = hexCss(toneHex(base, rng.chance(0.5) ? 0.13 : -0.15), 0.68)
-        ctx.fillRect(x + rng.int(2, BW - 3), y + rng.int(2, BH - 3), rng.int(1, 2), 1)
-      }
-    }
-  }
+    // 4 阶离散砖色（每块砖独立挑选色阶，禁止线性渐变）
+    const brickPalette = [
+      toneHex(theme.wallColor, -0.12),
+      theme.wallColor,
+      mixHex(theme.wallColor, theme.wallTopColor, 0.25),
+      mixHex(theme.wallColor, theme.wallTopColor, 0.44),
+    ]
 
-  // 上下风化渐变：顶部压边微亮，底部墙脚微暗做地墙过渡
-  const weatherGrad = ctx.createLinearGradient(0, 0, 0, 128)
-  weatherGrad.addColorStop(0, hexCss(toneHex(theme.wallTopColor, 0.2), 0.14))
-  weatherGrad.addColorStop(0.28, 'rgba(0,0,0,0)')
-  weatherGrad.addColorStop(0.75, 'rgba(0,0,0,0)')
-  weatherGrad.addColorStop(1, hexCss(toneHex(theme.wallColor, -0.65), 0.28))
-  ctx.fillStyle = weatherGrad
-  ctx.fillRect(0, 0, 128, 128)
+    const BH = 8
+    const BW = 16
+    for (let row = 0; row < 4; row += 1) {
+      const offset = row % 2 === 0 ? 0 : -BW / 2
+      for (let col = -1; col < 3; col += 1) {
+        const x = col * BW + offset
+        const y = row * BH
+        // 每块砖独立色阶（底部行偏深一阶，纯离散切换）
+        const stepIdx = Math.max(0, Math.min(3, rng.int(0, 3) - (row === 3 ? 1 : 0)))
+        const base = brickPalette[stepIdx]
+        const hi = toneHex(base, 0.24)
+        const lo = toneHex(base, -0.3)
 
-  // 竖向雨痕 / 岁月磨损条纹
-  for (let i = 0; i < 12; i += 1) {
-    const sx = rng.int(2, 124)
-    const sy = rng.int(0, 88)
-    const sh = rng.int(10, 34)
-    ctx.fillStyle = hexCss(toneHex(theme.wallColor, -0.45), rng.range(0.12, 0.26))
-    ctx.fillRect(sx, sy, 1, sh)
-  }
-
-  // 主题墙面细节
-  const family = familyOf(theme)
-  if (family === 'moss') {
-    const moss = mixHex(theme.accentColor, 0x2f4a2c, 0.6)
-    for (let i = 0; i < 56; i++) {
-      ctx.fillStyle = hexCss(moss, rng.range(0.32, 0.76))
-      ctx.fillRect(rng.int(0, 125), rng.int(44, 126), rng.int(1, 3), rng.int(1, 2))
-    }
-  } else if (family === 'candle') {
-    const wax = mixHex(theme.accentColor, 0xf2e6c8, 0.6)
-    for (let i = 0; i < 18; i++) {
-      const x = rng.int(2, 124)
-      const y = rng.int(2, 96)
-      ctx.fillStyle = hexCss(wax, rng.range(0.22, 0.48))
-      ctx.fillRect(x, y, 2, rng.int(5, 16))
-    }
-  } else if (family === 'forge') {
-    const trim = mixHex(theme.accentColor, 0xffdf9a, 0.35)
-    ctx.save()
-    ctx.shadowColor = hexCss(trim)
-    ctx.shadowBlur = 3
-    for (let i = 0; i < 4; i++) {
-      drawCrack(ctx, rng.int(4, 96), rng.int(8, 92), rng.range(16, 32), hexCss(trim, 0.65), rng)
-    }
-    ctx.restore()
-  } else if (family === 'frost') {
-    // 钟塔齿轮厅：铜铆钉高光 + 青绿氧化铜锈纹
-    const patina = mixHex(theme.accentColor, 0x3b7a68, 0.45)
-    const rivet = toneHex(theme.wallTopColor, 0.32)
-    for (let row = 0; row < 8; row++) {
-      for (let col = 0; col < 4; col++) {
-        ctx.fillStyle = hexCss(rivet, 0.62)
-        ctx.fillRect(col * 32 + 4, row * 16 + 4, 2, 2)
+        ctx.fillStyle = hexCss(base)
+        ctx.fillRect(x + 1, y + 1, BW - 2, BH - 2)
+        // 1px 顶/左像素高光
+        ctx.fillStyle = hexCss(hi)
+        ctx.fillRect(x + 1, y + 1, BW - 3, 1)
+        ctx.fillRect(x + 1, y + 1, 1, BH - 3)
+        // 1px 底/右像素暗棱
+        ctx.fillStyle = hexCss(lo)
+        ctx.fillRect(x + 2, y + BH - 2, BW - 3, 1)
+        ctx.fillRect(x + BW - 2, y + 2, 1, BH - 3)
+        // 离散像素磨损点
+        ctx.fillStyle = hexCss(rng.chance(0.5) ? hi : lo)
+        ctx.fillRect(x + rng.int(3, BW - 4), y + rng.int(2, BH - 3), 1, 1)
+        if (rng.chance(0.3)) {
+          ctx.fillStyle = hexCss(mortar)
+          ctx.fillRect(x + (rng.chance(0.5) ? 1 : BW - 2), y + BH - 2, 1, 1)
+        }
       }
     }
-    for (let i = 0; i < 24; i++) {
-      ctx.fillStyle = hexCss(patina, rng.range(0.18, 0.42))
-      ctx.fillRect(rng.int(0, 124), rng.int(12, 124), rng.int(2, 4), rng.int(3, 10))
+
+    // 主题专属像素墙面细节（无阴影/无渐变）
+    const family = familyOf(theme)
+    if (family === 'moss') {
+      ctx.fillStyle = hexCss(0x4b7d46)
+      for (const [mx, my] of [[3, 24], [4, 25], [15, 22], [16, 23], [26, 26], [27, 27]]) ctx.fillRect(mx, my, 2, 2)
+      ctx.fillStyle = hexCss(0x88c474)
+      ctx.fillRect(4, 24, 1, 1)
+      ctx.fillRect(16, 22, 1, 1)
+    } else if (family === 'frost') {
+      // 钟塔齿轮厅：铆钉像素 + 青绿铜锈块
+      ctx.fillStyle = hexCss(toneHex(theme.wallTopColor, 0.32))
+      for (let r = 0; r < 4; r += 1) {
+        ctx.fillRect(2, r * 8 + 2, 1, 1)
+        ctx.fillRect(18, r * 8 + 2, 1, 1)
+      }
+      ctx.fillStyle = hexCss(0x52b89c)
+      ctx.fillRect(9, 18, 2, 3)
+      ctx.fillRect(25, 10, 2, 3)
+    } else if (family === 'forge') {
+      const trim = mixHex(theme.accentColor, 0xffe49e, 0.3)
+      ctx.fillStyle = hexCss(trim)
+      for (const [px, py] of [[6, 3], [22, 11], [12, 19], [28, 27]]) ctx.fillRect(px, py, 2, 1)
+    } else if (family === 'throne') {
+      ctx.fillStyle = hexCss(0xffcf5c)
+      ctx.fillRect(0, 7, 32, 1)
+      ctx.fillRect(0, 23, 32, 1)
     }
-  } else if (family === 'throne') {
-    const g = mixHex(theme.accentColor, 0xfff0b0, 0.35)
-    ctx.strokeStyle = hexCss(g, 0.55)
-    ctx.lineWidth = 1
-    for (const y of [15, 63, 111]) {
-      ctx.beginPath()
-      ctx.moveTo(0, y)
-      ctx.lineTo(128, y)
-      ctx.stroke()
-    }
-    ctx.fillStyle = hexCss(g, 0.82)
-    for (let i = 0; i < 16; i++) ctx.fillRect(rng.int(0, 126), rng.int(0, 126), 2, 1)
-  }
+  })
 
   return finalize(canvas, { nearest: true, repeat: true })
 }
@@ -808,19 +811,19 @@ function makeLightPatchTexture(kind: LightPatchKind): THREE.CanvasTexture {
   }
 
   if (kind === 'window') {
-    // 柔化 2×2 窗格光斑：降低峰值亮度，避免在浅色花庭地面泛白刺眼
-    softSpot(42, 42, 24, 20, 0.56)
-    softSpot(86, 42, 24, 20, 0.52)
-    softSpot(42, 84, 24, 20, 0.44)
-    softSpot(86, 84, 24, 20, 0.4)
-    softSpot(64, 60, 38, 32, 0.18)
+    // 柔化 2×2 窗格光斑：每个窗格自身径向羽化，避免硬矩形切边
+    softSpot(42, 42, 24, 20, 0.54)
+    softSpot(86, 42, 24, 20, 0.5)
+    softSpot(42, 84, 24, 20, 0.42)
+    softSpot(86, 84, 24, 20, 0.38)
+    softSpot(64, 60, 36, 30, 0.16)
   } else if (kind === 'canopy') {
-    // 树影斑驳：克制不透明度，保持地面砖纹与战斗弹道可读
-    softSpot(44, 44, 28, 18, 0.52, 0.25)
-    softSpot(82, 48, 24, 16, 0.46, -0.2)
-    softSpot(64, 78, 30, 20, 0.48, 0.15)
-    softSpot(36, 82, 18, 14, 0.34, -0.3)
-    softSpot(92, 84, 20, 14, 0.32, 0.35)
+    // 树影斑驳：多枚重叠柔光椭圆
+    softSpot(44, 44, 30, 20, 0.72, 0.25)
+    softSpot(82, 48, 26, 18, 0.66, -0.2)
+    softSpot(64, 78, 34, 22, 0.7, 0.15)
+    softSpot(36, 82, 20, 16, 0.48, -0.3)
+    softSpot(92, 84, 22, 16, 0.45, 0.35)
   } else if (kind === 'crystal') {
     // 晶光：柔和星芒 + 中心晕染，无锐利切角
     softSpot(64, 64, 42, 42, 0.62)
